@@ -408,3 +408,9 @@ sqlite3 -header "file:$HOME/.hermes/state.db?mode=ro" \
 并按上游逻辑顺序读取（行 ID 可能变大后再变小）。旧 Android 缓存会重读一次。
 `HR-SYNC-001` 也可能表示分页交界在请求途中变化；重试先同步最新页，不需要重启或改写数据库。
 事故 Mac 未明确时保留这一步为未核验，不把本机另一个 Hermes 的源码当作事故主机事实。
+
+## HG-244 negotiated lanes
+
+With both transport-isolation flags enabled, correlate `relay.link_state` / `connector.link_state` by lane and the existing business connection ID. A control reconnect is not a business disconnect. At 15 seconds without a matching round trip the lane is suspect; at 45 seconds only that lane is rebuilt. Missing local reports become unknown after 60 seconds, distinct from a protected local read returning an authentication failure. Do not infer Hermes failure from a Gateway database-write error. Bulk work waits at its producer; own rate reduction cannot reclaim bandwidth consumed by Baidu Netdisk. See `HG_244_CONGESTION.md` for the verification matrix and remaining real-network checks.
+
+Lane transitions include `cause` (`write_queue`, `round_trip_missing`, `round_trip_slow`, `round_trip_deadline`, `round_trip_valid`), `rttMs`, `pendingAgeMs`, and `lastRoundTripAgeMs`. Local-health transitions include `localState`, `localReason`, `healthAgeMs`, and `healthSequence` when an observation is present. These are transport/service measurements, not a diagnosis that a particular third-party process caused the delay. Credentials and chat contents are excluded.

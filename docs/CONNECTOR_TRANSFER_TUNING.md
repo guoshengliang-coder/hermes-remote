@@ -110,3 +110,7 @@ successful and the target binding still healthy; the earlier HTTP failure remain
 Do not enlarge the Android range
 or read-ahead window based on these samples. No physical Android device was attached; original
 video cold-start, seek and sustained playback over Wi-Fi/cellular remain pending.
+
+## HG-244 opt-in extension
+
+The negotiated mode additionally permits the strict `CONNECTOR_TRANSPORT_ISOLATION=0|1` override. Its process-wide budget includes independent file returns, bulk business fragments and upload ACK pacing; congestion halves the cap and reduces new range admission to one. Three healthy round trips permit gradual recovery. Removing/disabling the negotiated capability restores the original single-connection behavior. This extension needs a compatible Gateway and Connector release and explicit rollout authorization; the earlier file-rate-only rollout does not enable it. See `HG_244_CONGESTION.md`.

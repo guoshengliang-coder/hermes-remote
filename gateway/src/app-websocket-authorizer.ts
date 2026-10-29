@@ -5,6 +5,7 @@ import { AccountModeError, accountErrors, type AccountPrincipal } from "./accoun
 import type { ConnectorRegistry } from "./connector-registry.js";
 import type { GatewayPeer } from "./gateway-peer.js";
 import { firstHeader } from "./http-utils.js";
+import { connectionSnapshot } from "./account-transport-sessions.js";
 
 interface AppWebSocketAuthorizerOptions {
   accountControl?: AccountGatewayControl;
@@ -126,7 +127,8 @@ export class AppWebSocketAuthorizer {
         || connector.socket.readyState !== WebSocket.OPEN) {
       throw accountErrors.connectorOffline();
     }
-    if (requireHermes && connector.hermesReachable === false) {
+    if (requireHermes && (connector.transport
+      ? connectionSnapshot(connector)?.local === "unhealthy" : connector.hermesReachable === false)) {
       throw new AccountModeError(
         502, "HR-CONN-006",
         "已连上这台 Mac，但上面的 Hermes 没有响应，请在 Mac 上检查 Hermes。 / Reached the Mac, but Hermes on it isn't responding. Check Hermes on the Mac.",

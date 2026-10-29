@@ -198,6 +198,7 @@ public struct ManagedInstallationPage: Codable, Equatable, Sendable {
 }
 
 public struct ActiveAccountBinding: Codable, Equatable, Sendable {
+    public var connection: AccountConnectionHealth? = nil
     public struct Connector: Codable, Equatable, Sendable {
         public let online: Bool
         public let lastSeenAt: String?
@@ -269,6 +270,7 @@ public struct AccountBindingSnapshot: Codable, Equatable, Sendable {
 }
 
 public struct AccountDevice: Codable, Equatable, Identifiable, Sendable {
+    public var connection: AccountConnectionHealth? = nil
     public let id: String
     public let generation: Int
     public let deviceId: String

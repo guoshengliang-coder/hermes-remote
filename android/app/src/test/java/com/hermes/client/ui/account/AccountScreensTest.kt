@@ -163,6 +163,19 @@ class AccountScreensTest {
     }
 
     // ---- Device selection ----
+    @Test fun congestedDeviceKeepsRecheckActionInLightTheme() { showCongested(false, 1f) }
+    @Test fun congestedDeviceKeepsRecheckActionInDarkLargeFont() { showCongested(true, 1.3f) }
+
+    private fun showCongested(dark: Boolean, scale: Float) {
+        show(AccountDevicesUiState(stage = AccountStage.SIGNED_IN, session = session("office"),
+            devices = listOf(device("office", "Office Mac mini", "owner", true).copy(
+                connection = com.hermes.client.data.network.AccountConnectionHealthDto(
+                    business = "normal", control = "suspect", local = "healthy", healthAgeMs = 0)))),
+            dark = dark, fontScale = scale) { vm -> DeviceSelectionScreen(onBack = {}, vm = vm) }
+        compose.onNodeWithText("网络拥塞", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("重新检查连接").assertIsDisplayed()
+        compose.onRoot().captureRoboImage("/tmp/hg244-congested-${if (dark) "dark-large" else "light"}.png")
+    }
 
     @Test fun ownedAndSharedDevicesRemainReadableInDarkLargeFont() {
         show(

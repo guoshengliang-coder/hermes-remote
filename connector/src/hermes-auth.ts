@@ -104,7 +104,7 @@ export class HermesAuth {
     try {
       const ok = await abortable(flight.promise, signal);
       signal.throwIfAborted();
-      if (!ok) throw new Error("Hermes Basic Auth login failed");
+      if (!ok) throw Object.assign(new Error("Hermes Basic Auth login failed"), { code: "HERMES_AUTH_FAILED" });
     } finally {
       flight.users -= 1;
       if (flight.users === 0) {

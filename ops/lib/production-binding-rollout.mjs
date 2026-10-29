@@ -211,7 +211,7 @@ location = /v2/connect {
     proxy_set_header X-Forwarded-Proto https;
     proxy_connect_timeout 5s;
     proxy_read_timeout 75s;
-    proxy_send_timeout 15s;
+    proxy_send_timeout 75s;
 }
 `;
 }

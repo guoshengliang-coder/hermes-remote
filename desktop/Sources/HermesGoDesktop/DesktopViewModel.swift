@@ -319,12 +319,17 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         guard let device = selectedAccountDevice else {
             return accountGatewayURL.host ?? "未配置"
         }
+        if let connection = device.connection, connection.version == 1, connection.level != .healthy { return connection.summary }
         return device.gateway.latencyMs.map { "账号连接 · \($0) ms" } ?? "账号连接"
     }
 
     var overviewHermesSummary: String {
         guard let device = selectedAccountDevice else {
             return DesktopHermesRuntimeContract.serveV1.baseURL.host ?? "127.0.0.1"
+        }
+        if let connection = device.connection, connection.version == 1 {
+            if connection.local == "unknown" || connection.healthAgeMs >= 60_000 { return "状态待刷新" }
+            if connection.local == "degraded" { return "响应较慢，正在复查" }
         }
         return device.hermes.version
             ?? (device.hermes.reachable == true ? "可访问" : "不可访问")

@@ -29,6 +29,8 @@ import {
 import { parseWebSubscription, type WebPushStore } from "./push/web-push.js";
 import type { PushProviderName } from "./push/push-provider.js";
 import type { PushRegistrationStore } from "./push/push-registration-store.js";
+import type { ActiveBinding, BindingState } from "./account-control-model.js";
+import type { connectionSnapshot } from "../account-transport-sessions.js";
 
 const MAX_ACCOUNT_BODY_BYTES = 32 * 1024;
 const MAX_AVATAR_BYTES = 4 * 1024 * 1024;
@@ -81,6 +83,22 @@ export interface AccountCapabilities {
 }
 
 export class AccountHttpController {
+  private connectionHealth?: (bindingId: string, generation: number) => ReturnType<typeof connectionSnapshot>;
+  setConnectionHealth(provider: NonNullable<AccountHttpController["connectionHealth"]>): void { this.connectionHealth = provider; }
+  private withConnectionHealth<T extends ActiveBinding>(binding: T): T {
+    const connection = this.connectionHealth?.(binding.id, binding.generation);
+    if (!connection) return binding;
+    const reachable = connection.local === "healthy" ? true : connection.local === "unhealthy" ? false : null;
+    const online = connection.business !== "lost";
+    return { ...binding, connection, connector: { ...binding.connector, online },
+      hermes: { ...binding.hermes, reachable },
+      endToEnd: { ...binding.endToEnd, healthy: online && reachable === true ? true : !online || reachable === false ? false : null } };
+  }
+  private bindingHealth(state: BindingState): BindingState {
+    if (state.state === "bound") return { ...state, binding: this.withConnectionHealth(state.binding) };
+    if (state.state === "replacement_pending") return { ...state, previousBinding: this.withConnectionHealth(state.previousBinding) };
+    return state;
+  }
   private readonly exchangeLimiter = new FixedWindowLimiter(10, 60_000);
   private readonly refreshLimiter = new FixedWindowLimiter(60, 60_000);
 
@@ -582,7 +600,7 @@ export class AccountHttpController {
         const control = this.requireControl();
         const principal = await this.service.authenticate(web.authorization(request));
         sendJson(response, 200, {
-          items: await control.listDevices(principal),
+          items: (await control.listDevices(principal)).map((device) => this.withConnectionHealth(device)),
           maxOwnedDevices: 3,
         });
         return;
@@ -1049,7 +1067,7 @@ export class AccountHttpController {
         const control = this.requireControl();
         const principal = await this.service.authenticate(firstHeader(request, "authorization"));
         sendJson(response, 200, {
-          items: await control.listDevices(principal),
+          items: (await control.listDevices(principal)).map((device) => this.withConnectionHealth(device)),
           maxOwnedDevices: 3,
         });
         return;
@@ -1060,7 +1078,7 @@ export class AccountHttpController {
         const control = this.requireControl();
         const principal = await this.service.authenticate(firstHeader(request, "authorization"));
         sendJson(response, 200, {
-          device: await control.getDevice(principal, decodedPathSegment(deviceMatch[1], "deviceId")),
+          device: this.withConnectionHealth(await control.getDevice(principal, decodedPathSegment(deviceMatch[1], "deviceId"))),
         });
         return;
       }
@@ -1188,7 +1206,7 @@ export class AccountHttpController {
       if (url.pathname === "/v2/connector-binding" && request.method === "GET") {
         const control = this.requireControl();
         const principal = await this.service.authenticate(firstHeader(request, "authorization"));
-        sendJson(response, 200, await control.getBinding(principal));
+        sendJson(response, 200, this.bindingHealth(await control.getBinding(principal)));
         return;
       }
 

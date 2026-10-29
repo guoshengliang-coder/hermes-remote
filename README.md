@@ -140,3 +140,5 @@ no longer blocks history synchronization. See `docs/HG_237_SEND_RECOVERY.md` for
   acknowledged backpressure instead of crossing the control channel as one oversized message.
 
 HG-240 adds optional instance-owned model favorites and visibility for compatible Hermes runtimes. Old Hermes remains explicit independent mode. Previous account/local favorites require confirmation to import and remain intact; saved reasoning remains account-owned. See `docs/INSTANCE_MODEL_PREFERENCES.md` for the paired upstream dependency, owner-only writes, conflict and rollout boundaries. Source implementation is not publication.
+
+HG-244 adds opt-in control/business connection isolation, congestion-aware heartbeats, a shared bulk-transfer budget and process-owned local Hermes health observations. Both Gateway and Connector must enable `CONNECTOR_TRANSPORT_ISOLATION=1`; the default remains compatible single-connection behavior. See [the implementation and rollout plan](docs/HG_244_CONGESTION.md) for thresholds, client behavior, validation and remaining field acceptance.

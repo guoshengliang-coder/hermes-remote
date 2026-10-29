@@ -1,4 +1,7 @@
 export const PROTOCOL_VERSION = 1 as const;
+export * from "./transport-health.js";
+export * from "./business-wire.js";
+import { parseTransportOffer, type HealthObservation, type TransportOffer } from "./transport-health.js";
 export const ACCOUNT_CONNECTOR_PROTOCOL_VERSION = 2 as const;
 
 /** One phone upload. The wire frame also contains base64 and JSON framing. */
@@ -39,6 +42,7 @@ export interface ConnectorChallengeMessage {
   connectionNonce: string;
   serverTime: string;
   expiresAt: string;
+  transport?: TransportOffer;
 }
 
 export interface ConnectorAuthenticate {
@@ -64,6 +68,7 @@ export interface ConnectorPreflightResult {
   requestId: string;
   hermesReachable: boolean;
   hermesVersion?: string;
+  health?: HealthObservation;
 }
 
 export interface ConnectorReady {
@@ -74,6 +79,7 @@ export interface ConnectorReady {
   deviceId: string;
   bindingStatus: "pending" | "active";
   routingEnabled: boolean;
+  transport?: TransportOffer;
 }
 
 export interface ChatCommand {
@@ -332,7 +338,7 @@ export function parseWireMessage(raw: string): WireMessage {
     case "connector.challenge":
       assertOnlyKeys(value, new Set([
         "type", "version", "bindingId", "generation", "publicKeyFingerprint", "challenge",
-        "connectionNonce", "serverTime", "expiresAt",
+        "connectionNonce", "serverTime", "expiresAt", "transport",
       ]), "invalid_connector_challenge_fields");
       return {
         type: "connector.challenge",
@@ -344,6 +350,7 @@ export function parseWireMessage(raw: string): WireMessage {
         connectionNonce: base64url(value.connectionNonce, "invalid_connection_nonce", 32, 24),
         serverTime: isoTimestamp(value.serverTime),
         expiresAt: isoTimestamp(value.expiresAt),
+        ...(value.transport === undefined ? {} : { transport: requireTransport(value.transport) }),
       };
     case "connector.authenticate":
       assertOnlyKeys(value, new Set([
@@ -371,7 +378,7 @@ export function parseWireMessage(raw: string): WireMessage {
       };
     case "connector.preflight.result": {
       assertOnlyKeys(value, new Set([
-        "type", "version", "requestId", "hermesReachable", "hermesVersion",
+        "type", "version", "requestId", "hermesReachable", "hermesVersion", "health",
       ]), "invalid_connector_preflight_fields");
       const hermesVersion = optionalDisplayString(value.hermesVersion, "invalid_hermes_version", 64);
       return {
@@ -380,12 +387,13 @@ export function parseWireMessage(raw: string): WireMessage {
         requestId: uuid(value.requestId, "invalid_request_id"),
         hermesReachable: booleanValue(value.hermesReachable, "invalid_hermes_reachable"),
         ...(hermesVersion === undefined ? {} : { hermesVersion }),
+        ...(value.health === undefined ? {} : { health: parseHealthObservation(value.health) }),
       };
     }
     case "connector.ready":
       assertOnlyKeys(value, new Set([
         "type", "version", "bindingId", "generation", "deviceId", "bindingStatus",
-        "routingEnabled",
+        "routingEnabled", "transport",
       ]), "invalid_connector_ready_fields");
       return {
         type: "connector.ready",
@@ -395,6 +403,7 @@ export function parseWireMessage(raw: string): WireMessage {
         deviceId: boundedString(value.deviceId, "invalid_device_id", 1, 128),
         bindingStatus: oneOf(value.bindingStatus, ["pending", "active"] as const, "invalid_binding_status"),
         routingEnabled: booleanValue(value.routingEnabled, "invalid_routing_enabled"),
+        ...(value.transport === undefined ? {} : { transport: requireTransport(value.transport) }),
       };
     case "hello":
       return {
@@ -799,6 +808,23 @@ const downloadErrors = {
 } as const;
 
 export type ArtifactErrorCode = keyof typeof downloadErrors;
+function requireTransport(value: unknown): TransportOffer {
+  const item = record(value, "invalid_transport");
+  assertOnlyKeys(item, new Set(["version", "role", "instanceId", "generation"]), "invalid_transport");
+  const offer = parseTransportOffer(`${item.version};${item.role};${item.instanceId};${item.generation}`);
+  if (!offer || typeof item.generation !== "number" || item.version !== 1) throw new Error("invalid_transport");
+  return offer;
+}
+function parseHealthObservation(value: unknown): HealthObservation {
+  const item = record(value, "invalid_health");
+  assertOnlyKeys(item, new Set(["state", "reason", "ageMs", "sequence"]), "invalid_health");
+  return {
+    state: oneOf(item.state, ["healthy", "degraded", "unhealthy", "unknown"] as const, "invalid_health"),
+    reason: oneOf(item.reason, ["ok", "timeout", "auth", "refused", "invalid", "unavailable"] as const, "invalid_health"),
+    ageMs: integer(item.ageMs, "invalid_health_age", 0, 2_147_483_647),
+    sequence: integer(item.sequence, "invalid_health_sequence", 0, Number.MAX_SAFE_INTEGER),
+  };
+}
 export function artifactFailure(code: ArtifactErrorCode) {
   const [summaryZh, summaryEn, retryable] = downloadErrors[code];
   return { error: { code, message: `${summaryZh} / ${summaryEn}`, summaryZh, summaryEn, retryable } };

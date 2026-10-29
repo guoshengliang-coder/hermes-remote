@@ -2,6 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { InFlightHttpRequests, ResponseChunkWaiters } from "./http-request-lifecycle.js";
 
+test("cross-link cancellation arriving before work prevents it; late and duplicate cancellation stays scoped", () => {
+  const requests = new InFlightHttpRequests();
+  requests.cancel("early", "client_aborted"); requests.cancel("early", "client_aborted");
+  const cancelled = requests.begin("early"); assert.equal(cancelled.signal.aborted, true);
+  const other = requests.begin("other"); assert.equal(other.signal.aborted, false);
+  requests.finish("early", cancelled); requests.cancel("early", "client_aborted");
+  assert.equal(other.signal.aborted, false);
+  requests.abortAll("closed"); assert.equal(requests.size, 0);
+});
+
 test("HTTP cancellation is idempotent and aborts an outstanding chunk acknowledgement", async () => {
   const requests = new InFlightHttpRequests();
   const waiters = new ResponseChunkWaiters();

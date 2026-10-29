@@ -1357,3 +1357,7 @@ Web Cookie/CSRF/expected-account，Native Bearer。500 行有界完整快照，2
 两个字段独立 CAS；写 lease 与读 cursor 独立签名且不复用 P1a 单例 cursor。操作及精确 uint64 DTO、
 取消标记、保留、导入与错误语义完整定义见 [ACCOUNT_DATA_SYNC_MODELS.md](ACCOUNT_DATA_SYNC_MODELS.md)。
 新模型操作使用 HR-SYNC-012–017；服务端冲突为 200/status=conflict，由消费者展示 012，不能当 accepted。
+
+## HG-244 optional connection health
+
+Authenticated device list/detail and binding GET responses may add `connection: {version: 1, business, control, local, localReason, healthAgeMs}`. `business/control` are `normal|suspect|recovering|lost`; `local` is `healthy|degraded|unhealthy|unknown`. `localReason` is `ok|timeout|auth|refused|invalid|unavailable`. Age is elapsed milliseconds, and reports at least 60 seconds old are unknown. Consumers must retain legacy behavior when the object is absent or its version is unsupported. Suspect/recovering/control-only loss do not disable new business requests; a fresh explicit local unhealthy state retains HR-CONN-006. The live snapshot is an additive, permission-scoped overlay, separate from persisted legacy health booleans. Negotiation and wire limits are documented in `HG_244_CONGESTION.md`.

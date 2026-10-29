@@ -1,4 +1,5 @@
 import type { AccountDevice } from "../api/gateway";
+import { deviceHealthText } from "./device-health";
 import type { Translate } from "../app/i18n";
 import type { AppError, Language } from "../errors";
 import { ErrorNotice } from "./ErrorNotice";
@@ -57,7 +58,7 @@ export function DevicePicker({ devices, selectedId, language, t, error, onRetry,
                       <span class="device-name">{device.desktopDisplayName || device.deviceId}</span>
                       <span class="device-sub">
                         <span class={`dot ${online ? "dot-good" : "dot-off"}`} aria-hidden="true" />
-                        {online ? t("在线", "Online") : t("离线", "Offline")}
+                        {deviceHealthText(device, t)}
                         {device.access === "operator" ? ` · ${t("共享给我", "Shared with me")}` : ""}
                       </span>
                     </span>

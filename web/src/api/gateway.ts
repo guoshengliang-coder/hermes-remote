@@ -64,6 +64,7 @@ export interface WebRefreshResponse {
 }
 
 export interface AccountDevice {
+  connection?: { version: number; business: string; control: string; local: string; localReason: string; healthAgeMs: number };
   id: string;
   generation: number;
   deviceId: string;

@@ -1,14 +1,20 @@
 export class InFlightHttpRequests {
   private readonly controllers = new Map<string, AbortController>();
+  private readonly cancelled = new Map<string, number>();
 
   begin(requestId: string): AbortController {
     this.controllers.get(requestId)?.abort(new Error("request_replaced"));
     const controller = new AbortController();
+    const now = performance.now();
+    for (const [key, expires] of this.cancelled) if (expires <= now) this.cancelled.delete(key);
+    if (this.cancelled.has(requestId)) controller.abort(new Error("request_cancelled"));
     this.controllers.set(requestId, controller);
     return controller;
   }
 
   cancel(requestId: string, reason: string): boolean {
+    this.cancelled.set(requestId, performance.now() + 120_000);
+    if (this.cancelled.size > 4096) this.cancelled.delete(this.cancelled.keys().next().value!);
     const controller = this.controllers.get(requestId);
     if (!controller || controller.signal.aborted) return false;
     controller.abort(new Error(reason));

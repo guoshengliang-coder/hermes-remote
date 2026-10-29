@@ -126,6 +126,8 @@ class HermesRestApi(
         const val UPLOAD_WRITE_TIMEOUT_SECONDS = 120L
         const val UPLOAD_READ_TIMEOUT_SECONDS = 120L
         const val UPLOAD_CALL_TIMEOUT_MINUTES = 10L
+        /** Covers the Connector's 45s congestion grace plus reconnection/transport margin. */
+        const val ARTIFACT_READ_IDLE_TIMEOUT_SECONDS = 75L
         const val CONNECTION_TEST_TIMEOUT_SECONDS = 12L
         /** The contract report is a cached, tiny JSON body; anything slower is a stalled tunnel. */
         const val CONTRACT_TIMEOUT_SECONDS = 5L
@@ -507,7 +509,7 @@ class HermesRestApi(
             .header("If-Match", descriptor.etag).header("Range", "bytes=$start-$end").get().build()
         requireArtifactOwner(owner, deviceId)
         val call = clientFor(request).newBuilder().followRedirects(false).followSslRedirects(false)
-            .connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(15, TimeUnit.SECONDS).readTimeout(ARTIFACT_READ_IDLE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             // A progressing slow mobile transfer must not repeatedly lose the same range.
             // Read-idle timeout, bounded ranges and OS/job cancellation own its lifetime.
             .callTimeout(0, TimeUnit.MILLISECONDS).build().newCall(request)
@@ -560,7 +562,7 @@ class HermesRestApi(
             .header("If-Match", descriptor.etag).header("Range", "bytes=$start-$end").get().build()
         requireArtifactOwner(owner, deviceId)
         val call = clientFor(request).newBuilder().followRedirects(false).followSslRedirects(false)
-            .connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(15, TimeUnit.SECONDS).readTimeout(ARTIFACT_READ_IDLE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .callTimeout(0, TimeUnit.MILLISECONDS).build().newCall(request)
         val cancellation = kotlinx.coroutines.Job(kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job])
         cancellation.invokeOnCompletion { call.cancel() }

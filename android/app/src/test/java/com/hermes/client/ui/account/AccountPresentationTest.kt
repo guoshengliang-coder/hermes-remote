@@ -13,6 +13,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AccountPresentationTest {
+    @Test fun congestion_keeps_chat_available_and_local_failure_is_separate() {
+        val device = AccountDeviceDto(id = "b", generation = 1, deviceId = "mac", desktopDisplayName = "Mac", access = "owner",
+            connector = AccountConnectorHealthDto(online = true),
+            connection = com.hermes.client.data.network.AccountConnectionHealthDto(business = "normal", control = "suspect", local = "healthy", healthAgeMs = 0))
+        assertTrue(deviceStatusText(device, AppLanguage.ZH).contains("可继续聊天"))
+        assertTrue(deviceStatusText(device, AppLanguage.EN).contains("chat remains available"))
+        assertFalse(deviceStatusText(device, AppLanguage.ZH).contains("离线"))
+        val failed = device.copy(connection = device.connection!!.copy(local = "unhealthy", control = "normal"))
+        assertTrue(deviceStatusText(failed, AppLanguage.ZH).contains("HR-CONN-006"))
+        val unknown = device.copy(connection = device.connection!!.copy(local = "unknown", control = "normal"))
+        assertTrue(deviceStatusText(unknown, AppLanguage.ZH).contains("待刷新"))
+    }
     @Test fun challenge_deadlines_round_up_and_fail_closed_when_invalid_or_expired() {
         val now = Instant.parse("2026-09-08T08:00:00Z")
         val pending = PendingEmailChallenge(
