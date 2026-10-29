@@ -15,16 +15,23 @@ data class VideoNote(val id: String, val startMs: Long, val endMs: Long? = null,
 }
 
 @Serializable
-data class VideoNoteDraft(val id: String? = null, val start: String, val end: String = "", val range: Boolean = false, val text: String = "")
+data class VideoNoteDraft(val id: String? = null, val start: String, val end: String = "", val range: Boolean = false,
+    val text: String = "", val draftKey: String = java.util.UUID.randomUUID().toString())
 
 @Serializable
-data class VideoFeedbackDocument(val schemaVersion: Int = 1, val notes: List<VideoNote> = emptyList(), val draft: VideoNoteDraft? = null) {
+data class VideoFeedbackDocument(val schemaVersion: Int = 1, val notes: List<VideoNote> = emptyList(),
+    val draft: VideoNoteDraft? = null, val parkedDrafts: List<VideoNoteDraft> = emptyList()) {
+    val allDrafts get() = listOfNotNull(draft) + parkedDrafts
+    val workCount get() = notes.size + allDrafts.count { it.id == null }
     fun validated(): VideoFeedbackDocument = apply {
-        require(schemaVersion == 1 && notes.size <= VIDEO_NOTE_LIMIT)
+        require(schemaVersion == 1 && workCount <= VIDEO_NOTE_LIMIT)
         require(notes.map { it.id }.distinct().size == notes.size)
         require(notes.all { it.valid(Long.MAX_VALUE) })
-        require(draft == null || draft.start.length <= 32 && draft.end.length <= 32 && draft.text.length <= VIDEO_NOTE_TEXT_LIMIT)
-        require(draft?.id == null || notes.any { it.id == draft.id })
+        require(allDrafts.size <= VIDEO_NOTE_LIMIT)
+        require(allDrafts.map { it.draftKey }.distinct().size == allDrafts.size)
+        require(allDrafts.all { it.draftKey.isNotBlank() && it.start.length <= 32 && it.end.length <= 32 && it.text.length <= VIDEO_NOTE_TEXT_LIMIT })
+        require(allDrafts.all { d -> d.id == null || notes.any { it.id == d.id } })
+        require(allDrafts.mapNotNull { it.id }.distinct().size == allDrafts.count { it.id != null })
     }
 }
 

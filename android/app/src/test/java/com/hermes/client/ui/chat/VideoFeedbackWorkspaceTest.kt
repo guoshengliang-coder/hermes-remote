@@ -8,9 +8,9 @@ import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.result.ActivityResultRegistry
 import androidx.activity.result.ActivityResultRegistryOwner
 import androidx.activity.result.contract.ActivityResultContract
-import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.*
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import com.hermes.client.ui.createHermesComposeRule
 import androidx.core.app.ActivityOptionsCompat
 import androidx.test.core.app.ApplicationProvider
 import com.hermes.client.data.error.*
@@ -28,13 +28,16 @@ import java.io.File
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w360dp-h800dp-420dpi")
 class VideoFeedbackWorkspaceTest {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule val compose = createHermesComposeRule()
     private val androidContext = ApplicationProvider.getApplicationContext<Context>()
     private val scope = "account/mac/profile/original-session"
     private val generation = "source-generation"
     private var attached: File? = null
     private var closed = 0
     private var refusal: AppError? = null
+    private var position by mutableLongStateOf(1234)
+    private var pauses = 0
+    private var resumes = 0
     private fun fixture(registry: ActivityResultRegistryOwner? = null) {
         runBlocking { VideoFeedbackStore(File(androidContext.filesDir, "video-feedback")).write(
             videoFeedbackKey(scope, "/work/movie.mp4", generation),
@@ -46,9 +49,10 @@ class VideoFeedbackWorkspaceTest {
                         VideoFeedbackWorkspace("movie.mp4", VideoFeedbackContext(scope, "/work/movie.mp4", "原会话", attach = {
                             if (refusal == null) attached = it
                             refusal
-                        }), generation, 60_000, { 1234 }, {}, { closed++ }) { annotate, editing ->
+                        }), generation, 60_000, { position }, {}, { closed++ },
+                            playerPosition = position, pause = { pauses++ }, resume = { resumes++ }) { annotate, editing, start, locked ->
                             VideoPlayerContent("movie.mp4", VideoPlayerState(position = 1234, duration = 60_000, hasFrame = true),
-                                onAnnotate = annotate, annotating = editing)
+                                onAnnotate = annotate, annotating = editing, annotationStartMs = start, canPlay = !locked)
                         }
                     }
                     if (registry == null) content() else CompositionLocalProvider(LocalActivityResultRegistryOwner provides registry) { content() }
@@ -56,21 +60,27 @@ class VideoFeedbackWorkspaceTest {
             }
         }
         compose.onNodeWithText("Annotate").performClick()
-        compose.waitUntil(5_000) { compose.onAllNodesWithText("Saved on this device · This video version").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("video-note-point").fetchSemanticsNodes().isNotEmpty() }
     }
     @After fun cleanup() { attached?.delete() }
     @Test fun range_editor_commits_typed_feedback_before_exporting() {
         fixture()
-        compose.onNodeWithText("Note a range").performClick()
-        compose.onNodeWithText("End").performScrollTo().performTextReplacement("0:04.567")
+        compose.onNodeWithTag("video-note-start").performClick()
+        assertEquals(0, pauses)
+        compose.runOnIdle { position = 4_567 }
+        compose.onNodeWithTag("video-note-end").performClick()
         compose.onNodeWithTag("video-note-text").performScrollTo().performTextInput("延长片段并保留原声")
-        compose.onNodeWithText("Save note").performScrollTo().performClick()
+        compose.onNodeWithText("Save and continue").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Notes · 2").fetchSemanticsNodes().isNotEmpty() }
+        compose.runOnIdle { assertEquals(1, resumes) }
+        compose.onNodeWithText("Notes · 2").performClick()
         compose.onNodeWithText("Attach to chat").assertIsEnabled().performClick()
         compose.waitUntil(5_000) { attached != null }
         assertTrue(attached!!.readText().contains("延长片段并保留原声"))
     }
     @Test fun attach_generates_a_real_markdown_file_and_returns_to_the_original_composer() {
         fixture()
+        compose.onNodeWithText("Notes · 1").performClick()
         compose.onNodeWithText("Attach to chat").performClick()
         compose.waitUntil(5_000) { attached != null }
         val text = attached!!.readText()
@@ -84,6 +94,7 @@ class VideoFeedbackWorkspaceTest {
     @Test fun attachment_refusal_preserves_notes_and_does_not_close_the_viewer() {
         refusal = AppError(AppErrorCode.VIDEO_NOTES_ATTACHMENTS_FULL, false)
         fixture()
+        compose.onNodeWithText("Notes · 1").performClick()
         compose.onNodeWithText("Attach to chat").performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithText("HR-ANNOT-004", substring = true).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Back to notes").performClick()
@@ -104,6 +115,7 @@ class VideoFeedbackWorkspaceTest {
             }
         }
         fixture(owner)
+        compose.onNodeWithText("Notes · 1").performClick()
         compose.onNodeWithText("Save .md").performClick()
         compose.waitUntil(5_000) { target.isFile && target.length() > 0 }
         assertTrue(target.readText().contains("延长这一段"))

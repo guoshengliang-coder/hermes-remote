@@ -54,6 +54,8 @@ internal fun VideoPlayerContent(
     onStatusDiagnostics: (AppError) -> Unit = {},
     onAnnotate: (() -> Unit)? = null,
     annotating: Boolean = false,
+    annotationStartMs: Long? = null,
+    onScrubbing: (Boolean) -> Unit = {},
     video: @Composable () -> Unit = {},
 ) {
     val language = LocalAppLanguage.current
@@ -63,9 +65,11 @@ internal fun VideoPlayerContent(
     var speedMenu by remember { mutableStateOf(false) }
     var holdMenu by remember { mutableStateOf(false) }
     val boost by rememberUpdatedState(onBoost)
+    val scrub by rememberUpdatedState(onScrubbing)
+    DisposableEffect(Unit) { onDispose { scrub(false) } }
     var seeking by remember { mutableStateOf<Float?>(null) }
     var interaction by remember { mutableIntStateOf(0) }
-    val pinned = annotating || !state.wantsPlay || state.buffering || error != null || menu || speedMenu || holdMenu || seeking != null
+    val pinned = annotating || !state.wantsPlay || state.buffering || state.seeking || error != null || menu || speedMenu || holdMenu || seeking != null
     LaunchedEffect(pinned, interaction) {
         controls = true
         if (!pinned) { delay(3_000); controls = false }
@@ -79,7 +83,7 @@ internal fun VideoPlayerContent(
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         video()
         Box(Modifier.fillMaxSize().testTag("video-touch-surface")
-            .videoSpeedGesture(state.wantsPlay && !state.buffering && error == null,
+            .videoSpeedGesture(canPlay && state.wantsPlay && !state.buffering && !state.seeking && error == null,
                 localized(language, "显示或隐藏播放控件", "Show or hide playback controls"),
                 tap = { controls = !controls; if (controls) interaction++ }, hold = { boost(it) }))
         if (state.boosting) Text(
@@ -94,8 +98,9 @@ internal fun VideoPlayerContent(
                 MediaButton(Icons.Rounded.Close, localized(language, "关闭", "Close"), onClick = onClose)
                 Text(name, Modifier.weight(1f).padding(horizontal = 8.dp), color = Color.White,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
-                if (onAnnotate != null && !annotating) TextButton(onClick = onAnnotate) {
-                    Text(localized(language, "批注", "Annotate"), color = Color.White)
+                if (onAnnotate != null) TextButton(enabled = !annotating || annotationStartMs == null, onClick = onAnnotate) {
+                    Text(if (annotating) localized(language, "完成批注", "Done") else localized(language, "批注", "Annotate"),
+                        color = Color.White.copy(alpha = if (annotating && annotationStartMs != null) .38f else 1f))
                 }
                 Box {
                     MediaButton(Icons.Rounded.MoreVert, localized(language, "更多", "More"), onClick = { menu = true })
@@ -133,12 +138,13 @@ internal fun VideoPlayerContent(
                 TextButton(onClick = onDiagnostics) { Text(localized(language, "复制诊断", "Copy diagnostics")) }
             }
         } else {
-            if (state.buffering) {
+            if (state.buffering || state.seeking) {
                 Column(Modifier.align(Alignment.Center).background(Color.Black.copy(alpha = .65f), MaterialTheme.shapes.medium)
                     .padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     CircularProgressIndicator(Modifier.size(28.dp), color = Color.White, strokeWidth = 2.dp)
-                    Text(if (state.hasFrame) localized(language, "正在缓冲…", "Buffering…") else localized(language, "正在加载视频…", "Loading video…"),
+                    Text(if (state.seeking) localized(language, "正在定位画面…", "Finding frame…")
+                        else if (state.hasFrame) localized(language, "正在缓冲…", "Buffering…") else localized(language, "正在加载视频…", "Loading video…"),
                         color = Color.White, style = MaterialTheme.typography.bodySmall)
                     transferLabel?.let { Text(it, Modifier.testTag("video-buffer-speed"),
                         color = Color.White.copy(alpha = .75f), style = MaterialTheme.typography.bodySmall) }
@@ -154,9 +160,9 @@ internal fun VideoPlayerContent(
                 if (state.duration > 0) {
                     if (seeking != null) Text(videoTime(seeking!!.toLong()), Modifier.align(Alignment.CenterHorizontally),
                         color = Color.White, style = MaterialTheme.typography.labelLarge)
-                    VideoTimeline(state, seeking,
-                        onChange = { seeking = it; interaction++ },
-                        onFinished = { seeking?.let { onSeek(it.toLong()) }; seeking = null; interaction++ })
+                    VideoTimeline(state, seeking, annotationStartMs, canPlay,
+                        onChange = { seeking = it; scrub(true); interaction++ },
+                        onFinished = { seeking?.let { onSeek(it.toLong()) }; seeking = null; scrub(false); interaction++ })
                 }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     MediaButton(if (state.ended) Icons.Rounded.Replay else if (state.wantsPlay) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
@@ -226,18 +232,24 @@ private fun MediaButton(icon: ImageVector, label: String, modifier: Modifier = M
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun VideoTimeline(state: VideoPlayerState, seeking: Float?, onChange: (Float) -> Unit, onFinished: () -> Unit) {
+private fun VideoTimeline(state: VideoPlayerState, seeking: Float?, annotationStartMs: Long?, enabled: Boolean, onChange: (Float) -> Unit, onFinished: () -> Unit) {
     val language = LocalAppLanguage.current
     val value = seeking ?: state.position.toFloat()
     Box(Modifier.fillMaxWidth().height(36.dp), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.fillMaxWidth().padding(horizontal = 6.dp).height(4.dp)) {
+        Canvas(Modifier.fillMaxWidth().padding(horizontal = 6.dp).height(16.dp)) {
             val y = size.height / 2
-            fun track(fraction: Float, color: Color) = drawLine(color, Offset(0f, y), Offset(size.width * fraction.coerceIn(0f, 1f), y), size.height, StrokeCap.Round)
+            fun track(fraction: Float, color: Color) = drawLine(color, Offset(0f, y), Offset(size.width * fraction.coerceIn(0f, 1f), y), 4.dp.toPx(), StrokeCap.Round)
             track(1f, Color.White.copy(alpha = .24f))
             track(state.buffered.toFloat() / state.duration.coerceAtLeast(1), Color.White.copy(alpha = .5f))
             track(value / state.duration.coerceAtLeast(1), Color.White)
+            annotationStartMs?.let { start ->
+                val x = size.width * (start.toFloat() / state.duration.coerceAtLeast(1)).coerceIn(0f, 1f)
+                val end = size.width * (value / state.duration.coerceAtLeast(1)).coerceIn(0f, 1f)
+                if (end > x) drawLine(Color(0xFFA9C7FF).copy(alpha = .6f), Offset(x, y), Offset(end, y), 10.dp.toPx())
+                drawLine(Color(0xFFA9C7FF), Offset(x, 0f), Offset(x, size.height), 2.dp.toPx())
+            }
         }
-        Slider(value.coerceIn(0f, state.duration.toFloat()), onValueChange = onChange,
+        Slider(value.coerceIn(0f, state.duration.toFloat()), onValueChange = onChange, enabled = enabled,
             onValueChangeFinished = onFinished, valueRange = 0f..state.duration.coerceAtLeast(1).toFloat(),
             modifier = Modifier.fillMaxWidth().testTag("video-timeline").semantics {
                 contentDescription = localized(language, "播放进度", "Playback position")

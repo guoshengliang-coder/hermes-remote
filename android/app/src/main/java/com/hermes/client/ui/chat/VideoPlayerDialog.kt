@@ -51,6 +51,8 @@ fun VideoPlayerDialog(
     val activity = context.videoActivity()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var foreground by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
+    var playbackEpoch by remember { mutableLongStateOf(0) }
+    var scrubbing by remember { mutableStateOf(false) }
     var wantsPlay by rememberSaveable { mutableStateOf(true) }
     var selectedSpeed by rememberSaveable { mutableFloatStateOf(1f) }
     val speedPreferences = remember { context.getSharedPreferences("video_player_preferences", Context.MODE_PRIVATE) }
@@ -141,7 +143,7 @@ fun VideoPlayerDialog(
                 controller?.endBoost()
                 frameMemory.configurationRestart = activity?.isChangingConfigurations == true && wantsPlay
                 if (controller?.state?.hasFrame == true) captureFrame()
-                if (activity?.isChangingConfigurations != true) { wantsPlay = false; controller?.pause() }
+                if (activity?.isChangingConfigurations != true) { playbackEpoch++; wantsPlay = false; controller?.pause() }
                 source?.resetNetworkSpeed()
                 foreground = false
             } else if (event == Lifecycle.Event.ON_START) foreground = true
@@ -171,21 +173,26 @@ fun VideoPlayerDialog(
         }
         VideoFeedbackWorkspace(name, feedbackContext, source?.feedbackGeneration,
             controller?.state?.duration ?: knownDuration,
-            position = {
-                controller?.let { if (it.state.hasFrame) captureFrame(); it.pause(); it.state.position } ?: 0L
-            },
-            seek = { controller?.seek(it); controller?.play() }, onAttached = onDismiss,
+            position = { if (scrubbing || !foreground) null else controller?.annotationPosition() },
+            seek = { frameMemory.frame = null; controller?.seek(it) }, onAttached = onDismiss,
             mode = annotationMode,
-        ) { annotate, editing ->
+            playerPosition = controller?.state?.position ?: 0,
+            canMark = !scrubbing && error == null && controller?.state?.let { it.hasFrame && !it.buffering && !it.seeking } == true,
+            pause = { controller?.let { if (it.state.hasFrame) captureFrame(); it.pause() } },
+            resume = { controller?.let { if (foreground && error == null && !it.state.ended && it.state.position < it.state.duration) it.play() } },
+            playbackEpoch = { playbackEpoch },
+        ) { annotate, editing, selectionStart, playbackLocked ->
             VideoPlayerContent(
                 name = name,
                 state = controller?.state ?: VideoPlayerState(wantsPlay = wantsPlay, buffering = error == null),
-                error = error, fullscreen = fullscreen, canPlay = controller != null,
+                error = error, fullscreen = fullscreen, canPlay = controller != null && !playbackLocked,
                 downloaded = downloaded, download = download, openExternally = openExternally,
                 onAnnotate = annotate, annotating = editing,
+                annotationStartMs = selectionStart,
                 onClose = onDismiss, onFullscreen = { fullscreen = !fullscreen },
                 onTogglePlay = { controller?.let { if (it.state.wantsPlay) { if (it.state.hasFrame) captureFrame(); it.pause() } else it.play() } },
-                onSeek = { controller?.seek(it) },
+                onSeek = { frameMemory.frame = null; controller?.seek(it) },
+                onScrubbing = { scrubbing = it },
                 onSpeed = { controller?.selectSpeed(it) },
                 holdSpeed = holdSpeed,
                 onHoldSpeed = { holdSpeed = it; speedPreferences.edit().putFloat("hold_speed", it).apply() },
