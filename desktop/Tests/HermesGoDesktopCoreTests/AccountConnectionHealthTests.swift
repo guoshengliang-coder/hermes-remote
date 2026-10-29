@@ -27,4 +27,18 @@ final class AccountConnectionHealthTests: XCTestCase {
         XCTAssertThrowsError(try DesktopConnectorFileRate.overrides(from: ["CONNECTOR_TRANSPORT_ISOLATION": "true"]))
         XCTAssertTrue(try DesktopConnectorFileRate.overrides(from: [:]).isEmpty)
     }
+    func testExternalReadRootsSurviveAllowlistVerbatimAndRejectBoundaryShifts() throws {
+        // HG-245: the operator's authorized roots pass through byte-for-byte so repair's exact
+        // environment comparison accepts the very plist the operator wrote.
+        XCTAssertEqual(try DesktopConnectorFileRate.overrides(from: ["EXTRA_READ_ROOTS": "/Volumes/TiPlus-1T"]),
+                       ["EXTRA_READ_ROOTS": "/Volumes/TiPlus-1T"])
+        XCTAssertEqual(try DesktopConnectorFileRate.overrides(from: ["EXTRA_READ_ROOTS": " /Volumes/My Disk; ;/Volumes/外置盘/示例; "]),
+                       ["EXTRA_READ_ROOTS": " /Volumes/My Disk; ;/Volumes/外置盘/示例; "])
+        // A blank value counts as unset and must not reappear in the regenerated agent.
+        XCTAssertTrue(try DesktopConnectorFileRate.overrides(from: ["EXTRA_READ_ROOTS": "  ;  "]).isEmpty)
+        // Relative and filesystem-root entries refuse the migration loudly.
+        XCTAssertThrowsError(try DesktopConnectorFileRate.overrides(from: ["EXTRA_READ_ROOTS": "/Volumes/Ok;relative/root"]))
+        XCTAssertThrowsError(try DesktopConnectorFileRate.overrides(from: ["EXTRA_READ_ROOTS": "/"]))
+        XCTAssertThrowsError(try DesktopConnectorFileRate.overrides(from: ["EXTRA_READ_ROOTS": "/Volumes/Ok; //"]))
+    }
 }

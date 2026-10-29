@@ -262,6 +262,27 @@ Node environment. Cover lower/upper boundaries, malformed/over-limit rates, reje
 private permissions and exact upgrade snapshot rollback. Existing bilingual repair-error contracts
 remain in force; no new UI/errors are added.
 
+## HG-245 external read roots in the managed allowlist — unreleased
+
+Test-impact review: `EXTRA_READ_ROOTS` joins `FILE_DOWNLOAD_BYTES_PER_SECOND` and
+`CONNECTOR_TRANSPORT_ISOLATION` in `DesktopConnectorFileRate.overrides`, so the operator's
+authorized external read-only attachment roots survive managed connector reinstalls and stay
+acceptable to repair's exact-environment comparison. The value is validated but passed through
+verbatim — normalizing it would make repair reject the operator's own plist over whitespace the
+Connector tolerates. Relative entries, every spelling of the filesystem root (`/`, `//`) and
+NUL bytes refuse the migration loudly; blank segments are ignored, matching the Connector's own
+`resolveExternalReadRoots` parsing. Unit coverage in
+`AccountConnectionHealthTests.testExternalReadRootsSurviveAllowlistVerbatimAndRejectBoundaryShifts`
+(verbatim passthrough with spaces/CJK, blank value treated as unset, relative/root/NUL rejection);
+the opt-in allowlist test now shares the same entry point.
+
+Local validation on 2026-10-29: **732 Swift tests**, 0 failures. Live acceptance remains pending:
+after the next managed Desktop release installs on the Mac mini, set
+`EXTRA_READ_ROOTS=/Volumes/TiPlus-1T` in the managed connector agent, run one component
+reinstall/update, and verify the key survives while the phone still downloads external-root
+attachments; until that release ships, the key must be re-applied after each managed
+connector regeneration.
+
 Local validation on 2026-10-24: **596 Swift tests**, asset consistency and `desktop:app` passed.
 The new repair regression failed on the prior implementation. The cold-start health-window test
 now injects the fixture shutdown checker, so the owner's running service on 9119 cannot determine
