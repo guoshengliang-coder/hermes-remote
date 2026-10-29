@@ -56,6 +56,17 @@ jobs:
             echo 'Desktop managed version is already tagged.' >&2
             exit 65
           fi
+      - name: Select macOS test prerequisites
+        run: |
+          set -euo pipefail
+          # The recovery gate requires CMS AuthEnvelopedData from OpenSSL 3.
+          # macOS /usr/bin/openssl is LibreSSL and is not that contract.
+          brew list --versions openssl@3 >/dev/null || brew install openssl@3
+          openssl_bin="$(brew --prefix openssl@3)/bin"
+          "$openssl_bin/openssl" version | grep '^OpenSSL 3\.'
+          printf '%s\n' "$openssl_bin" >> "$GITHUB_PATH"
+          # Python resolves /var to /private/var; use the same canonical temp root.
+          printf 'TMPDIR=%s\n' "$(cd "$TMPDIR" && pwd -P)" >> "$GITHUB_ENV"
       - run: npm ci --ignore-scripts
       - run: npm run build && npm test
       - name: Build Node and Connector archives (legacy pair only when explicitly requested)
