@@ -11,7 +11,7 @@ export const profileSyncErrors = {
   conflict: () => new AccountModeError(409, "HR-SYNC-006", "资料已在其他设备更新，请刷新后重新确认修改。", false, "none"),
   reset: () => new AccountModeError(409, "HR-SYNC-007", "同步记录已失效，请刷新资料后重试。", false, "none"),
   name: () => new AccountModeError(400, "HR-SYNC-008", "无法保存名字，请使用 1–40 个字符后重试。", false, "none"),
-  avatar: () => new AccountModeError(400, "HR-SYNC-009", "无法保存头像，请选择不超过 4 MiB 的 PNG、JPEG 或 WebP 图片。", false, "none"),
+  avatar: () => new AccountModeError(400, "HR-SYNC-009", "无法保存头像，请选择不超过 4 MB 的 PNG、JPEG 或 WebP 图片。", false, "none"),
 };
 export interface ProfileSyncState {
   revision: string;

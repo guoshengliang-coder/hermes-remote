@@ -90,7 +90,7 @@ class ChatFileDeviceTest {
             if (visible == null) android.os.SystemClock.sleep(100)
         }
         assertNotNull("oversize explanation must be visible without tapping", visible)
-        assertNotNull(find(automation.rootInActiveWindow, "126.0 MiB"))
+        assertNotNull(find(automation.rootInActiveWindow, "132.2 MB"))
         val big = find(automation.rootInActiveWindow, "large.mp4")!!
         assertFalse("oversized card has no click action", big.isClickable)
         val share = all(automation.rootInActiveWindow).first { it.contentDescription?.toString() == "Share file" }

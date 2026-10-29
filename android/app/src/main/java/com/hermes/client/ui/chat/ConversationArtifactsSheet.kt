@@ -1,6 +1,8 @@
 package com.hermes.client.ui.chat
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -11,7 +13,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.hermes.client.domain.ChatFile
@@ -19,6 +23,7 @@ import com.hermes.client.domain.ChatImage
 import com.hermes.client.ui.components.LoadingDots
 import com.hermes.client.ui.components.SheetCloseHandle
 import com.hermes.client.ui.components.hermesSheetState
+import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
 import com.hermes.client.ui.localization.localizedMessage
@@ -84,25 +89,65 @@ internal fun ConversationArtifactsContent(
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             items(artifacts, key = { it.reference }) { artifact ->
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    artifact.image?.let { image ->
-                        Box(Modifier.heightIn(max = 180.dp)) { ChatImageGrid(listOf(image)) { onOpenImage(artifact.messageId, it) } }
-                        Text(artifact.displayName, style = MaterialTheme.typography.labelLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                artifact.file?.let { file ->
+                    ChatFileList(
+                        files = listOf(file.copy(name = artifact.displayName)),
+                        onOpen = onOpenFile,
+                        onShare = onShareFile,
+                        showPlaybackHint = false,
+                        footer = { ArtifactFooter(artifact, language, onContext) },
+                    )
+                } ?: artifact.image?.let { image ->
+                    // Images have no attachment card of their own; give them the same shell so a
+                    // delivery reads as one unit whichever kind of file it carries (HG-233).
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Box(Modifier.heightIn(max = 180.dp)) { ChatImageGrid(listOf(image)) { onOpenImage(artifact.messageId, it) } }
+                            Text(artifact.displayName, style = MaterialTheme.typography.labelLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            ArtifactFooter(artifact, language, onContext)
+                        }
                     }
-                    artifact.file?.let { file ->
-                        ChatFileList(listOf(file.copy(name = artifact.displayName)), onOpenFile, onShareFile)
-                    }
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(artifact.timestamp?.let { formatTimeSeparator(it, language) }
-                            ?: localized(language, "时间未知", "Time unknown"),
-                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.weight(1f))
-                        TextButton(onClick = { onContext(artifact) }) { Text(localized(language, "查看上下文", "View context")) }
-                    }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
             }
         }
         Spacer(Modifier.height(16.dp))
+    }
+}
+
+/**
+ * The foot of one delivery card: when it arrived and the way back to the message that produced
+ * it. It sits inside the card so the time belongs to this delivery instead of floating between
+ * two cards (user decision 2026-10-30).
+ */
+@Composable
+private fun ArtifactFooter(
+    artifact: ConversationArtifact,
+    language: AppLanguage,
+    onContext: (ConversationArtifact) -> Unit,
+) {
+    Column {
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .6f))
+        Row(Modifier.fillMaxWidth().padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                artifact.timestamp?.let { formatTimeSeparator(it, language) }
+                    ?: localized(language, "时间未知", "Time unknown"),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                localized(language, "查看上下文", "View context"),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(role = Role.Button) { onContext(artifact) }
+                    .padding(horizontal = 4.dp, vertical = 8.dp),
+            )
+        }
     }
 }

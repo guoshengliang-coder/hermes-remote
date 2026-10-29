@@ -750,5 +750,9 @@ internal fun relativeCheckTime(epochMs: Long, nowMs: Long, language: AppLanguage
 internal fun parseInstantMs(value: String): Long =
     runCatching { Instant.parse(value).toEpochMilli() }.getOrDefault(0L)
 
-private fun formatBytes(value: Long) =
-    if (value >= 1024 * 1024) "%.1f MB".format(value / 1024.0 / 1024.0) else "${value / 1024} KB"
+private fun formatBytes(value: Long) = when {
+    value >= 1_000_000_000 -> "%.1f GB".format(value / 1_000_000_000.0)
+    value >= 1_000_000 -> "%.1f MB".format(value / 1_000_000.0)
+    value >= 1_000 -> "${value / 1_000} KB"
+    else -> "$value B"
+}

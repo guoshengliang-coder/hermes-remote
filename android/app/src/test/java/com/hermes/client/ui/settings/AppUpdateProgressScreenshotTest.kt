@@ -38,8 +38,8 @@ class AppUpdateProgressScreenshotTest {
         }
         compose.onNodeWithText(when {
             rate == null -> if (language == AppLanguage.EN) "Measuring speed…" else "正在测速…"
-            language == AppLanguage.EN -> "Speed: 1.5 MB/s"
-            else -> "下载速度：1.5 MB/s"
+            language == AppLanguage.EN -> "Speed: 1.6 MB/s"
+            else -> "下载速度：1.6 MB/s"
         }).assertIsDisplayed()
         compose.onRoot().captureRoboImage("screenshots/$name.png")
     }

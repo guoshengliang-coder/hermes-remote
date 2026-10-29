@@ -63,9 +63,9 @@ public struct DesktopComponentPreflightPresentation: Equatable, Sendable {
     public static func formatBytes(_ bytes: Int64) -> String {
         guard bytes > 0 else { return "0 B" }
         let units: [(threshold: Int64, divisor: Double, suffix: String)] = [
-            (1_073_741_824, 1_073_741_824, "GiB"),
-            (1_048_576, 1_048_576, "MiB"),
-            (1_024, 1_024, "KiB"),
+            (1_000_000_000, 1_000_000_000, "GB"),
+            (1_000_000, 1_000_000, "MB"),
+            (1_000, 1_000, "KB"),
         ]
         guard let unit = units.first(where: { bytes >= $0.threshold }) else {
             return "\(bytes) B"

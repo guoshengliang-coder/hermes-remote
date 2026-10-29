@@ -136,11 +136,11 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
                 "No app on this phone can open this file type. It downloaded fine — use Share to save it elsewhere.",
             )
         AppErrorCode.UPLOAD_TOO_LARGE ->
-            localized(language, "文件超过 50 MiB 上传上限，请选择较小的文件。", "The file exceeds the 50 MiB upload limit. Choose a smaller file.")
+            localized(language, "文件超过 50 MB 上传上限，请选择较小的文件。", "The file exceeds the 50 MB upload limit. Choose a smaller file.")
         AppErrorCode.UPLOAD_BUSY ->
             localized(language, "这台 Mac 正在接收另一个大文件，请稍后重试。", "This Mac is receiving another large file. Retry shortly.")
         AppErrorCode.UPLOAD_SERVER_LIMIT ->
-            localized(language, "文件在 50 MiB 范围内，但服务端拒绝了上传。请检查 Relay 和 Mac 端版本或配置。", "The file is within 50 MiB, but the service refused it. Check the Relay and Mac versions or settings.")
+            localized(language, "文件在 50 MB 范围内，但服务端拒绝了上传。请检查 Relay 和 Mac 端版本或配置。", "The file is within 50 MB, but the service refused it. Check the Relay and Mac versions or settings.")
         AppErrorCode.ARTIFACT_CHANGED ->
             localized(language, "Mac 上的文件已改变，请重新下载。", "The file on the Mac changed. Download it again.")
         AppErrorCode.ARTIFACT_CHANNEL_UNAVAILABLE ->
@@ -270,7 +270,7 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
         AppErrorCode.ACCOUNT_PROFILE_NAME_INVALID ->
             localized(language, "无法保存名字，请使用 1–40 个字符后重试。", "Couldn't save that name. Use 1–40 characters and try again.")
         AppErrorCode.ACCOUNT_PROFILE_AVATAR_INVALID ->
-            localized(language, "无法保存头像，请选择不超过 4 MiB 的 PNG、JPEG 或 WebP 图片。", "Couldn't save that avatar. Choose a PNG, JPEG or WebP image up to 4 MiB.")
+            localized(language, "无法保存头像，请选择不超过 4 MB 的 PNG、JPEG 或 WebP 图片。", "Couldn't save that avatar. Choose a PNG, JPEG or WebP image up to 4 MB.")
         AppErrorCode.HISTORY_PREVIEW_FAILED ->
             localized(language, "无法读取折叠内容，请重试。", "Couldn't load the folded content. Retry.")
         AppErrorCode.NOTIFICATION_ACTION_FAILED ->

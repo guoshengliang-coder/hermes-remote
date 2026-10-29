@@ -9,7 +9,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
 
-class AttachmentTooLargeException : IllegalArgumentException("File exceeds 50 MiB")
+class AttachmentTooLargeException : IllegalArgumentException("File exceeds 50 MB")
 
 data class PreparedAttachment(
     val bytes: ByteArray,
@@ -50,7 +50,7 @@ fun prepareAttachment(context: Context, uri: Uri, fallbackName: String = "attach
     }
     if (!isImage) {
         // Content-provider URIs are not guaranteed to survive navigation or a retry. Snapshot
-        // them once into private storage without holding up to 50 MiB in Compose state.
+        // them once into private storage without holding up to 50 MB in Compose state.
         val directory = File(context.cacheDir, "pending-uploads").apply { mkdirs() }
         val cutoff = System.currentTimeMillis() - STAGED_FILE_MAX_AGE_MS
         directory.listFiles()?.filter { it.isFile && it.name.endsWith(".pending") && it.lastModified() < cutoff }
