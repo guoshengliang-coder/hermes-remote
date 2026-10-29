@@ -755,12 +755,13 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
               let environment = object["EnvironmentVariables"] as? [String: String] else {
             throw DesktopManagedInstallError.invalidInput
         }
-        guard let rate = try DesktopConnectorFileRate.read(from: environment) else { return generated }
+        let overrides = try DesktopConnectorFileRate.overrides(from: environment)
+        if overrides.isEmpty { return generated }
         guard var replacement = try PropertyListSerialization.propertyList(from: generated, options: [], format: nil) as? [String: Any],
               var replacementEnvironment = replacement["EnvironmentVariables"] as? [String: String] else {
             throw DesktopManagedInstallError.invalidInput
         }
-        replacementEnvironment[DesktopConnectorFileRate.environmentKey] = rate
+        replacementEnvironment.merge(overrides) { _, new in new }
         replacement["EnvironmentVariables"] = replacementEnvironment
         return try PropertyListSerialization.data(fromPropertyList: replacement, format: .xml, options: 0)
     }

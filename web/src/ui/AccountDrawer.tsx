@@ -1,4 +1,5 @@
 import { appError } from "../errors";
+import { deviceHealthText } from "./device-health";
 import { useEffect, useState } from "preact/hooks";
 import type { FontSize, LanguagePreference, ThemeMode } from "../app/appearance";
 import { pushStatusLabel, usePushStatus } from "../app/pushStatus";
@@ -105,7 +106,8 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
             <span class="drawer-device-icon"><MacIcon size={20} /></span>
             <span class="drawer-device-copy">
               <strong>{t("远程节点", "Remote Mac")}</strong>
-              <small class={online ? "" : "offline"}>{online ? `${device?.desktopDisplayName || t("远程节点", "Remote Mac")} ${t("（当前）", "(current)")}` : t("连接器离线", "Connector offline")}</small>
+              <small class={online ? "" : "offline"}>{device?.connection && (device.connection.business !== "normal" || device.connection.control !== "normal" || device.connection.local !== "healthy")
+                ? deviceHealthText(device, t) : online ? `${device?.desktopDisplayName || t("远程节点", "Remote Mac")} ${t("（当前）", "(current)")}` : t("连接器离线", "Connector offline")}</small>
             </span>
             <span class={`drawer-device-status${online ? "" : " offline"}`}>{online && typeof latency === "number" ? (latency < 1000 ? `${Math.round(latency)} ms` : `${(latency / 1000).toFixed(1)} s`) : online ? "" : t("离线", "Offline")}</span>
             <ChevronIcon />

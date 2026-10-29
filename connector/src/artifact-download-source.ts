@@ -11,6 +11,8 @@ import {
   type TunnelHttpRequest,
 } from "@hermes-remote/protocol";
 import { ArtifactFileError, openArtifactFile } from "./artifact-file.js";
+import { TransferBudget } from "./transfer-budget.js";
+import type { LinkState } from "@hermes-remote/protocol";
 
 interface Reference { path: string; etag: string; expires: number }
 export function artifactVersion(stat: Stats): string {
@@ -28,6 +30,8 @@ export class ArtifactDownloadSource {
   private readonly httpAgent = new HttpAgent({ keepAlive: true, maxSockets: 4, maxFreeSockets: 4, timeout: 30_000 });
   private readonly httpsAgent = new HttpsAgent({ keepAlive: true, maxSockets: 4, maxFreeSockets: 4, timeout: 30_000 });
   private nextSendAt = 0;
+  readonly budget: TransferBudget;
+  setLinkState(lane: string, state: LinkState): void { this.budget.state(lane, state); }
 
   constructor(
     private readonly filesRoot: string,
@@ -37,6 +41,7 @@ export class ArtifactDownloadSource {
     private readonly bytesPerSecond = 4 * 1024 * 1024,
     private readonly now: () => number = Date.now,
   ) {
+    this.budget = new TransferBudget(bytesPerSecond);
     const url = new URL(gatewayUrl);
     if (url.username || url.password || !["ws:", "wss:"].includes(url.protocol)) throw new Error("invalid_gateway_origin");
     url.protocol = url.protocol === "wss:" ? "https:" : "http:";
@@ -81,7 +86,7 @@ export class ArtifactDownloadSource {
     };
     // Several ranges of ONE opaque reference may overlap. Separate files/phones cannot
     // multiply the Mac's transfer budget or displace an in-progress file.
-    if (this.active.size >= 4 || [...this.active.values()].some((value) => value !== id)) {
+    if (this.active.size >= this.budget.concurrency || [...this.active.values()].some((value) => value !== id)) {
       await sendFailure(503, "HR-FILE-013"); return;
     }
     this.active.set(request.id, id);
@@ -110,6 +115,7 @@ export class ArtifactDownloadSource {
         };
         if (request.headers.range) headers["content-range"] = `bytes ${range.start}-${range.end}/${metadata.size}`;
         const pace = this.bytesPerSecond;
+        const budget = this.budget;
         const reserve = (bytes: number) => {
           const now = performance.now();
           this.nextSendAt = Math.max(now, this.nextSendAt) + bytes / pace * 1000;
@@ -129,8 +135,8 @@ export class ArtifactDownloadSource {
             }
             // All concurrent ranges share this reservation clock. Four requests still
             // send at the configured aggregate rate, including across range boundaries.
-            const wait = reserve(bytesRead);
-            if (wait > 0) await delay(wait, undefined, { signal });
+            if (budget.enabled) await budget.take(bytesRead, signal);
+            else { const wait = reserve(bytesRead); if (wait > 0) await delay(wait, undefined, { signal }); }
             yield buffer.subarray(0, bytesRead);
           }
         }
@@ -163,7 +169,7 @@ export class ArtifactDownloadSource {
         response.on("error", reject);
       });
       out.on("error", reject);
-      out.setTimeout(30_000, () => out.destroy(new Error("file_channel_idle")));
+      out.setTimeout(this.budget.enabled ? 75_000 : 30_000, () => out.destroy(new Error("file_channel_idle")));
     });
     // Install a handler before writing: a fast refusal must not become an unhandled rejection.
     void finished.catch(() => undefined);

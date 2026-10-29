@@ -550,3 +550,7 @@ functional, and generated approximations of the H mark must be replaced by the c
 ## Explicit component migration (2026-10-25)
 
 For a committed bundled-layout installation already running the Mac’s own usable Hermes, the unified Desktop updater discovers the signed component channel when the existing component capability/configuration is ready. Preparation remains private and cancellable. Its confirmation names the change to the managed component layout, preservation of Hermes/model configuration/conversations/account binding, temporary connection/task interruption and health-gated rollback. The action reads “迁移并重连”. Only that confirmed preparation authorizes conversion; setup, ordinary upgrades and inconsistent installations cannot silently cross layouts. See `DESKTOP_COMPONENT_MIGRATION.md`.
+
+## HG-244 · 远程健康分层（2026-10-29）
+
+账号设备与诊断显示业务链路、控制链路、本机健康的不同结果。拥塞/恢复用 degraded，健康观察过期用 unavailable，明确业务丢失或本机故障才 failed；保留现有重新检查操作。概述中未知不写成“不可访问”。开关仅作为受控发布配置，不新增设置入口。详见 HG_244_CONGESTION.md。

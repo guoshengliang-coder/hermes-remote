@@ -249,6 +249,19 @@ internal fun deviceStatusText(
     device: AccountDeviceDto,
     language: com.hermes.client.ui.localization.AppLanguage,
 ): String {
+    device.connection?.takeIf { it.version == 1 }?.let { health ->
+        return when {
+            health.business == "lost" && health.control == "lost" -> localized(language, "Desktop Connector 离线", "Desktop Connector offline")
+            health.business == "lost" -> localized(language, "聊天连接暂不可用 · 正在重连", "Chat connection unavailable · Reconnecting")
+            health.local == "unhealthy" -> localized(language, "HR-CONN-006 · 本机 Hermes 不可用，请在 Mac 上检查", "HR-CONN-006 · Hermes unavailable; check the Mac")
+            health.business == "suspect" || health.control == "suspect" -> localized(language, "网络拥塞 · 已降低文件传输速度，可继续聊天", "Network congested · Transfers slowed; chat remains available")
+            health.business == "recovering" || health.control == "recovering" -> localized(language, "连接恢复中 · 可继续聊天", "Connection recovering · Chat remains available")
+            health.control == "lost" -> localized(language, "健康检查连接重连中 · 可继续聊天", "Health connection reconnecting · Chat remains available")
+            health.local == "unknown" || health.healthAgeMs >= 60_000 -> localized(language, "Hermes 状态待刷新 · 可尝试连接", "Hermes status unknown · Try connecting")
+            health.local == "degraded" -> localized(language, "Hermes 响应较慢 · 正在复查", "Hermes responding slowly · Rechecking")
+            else -> localized(language, "端到端连接正常", "End-to-end connection healthy")
+        }
+    }
     return when {
         !device.connector.online -> localized(language, "Desktop Connector 离线", "Desktop Connector offline")
         device.hermes.reachable == false -> localized(language, "Connector 在线 · Hermes 不可达", "Connector online · Hermes unreachable")

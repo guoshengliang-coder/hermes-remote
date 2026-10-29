@@ -214,3 +214,7 @@ After a separately authorized Connector release, verify with a disposable test b
 
 Production packet loss, actual Mac sleep/wake and the 24-hour route comparison require runtime
 observation; loopback and fake-clock tests do not replace those checks.
+
+### Optional congestion isolation (HG-244)
+
+Set `CONNECTOR_TRANSPORT_ISOLATION=1` only in an authorized pilot with a compatible enabled Gateway. The negotiated control socket carries probes and cancellation, with separate liveness for business. Local health is monitored independently, bulk producers share the per-Mac file budget, and a missed heartbeat degrades before rebuilding. Old Gateways select the original one-socket protocol. Full thresholds, limits, tests and rollout: [`HG_244_CONGESTION.md`](../docs/HG_244_CONGESTION.md).

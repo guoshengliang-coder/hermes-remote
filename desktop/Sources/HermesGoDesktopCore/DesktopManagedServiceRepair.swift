@@ -437,8 +437,8 @@ public actor DesktopManagedServiceRepair<Runner: CommandRunning> {
         let actualEnvironment = connectorObject["EnvironmentVariables"] as? [String: String]
         if actualEnvironment?["HERMES_MODE"] == nil { expectedEnvironment?.removeValue(forKey: "HERMES_MODE") }
         do {
-            if let actualEnvironment, let rate = try DesktopConnectorFileRate.read(from: actualEnvironment) {
-                expectedEnvironment?[DesktopConnectorFileRate.environmentKey] = rate
+            if let actualEnvironment {
+                expectedEnvironment?.merge(try DesktopConnectorFileRate.overrides(from: actualEnvironment)) { _, new in new }
             }
         } catch { throw DesktopManagedServiceRepairError.unsafeInstallation }
         guard actualEnvironment == expectedEnvironment,

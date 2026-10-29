@@ -7,6 +7,7 @@ import { ControlHeartbeat } from "./control-heartbeat.js";
 import type { GatewayLogger } from "./gateway-log.js";
 import { sendHttpError } from "./http-utils.js";
 import { rejectUpgrade } from "./websocket-utils.js";
+import { TRANSPORT_HEADER, parseTransportOffer, type TransportOffer } from "@hermes-remote/protocol";
 
 interface GatewayServerOptions<TConnector> {
   port: number;
@@ -26,7 +27,8 @@ interface GatewayServerOptions<TConnector> {
   rejectAppUpgrade(socket: NodeJS.WritableStream, error: unknown): void;
   atWebSocketCapacity(): boolean;
   attachLegacyControl(socket: WebSocket): void;
-  attachAccountConnector(socket: WebSocket, sourceIp: string): void;
+  transportIsolationEnabled?: boolean;
+  attachAccountConnector(socket: WebSocket, sourceIp: string, transport?: TransportOffer): void;
   openAppWebSocket(
     socket: WebSocket,
     request: IncomingMessage,
@@ -87,6 +89,7 @@ export function appWebSocketServerOptions(maxPayload: number): ServerOptions {
 export class GatewayServer<TConnector> {
   private readonly controlWss: WebSocketServer;
   private readonly accountControlWss: WebSocketServer;
+  private readonly lightweightWss: WebSocketServer;
   private readonly appWss: WebSocketServer;
   private readonly voiceWss: WebSocketServer;
   private readonly server: ReturnType<typeof createServer>;
@@ -118,6 +121,7 @@ export class GatewayServer<TConnector> {
 
     this.controlWss = new WebSocketServer(connectorWebSocketServerOptions(options.maxWirePayloadBytes));
     this.accountControlWss = new WebSocketServer(connectorWebSocketServerOptions(options.maxWirePayloadBytes));
+    this.lightweightWss = new WebSocketServer(appWebSocketServerOptions(16 * 1024));
     this.appWss = new WebSocketServer(appWebSocketServerOptions(options.maxAppPayloadBytes));
     this.voiceWss = new WebSocketServer(appWebSocketServerOptions(64 * 1024));
     this.controlHeartbeat = new ControlHeartbeat(
@@ -143,6 +147,7 @@ export class GatewayServer<TConnector> {
     this.controlHeartbeat.stop();
     for (const client of this.controlWss.clients) client.close(1012, "gateway restarting");
     for (const client of this.accountControlWss.clients) client.close(1012, "gateway restarting");
+    for (const client of this.lightweightWss.clients) client.close(1012, "gateway restarting");
     for (const client of this.appWss.clients) client.close(1012, "gateway restarting");
     for (const client of this.voiceWss.clients) client.close(1012, "gateway restarting");
     this.server.close(() => {
@@ -179,8 +184,10 @@ export class GatewayServer<TConnector> {
           rejectUpgrade(socket, 503, "Control connection capacity reached");
           return;
         }
-        this.accountControlWss.handleUpgrade(request, socket, head, (webSocket) => {
-          this.accountControlWss.emit("connection", webSocket, request, sourceIp);
+        const offer = this.options.transportIsolationEnabled ? parseTransportOffer(request.headers[TRANSPORT_HEADER]) : undefined;
+        const server = offer?.role === "control" ? this.lightweightWss : this.accountControlWss;
+        server.handleUpgrade(request, socket, head, (webSocket) => {
+          server.emit("connection", webSocket, request, sourceIp);
         });
         return;
       }
@@ -224,7 +231,7 @@ export class GatewayServer<TConnector> {
       this.controlHeartbeat.track(socket, "legacy");
       this.options.attachLegacyControl(socket);
     });
-    this.accountControlWss.on("connection", (
+    const attachAccount = (
       socket: WebSocket,
       _request: IncomingMessage,
       sourceIp: string,
@@ -233,9 +240,12 @@ export class GatewayServer<TConnector> {
         socket.close(1013, "account Connector disabled");
         return;
       }
-      this.controlHeartbeat.track(socket, "account");
-      this.options.attachAccountConnector(socket, sourceIp);
-    });
+      const offer = this.options.transportIsolationEnabled ? parseTransportOffer(_request.headers[TRANSPORT_HEADER]) : undefined;
+      if (!offer) this.controlHeartbeat.track(socket, "account");
+      this.options.attachAccountConnector(socket, sourceIp, offer);
+    };
+    this.accountControlWss.on("connection", attachAccount);
+    this.lightweightWss.on("connection", attachAccount);
     this.appWss.on("connection", (
       socket: WebSocket,
       request: IncomingMessage,
@@ -249,6 +259,6 @@ export class GatewayServer<TConnector> {
   }
 
   private get controlConnectionCount(): number {
-    return this.controlWss.clients.size + this.accountControlWss.clients.size;
+    return this.controlWss.clients.size + this.accountControlWss.clients.size + this.lightweightWss.clients.size;
   }
 }

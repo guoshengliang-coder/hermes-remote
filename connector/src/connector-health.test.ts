@@ -30,7 +30,7 @@ test("a public 200 health/status cannot turn invalid credentials into healthy", 
       if (path === "/api/status") return json({ version: "0.20.6" });
       return json({ detail: "fixture-secret must stay on Mac" }, 401);
     } }, new AbortController().signal);
-    assert.deepEqual(result, { reachable: false });
+    assert.deepEqual(result, { reachable: false, reason: "auth" });
     assert.equal(paths.includes("/api/sessions?limit=1"), false, "401 must not fall back to another path");
     assert.equal(JSON.stringify(result).includes("fixture-secret"), false);
   }
@@ -56,23 +56,23 @@ test("upstream server failures do not hide behind compatibility fallbacks", asyn
     assert.deepEqual(await probeHermesHealth({ hasCredentials: true, request: async (path) => {
       seen.push(path);
       return path === "/api/health" && !failHealth ? json({ ok: true }) : json({}, 503);
-    } }, new AbortController().signal), { reachable: false });
+    } }, new AbortController().signal), { reachable: false, reason: "unavailable" });
     assert.deepEqual(seen, failHealth ? ["/api/health"] : ["/api/health", "/api/profiles/active"]);
   }
 });
 
 test("errors, malformed/oversized health, missing credentials and expired shared deadline fail closed", async () => {
   for (const response of [json({ ok: false }), new Response("not JSON"), new Response(" ".repeat(70_000))]) {
-    assert.deepEqual(await probeHermesHealth({ hasCredentials: false, request: async () => response },
-      new AbortController().signal), { reachable: false });
+    assert.equal((await probeHermesHealth({ hasCredentials: false, request: async () => response },
+      new AbortController().signal)).reachable, false);
   }
   assert.deepEqual(await probeHermesHealth({ hasCredentials: false,
-    request: async () => json({ ok: true, auth_required: true }) }, new AbortController().signal), { reachable: false });
+    request: async () => json({ ok: true, auth_required: true }) }, new AbortController().signal), { reachable: false, reason: "auth" });
   const controller = new AbortController();
   assert.deepEqual(await probeHermesHealth({ hasCredentials: true, request: async (path) => {
     if (path === "/api/health") return json({ ok: true });
     controller.abort(); return json({ active: "default" });
-  } }, controller.signal), { reachable: false });
+  } }, controller.signal), { reachable: false, reason: "timeout" });
 });
 
 test("a stalled probe expires at 10s and returns degraded health while the responder stays usable", async (t) => {

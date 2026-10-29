@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test, { type TestContext } from "node:test";
 import { WebSocket } from "ws";
-import { encodeWireMessage, type WireMessage } from "@hermes-remote/protocol";
+import { encodeWireMessage, type WireMessage, type TransportOffer } from "@hermes-remote/protocol";
 import { AccountConnectorSessionHandler, ACCOUNT_CONNECTOR_PREFLIGHT_TIMEOUT_MS, ACCOUNT_CONNECTOR_HEALTH_INTERVAL_MS } from "./account-connector-session.js";
 import { AccountConnectorAdmission } from "./account-connector-admission.js";
 import type { AccountGatewayControl } from "./account/account-runtime.js";
@@ -15,9 +15,11 @@ const material: BindingProofMaterial = {
 };
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-function fixture(t: TestContext, overrides: Partial<AccountGatewayControl> = {}) {
+function fixture(t: TestContext, overrides: Partial<AccountGatewayControl> = {}, offer?: TransportOffer) {
   const socket = Object.assign(new EventEmitter(), {
     readyState: WebSocket.OPEN as number,
+    ping(_nonce: string, _mask: unknown, written: () => void) { written(); },
+    terminate() { socket.close(1006, "terminated"); },
     close(code: number, reason: string) {
       closes.push({ code, reason });
       Object.assign(socket, { readyState: WebSocket.CLOSED });
@@ -48,7 +50,7 @@ function fixture(t: TestContext, overrides: Partial<AccountGatewayControl> = {})
     route: (_peer, message) => routed.push(message), register: (peer) => registered.push(peer),
     unregister: () => true, reportFailure: () => {},
   });
-  handler.attach(socket, "127.0.0.1");
+  handler.attach(socket, "127.0.0.1", offer);
   t.after(() => socket.close(1000, "test complete"));
   const message = (value: WireMessage) => socket.emit("message", Buffer.from(encodeWireMessage(value)));
   const authenticate = async () => {
@@ -69,8 +71,34 @@ function fixture(t: TestContext, overrides: Partial<AccountGatewayControl> = {})
     type: "connector.preflight.result", version: 2, requestId, hermesReachable: reachable,
     ...(reachable ? { hermesVersion: "0.21.3" } : {}),
   });
-  return { socket, closes, sent, registered, routed, health, authenticate, probe, reply };
+  return { socket, closes, sent, registered, routed, health, authenticate, probe, reply, message, handler };
 }
+
+const transport: TransportOffer = { version: 1, role: "business", instanceId: "20000000-0000-4000-8000-000000000001", generation: 1 };
+test("negotiated missing health report stays unknown and storage failure cannot turn local healthy into failed", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  let writes = 0;
+  const f = fixture(t, { recordConnectorHealth: async () => { if (++writes > 1) throw new Error("database unavailable"); return true; } }, transport);
+  await f.authenticate();
+  t.mock.timers.tick(15_000); await settle();
+  assert.equal(f.handler.transports.snapshot(material.id, 1)?.local, "unknown");
+  t.mock.timers.tick(5_000); await settle();
+  f.message({ type: "connector.preflight.result", version: 2, requestId: f.probe().requestId, hermesReachable: true,
+    health: { state: "healthy", reason: "ok", ageMs: 0, sequence: 1 } });
+  await settle();
+  assert.equal(f.handler.transports.snapshot(material.id, 1)?.local, "healthy");
+  assert.equal(f.registered.length, 1); assert.equal(f.closes.length, 0);
+});
+
+test("proof from a different socket nonce never reaches the authentication service", async (t) => {
+  let proofs = 0;
+  const f = fixture(t, { authenticateConnector: async () => { proofs++; return material; } });
+  f.message({ type: "connector.identify", version: 2, bindingId: material.id, generation: 1, publicKeyFingerprint: material.publicKeyFingerprint });
+  await settle();
+  f.message({ type: "connector.authenticate", version: 2, bindingId: material.id, generation: 1, publicKeyFingerprint: material.publicKeyFingerprint,
+    connectionNonce: Buffer.alloc(24, 1).toString("base64url"), signature: Buffer.alloc(64).toString("base64url") });
+  await settle(); assert.equal(proofs, 0); assert.equal(f.closes[0]?.code, 4401);
+});
 
 test("an authenticated Connector can finish health preflight after five seconds", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout", "Date"] });

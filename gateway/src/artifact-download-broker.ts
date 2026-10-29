@@ -26,7 +26,7 @@ export class ArtifactDownloadBroker {
   private readonly active = new Map<WebSocket, { reference: string; count: number }>();
   constructor(
     private readonly send: (socket: WebSocket, message: WireMessage) => unknown,
-    private readonly idleMs = 30_000,
+    private readonly idleMs = 75_000,
     private readonly capacity = 64,
     readonly maxConcurrentRanges = 4,
   ) {}

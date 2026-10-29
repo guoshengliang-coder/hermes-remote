@@ -36,6 +36,8 @@ test("binding Nginx include exposes only singular binding HTTP and V2 Connector 
   assert.match(routes, /location \^~ \/v2\/connector-binding\//);
   assert.match(routes, /location = \/v2\/connect/);
   assert.match(routes, /proxy_set_header Upgrade \$http_upgrade/);
+  assert.match(routes, /proxy_read_timeout 75s;\s+proxy_send_timeout 75s;/,
+    "Connector lanes need a proxy budget longer than the 45s congestion grace");
   for (const forbidden of ["/v2/devices", "/v2/installations", "/v2/auth/google", "/v2/web/"]) {
     assert.equal(routes.includes(forbidden), false);
   }

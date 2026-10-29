@@ -1,10 +1,10 @@
-import { ACCOUNT_CONNECTOR_PROTOCOL_VERSION, type ConnectorPreflightRequest, type ConnectorPreflightResult } from "@hermes-remote/protocol";
+import { ACCOUNT_CONNECTOR_PROTOCOL_VERSION, type ConnectorPreflightRequest, type ConnectorPreflightResult, type LocalHealthReason } from "@hermes-remote/protocol";
 import { displayVersion } from "./hermes-contract.js";
 import { boundedResponseBody, type HermesAuth } from "./hermes-auth.js";
 
 export const CONNECTOR_HEALTH_PROBE_TIMEOUT_MS = 10_000;
 const MAX_HEALTH_BYTES = 64 * 1024;
-export interface HermesHealth { reachable: boolean; version?: string }
+export interface HermesHealth { reachable: boolean; version?: string; reason?: LocalHealthReason }
 
 /** Prefer process liveness plus a small protected read: /api/health itself is public upstream. */
 export async function probeHermesHealth(auth: Pick<HermesAuth, "request" | "hasCredentials">, signal: AbortSignal): Promise<HermesHealth> {
@@ -15,7 +15,7 @@ export async function probeHermesHealth(auth: Pick<HermesAuth, "request" | "hasC
       await response.body?.cancel();
       response = await auth.request("/api/status", { method: "GET", signal });
     }
-    if (!response.ok) { await response.body?.cancel(); return { reachable: false }; }
+    if (!response.ok) { await response.body?.cancel(); return { reachable: false, reason: [401, 403].includes(response.status) ? "auth" : "unavailable" }; }
     const value: unknown = JSON.parse(await boundedResponseBody(response, MAX_HEALTH_BYTES));
     if (!value || typeof value !== "object" || Array.isArray(value)) return { reachable: false };
     const status = value as Record<string, unknown>;
@@ -29,16 +29,19 @@ export async function probeHermesHealth(auth: Pick<HermesAuth, "request" | "hasC
         await proof.body?.cancel();
         proof = await auth.request("/api/sessions?limit=1", { method: "GET", signal });
       }
-      if (!proof.ok) { await proof.body?.cancel(); return { reachable: false }; }
+      if (!proof.ok) { await proof.body?.cancel(); return { reachable: false, reason: [401, 403].includes(proof.status) ? "auth" : "unavailable" }; }
       const proofValue: unknown = JSON.parse(await boundedResponseBody(proof, MAX_HEALTH_BYTES));
       if (!proofValue || typeof proofValue !== "object") return { reachable: false };
     } else if (status.auth_required === true) {
-      return { reachable: false };
+      return { reachable: false, reason: "auth" };
     }
     signal.throwIfAborted();
     return { reachable: true, ...(version ? { version } : {}) };
-  } catch {
-    return { reachable: false };
+  } catch (error) {
+    const code = (error as { cause?: { code?: string }; code?: string })?.cause?.code
+      ?? (error as { code?: string })?.code;
+    return { reachable: false, reason: signal.aborted ? "timeout" : code === "ECONNREFUSED" ? "refused"
+      : code === "HERMES_AUTH_FAILED" ? "auth" : "unavailable" };
   }
 }
 

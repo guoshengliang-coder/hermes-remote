@@ -151,6 +151,7 @@ data class AccountDeviceDto(
     val endToEnd: AccountEndToEndHealthDto = AccountEndToEndHealthDto(),
     val access: String,
     val isDefault: Boolean = false,
+    val connection: AccountConnectionHealthDto? = null,
 )
 
 @Serializable
@@ -163,6 +164,17 @@ data class AccountActiveBindingDto(
     val hermes: AccountHermesHealthDto = AccountHermesHealthDto(),
     val gateway: AccountGatewayHealthDto = AccountGatewayHealthDto(),
     val endToEnd: AccountEndToEndHealthDto = AccountEndToEndHealthDto(),
+    val connection: AccountConnectionHealthDto? = null,
+)
+
+@Serializable
+data class AccountConnectionHealthDto(
+    val version: Int = 1,
+    val business: String = "lost",
+    val control: String = "lost",
+    val local: String = "unknown",
+    val localReason: String = "unavailable",
+    val healthAgeMs: Long = 60_000,
 )
 
 @Serializable
@@ -180,6 +192,7 @@ fun AccountActiveBindingDto.asOwnedDevice(): AccountDeviceDto = AccountDeviceDto
     hermes = hermes,
     gateway = gateway,
     endToEnd = endToEnd,
+    connection = connection,
     access = "owner",
     isDefault = true,
 )

@@ -218,7 +218,10 @@ async function stageRuntime(root) {
     .filter((name) => name.endsWith(".js") && !name.endsWith(".test.js"))
     .sort();
   for (const name of connectorFiles) await copyFile(path.join("connector/dist", name), root);
-  await copyFile("protocol/dist/index.js", root);
+  const protocolFiles = (await readdir(path.join(repoRoot, "protocol/dist")))
+    .filter((name) => name.endsWith(".js") && !name.endsWith(".test.js"))
+    .sort();
+  for (const name of protocolFiles) await copyFile(path.join("protocol/dist", name), root);
 }
 
 function verifyStagedSmokeEntrypoint(root) {

@@ -398,3 +398,7 @@ then deploy Gateway before the Web bundle. Disabling the flag restores foregroun
 `ACCOUNT_MODEL_SYNC_ENABLED` 默认 0，与 `ACCOUNT_DATA_SYNC_ENABLED` 独立。要求 schema20
 与兼容 Web/Android，具体门禁见 [ACCOUNT_DATA_SYNC_MODELS.md](ACCOUNT_DATA_SYNC_MODELS.md)。
 R4 环境重建仅保留已明确配置的 0/1，不自动添加或开启。无新秘密文件、端口或独立服务。
+
+## HG-244 optional transport isolation
+
+`CONNECTOR_TRANSPORT_ISOLATION=1` opts a Connector and Gateway into negotiated independent control/business sockets. Default is off on both sides; an old Gateway produces a one-socket fallback. Connector instance IDs are process-local, not credentials. The existing per-Mac `FILE_DOWNLOAD_BYTES_PER_SECOND` also budgets negotiated bulk business fragments and upload acknowledgements. See `HG_244_CONGESTION.md` for thresholds, cancellation, timeout alignment and authorized rollout. No production flag is changed by this source update.

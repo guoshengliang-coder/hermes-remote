@@ -8,6 +8,21 @@ public enum AccountDeviceHealth {
     ) -> DesktopHealthSnapshot {
         let reportedAt = device.endToEnd.checkedAt.flatMap(parseCanonicalTimestamp) ?? .distantPast
         let accountFresh = isFresh(checkedAt, now: now)
+        if let connection = device.connection, connection.version == 1, accountFresh {
+            let elapsed = max(0, now.timeIntervalSince(checkedAt))
+            let localFresh = Double(connection.healthAgeMs) + elapsed * 1000 < 60_000
+            let local = ComponentHealth(component: .hermes,
+                level: !localFresh || connection.local == "unknown" ? .unavailable
+                    : connection.local == "healthy" ? .healthy : connection.local == "unhealthy" ? .failed : .degraded,
+                detail: !localFresh || connection.local == "unknown" ? "Hermes 状态待刷新"
+                    : connection.local == "healthy" ? "Hermes 可访问"
+                    : connection.local == "unhealthy" ? "HR-CONN-006 · 请在 Mac 上检查 Hermes" : "Hermes 响应较慢，正在复查",
+                checkedAt: checkedAt)
+            return DesktopHealthSnapshot(components: [connectorHealth(device, checkedAt: checkedAt),
+                gatewayHealth(device, checkedAt: checkedAt), local,
+                ComponentHealth(component: .endToEnd, level: localFresh ? connection.level : .unavailable,
+                    detail: localFresh ? connection.summary : "Hermes 状态待刷新", checkedAt: checkedAt)], checkedAt: checkedAt)
+        }
         let reportFresh = accountFresh && isFresh(reportedAt, now: now)
         func pending(_ component: HealthComponent, _ date: Date) -> ComponentHealth {
             ComponentHealth(component: component, level: .unavailable,
@@ -31,6 +46,7 @@ public enum AccountDeviceHealth {
 
     public static func deviceSummary(_ device: AccountDevice, checkedAt: Date?, now: Date = Date()) -> String {
         guard isFresh(checkedAt, now: now) else { return "设备状态待刷新" }
+        if let connection = device.connection, connection.version == 1 { return connection.summary }
         let connector = device.connector.online ? "Desktop 在线" : "Desktop 离线"
         guard isFresh(device.endToEnd.checkedAt.flatMap(parseCanonicalTimestamp), now: now) else {
             return "\(connector) · Hermes 状态待更新"
@@ -111,6 +127,9 @@ public enum AccountDeviceHealth {
         _ device: AccountDevice,
         checkedAt: Date
     ) -> ComponentHealth {
+        if let connection = device.connection, connection.version == 1 {
+            return ComponentHealth(component: .endToEnd, level: connection.level, detail: connection.summary, checkedAt: checkedAt)
+        }
         switch device.endToEnd.healthy {
         case .some(true):
             return ComponentHealth(

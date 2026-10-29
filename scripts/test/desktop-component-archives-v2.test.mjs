@@ -46,6 +46,10 @@ test("v2 builder creates the two independently reusable release components", asy
     const identity = JSON.parse(await readFile(path.join(extracted, "BUILD-IDENTITY.json"), "utf8"));
     assert.equal(identity.schemaVersion, 2);
     assert.equal(identity.component, artifact.component);
+    if (artifact.component === "connector") {
+      assert.equal(run(process.execPath, ["--input-type=module", "-e",
+        "console.log((await import('./app/node_modules/@hermes-remote/protocol/dist/index.js')).protocol)"], extracted).trim(), "2");
+    }
   }
 
   const nodeNames = archiveNames(result, "node_runtime");
@@ -154,7 +158,9 @@ export function loadHermesSessionToken({ file }) {
   await writeFile(path.join(repo, "protocol/package.json"), JSON.stringify({
     name: "@hermes-remote/protocol", version: "0.1.0", type: "module", main: "dist/index.js",
   }));
-  await writeFile(path.join(repo, "protocol/dist/index.js"), "export const protocol = 2;\n");
+  await writeFile(path.join(repo, "protocol/dist/index.js"), "export { protocol } from './transport-health.js';\n");
+  await writeFile(path.join(repo, "protocol/dist/transport-health.js"), "export const protocol = 2;\n");
+  await writeFile(path.join(repo, "protocol/dist/transport-health.test.js"), "throw new Error('do not ship');\n");
   await writeFile(path.join(repo, "node_modules/ws/package.json"), JSON.stringify({
     name: "ws", version: "8.18.3", type: "commonjs", main: "index.js",
   }));

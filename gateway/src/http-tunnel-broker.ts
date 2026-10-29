@@ -11,6 +11,7 @@ import {
 } from "./http-utils.js";
 
 interface HttpConnector {
+  transport?: unknown;
   socket: WebSocket;
   deviceId: string;
   routingKey: string;
@@ -194,7 +195,7 @@ export class HttpTunnelBroker {
           filled += count;
           offset += count;
           if (filled === PHONE_UPLOAD_CHUNK_BYTES) {
-            await this.sendUploadChunk(id, sequence++, connector.socket, frame);
+            await this.sendUploadChunk(id, sequence++, connector.socket, frame, connector.transport ? 75_000 : 30_000);
             filled = 0;
           }
         }
@@ -204,7 +205,7 @@ export class HttpTunnelBroker {
         sendHttpError(response, 400, "empty_file");
         return;
       }
-      if (filled > 0) await this.sendUploadChunk(id, sequence, connector.socket, frame.subarray(0, filled));
+      if (filled > 0) await this.sendUploadChunk(id, sequence, connector.socket, frame.subarray(0, filled), connector.transport ? 75_000 : 30_000);
       if (this.send(connector.socket, {
         type: "tunnel.http.request.end", version: PROTOCOL_VERSION, requestId: id,
       }) === false) throw new UploadSocketBusy();
@@ -266,11 +267,11 @@ export class HttpTunnelBroker {
     }
   }
 
-  private sendUploadChunk(id: string, sequence: number, socket: WebSocket, bytes: Buffer): Promise<void> {
+  private sendUploadChunk(id: string, sequence: number, socket: WebSocket, bytes: Buffer, timeoutMs: number): Promise<void> {
     return this.sendUploadFrameAndWait(id, sequence, socket, {
       type: "tunnel.http.request.chunk", version: PROTOCOL_VERSION, requestId: id,
       sequence, dataBase64: bytes.toString("base64"),
-    }, 30_000);
+    }, timeoutMs);
   }
 
   private sendUploadFrameAndWait(

@@ -5,6 +5,8 @@ import { homedir } from "node:os";
 import { basename, extname, resolve, sep } from "node:path";
 import {
   ACCOUNT_CONNECTOR_PROTOCOL_VERSION,
+  LinkHeartbeat, TRANSPORT_HEADER, transportOfferHeader, type TransportOffer,
+  BusinessWire, businessFlow,
   PROTOCOL_VERSION,
   MAX_PHONE_UPLOAD_BYTES,
   PHONE_UPLOAD_CHUNK_BYTES,
@@ -49,6 +51,8 @@ import { HermesContractMonitor } from "./hermes-contract-monitor.js";
 import { resolveHermesMode, type ConnectorMode } from "./connector-config.js";
 import { ControlReconnectBackoff } from "./control-reconnect.js";
 import { ControlHeartbeatDiagnostics } from "./control-heartbeat-diagnostics.js";
+import { LocalHealthMonitor } from "./local-health-monitor.js";
+import { ControlLane } from "./control-lane.js";
 import { ConnectorHealthResponder, probeHermesHealth, CONNECTOR_HEALTH_PROBE_TIMEOUT_MS } from "./connector-health.js";
 import {
   isThumbnailable,
@@ -149,6 +153,7 @@ const localErrors = new Map<string, string>();
 const inFlightHttpRequests = new InFlightHttpRequests();
 const responseChunkWaiters = new ResponseChunkWaiters();
 interface StreamUpload {
+  controller: AbortController;
   socket: WebSocket;
   handle: FileHandle;
   partial: string;
@@ -163,8 +168,17 @@ const reconnectBackoff = new ControlReconnectBackoff(controlHeartbeatMs);
 let controlSocket: WebSocket | undefined;
 let controlAuthenticated = false;
 let stopping = false;
+let shuttingDown = false;
 let lifecycleObserver: HermesSessionObserver | undefined;
 const healthResponders = new WeakMap<WebSocket, ConnectorHealthResponder>();
+const transportEnabled = connectorMode === "account" && process.env.CONNECTOR_TRANSPORT_ISOLATION === "1";
+const connectorInstanceId = randomUUID();
+let businessGeneration = 0;
+const transportOffers = new WeakMap<WebSocket, TransportOffer>();
+const negotiatedSockets = new WeakSet<WebSocket>();
+const linkHeartbeats = new WeakMap<WebSocket, LinkHeartbeat>();
+const businessWires = new WeakMap<WebSocket, BusinessWire>();
+const handshakeTimers = new WeakMap<WebSocket, NodeJS.Timeout>();
 
 if (!isWithinRoot(uploadRoot, filesRoot)) {
   throw new Error("UPLOAD_ROOT must be inside FILES_ROOT so uploaded attachments remain downloadable");
@@ -181,7 +195,12 @@ function connect(): void {
   const socket = new WebSocket(gatewayUrl, {
     handshakeTimeout: localSocketConnectTimeoutMs,
     maxPayload: maxWirePayloadBytes,
+    ...(transportEnabled ? { headers: { [TRANSPORT_HEADER]: transportOfferHeader({
+      version: 1, role: "business", instanceId: connectorInstanceId, generation: ++businessGeneration,
+    }) } } : {}),
   });
+  if (transportEnabled) transportOffers.set(socket, { version: 1, role: "business", instanceId: connectorInstanceId, generation: businessGeneration });
+  if (transportEnabled) handshakeTimers.set(socket, setTimeout(() => socket.terminate(), 25_000));
   let heartbeatTimer: NodeJS.Timeout | undefined;
   let awaitingPong = false;
   const controlConnectionId = randomUUID();
@@ -220,6 +239,7 @@ function connect(): void {
     // one interval to answer, then terminates it so the normal reconnect path takes over.
     heartbeatTimer = setInterval(() => {
       if (controlSocket !== socket || socket.readyState !== WebSocket.OPEN) return;
+      if (negotiatedSockets.has(socket)) return;
       const heartbeatFields = heartbeatDiagnostics.tick(socket.bufferedAmount);
       if (awaitingPong) {
         log.error("relay.heartbeat_timeout", {
@@ -234,8 +254,9 @@ function connect(): void {
     }, controlHeartbeatMs);
   });
 
-  socket.on("pong", () => {
+  socket.on("pong", (data) => {
     if (controlSocket !== socket) return;
+    linkHeartbeats.get(socket)?.pong(data.toString());
     heartbeatDiagnostics.pong();
     if (awaitingPong) reconnectBackoff.markPong();
     awaitingPong = false;
@@ -251,6 +272,9 @@ function connect(): void {
   socket.on("ping", () => heartbeatDiagnostics.receivedPing());
 
   socket.on("close", (code) => {
+    clearTimeout(handshakeTimers.get(socket));
+    businessWires.get(socket)?.stop();
+    linkHeartbeats.get(socket)?.stop();
     healthResponder.stop();
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     log.info("relay.disconnected", {
@@ -258,6 +282,8 @@ function connect(): void {
       lifetimeMs: Math.round(performance.now() - startedAt), stopping,
       ...heartbeatDiagnostics.tick(socket.bufferedAmount),
     });
+    if (controlSocket !== socket) return;
+    if (code === 4401 || code === 4409) revokeTransport();
     inFlightHttpRequests.abortAll("control_socket_closed");
     fileDownloads.clear();
     responseChunkWaiters.rejectAll(new Error("control_socket_closed"));
@@ -271,18 +297,51 @@ function connect(): void {
 }
 
 async function handleGatewayMessage(socket: WebSocket, raw: string): Promise<void> {
+  if (businessWires.has(socket)) {
+    try {
+      const decoded = businessWires.get(socket)!.receive(raw);
+      if (decoded === undefined) return;
+      raw = decoded;
+    } catch { socket.close(1008, "invalid business fragments"); return; }
+  }
   const message = parseWireMessage(raw);
   if (accountAuthenticator) {
     switch (message.type) {
       case "connector.challenge":
+        if (message.transport) {
+          const offer = transportOffers.get(socket);
+          if (!offer || transportOfferHeader(offer) !== transportOfferHeader(message.transport)) throw new Error("transport negotiation mismatch");
+          negotiatedSockets.add(socket);
+          businessWires.set(socket, new BusinessWire((data) => socket.send(data), () => socket.bufferedAmount,
+            () => socket.close(1008, "invalid business fragments"), () => performance.now(),
+            (bytes, signal) => fileDownloads.budget.take(bytes, signal), maxWirePayloadBytes));
+        }
         sendControl(socket, accountAuthenticator.authenticate(message));
         return;
       case "connector.preflight.request": {
+        if (negotiatedSockets.has(socket)) {
+          if (localHealth.snapshot().sequence === 0) await localHealth.start();
+          const health = localHealth.snapshot();
+          if (controlSocket === socket) sendControl(socket, { type: "connector.preflight.result", version: 2,
+            requestId: message.requestId, hermesReachable: health.state === "healthy", health,
+            ...(localHealth.version ? { hermesVersion: localHealth.version } : {}) });
+          return;
+        }
         await healthResponders.get(socket)?.respond(message);
         return;
       }
       case "connector.ready":
         accountAuthenticator.requireReady(message);
+        clearTimeout(handshakeTimers.get(socket));
+        if (controlSocket !== socket) return;
+        if (negotiatedSockets.has(socket)) {
+          if (!message.transport || transportOfferHeader(message.transport) !== transportOfferHeader(transportOffers.get(socket)!)) throw new Error("transport ready mismatch");
+          const heartbeat = new LinkHeartbeat((nonce, done) => socket.ping(nonce, undefined, done),
+            (state, diagnostics) => { log.info("relay.link_state", { lane: "business", state, ...diagnostics }); fileDownloads.setLinkState("business", state); },
+            () => socket.terminate());
+          linkHeartbeats.set(socket, heartbeat); heartbeat.start(); fileDownloads.setLinkState("business", "normal");
+          if (message.routingEnabled) independentControl?.start();
+        } else { independentControl?.stop(); fileDownloads.budget.reset(); }
         deviceId = message.deviceId;
         controlAuthenticated = message.routingEnabled;
         if (message.routingEnabled) reconnectBackoff.markReady();
@@ -327,10 +386,7 @@ async function handleGatewayMessage(socket: WebSocket, raw: string): Promise<voi
       await handleStreamUploadEnd(socket, message.requestId);
       return;
     case "tunnel.http.cancel":
-      void abortStreamUpload(message.requestId);
-      if (inFlightHttpRequests.cancel(message.requestId, message.reason)) {
-        log.info("http.cancelled", { requestId: message.requestId, reason: message.reason });
-      }
+      cancelRequest(message.requestId, message.reason);
       return;
     case "tunnel.ws.open":
       await openTunnelSocket(socket, message);
@@ -353,6 +409,7 @@ async function handleTunnelHttp(socket: WebSocket, request: TunnelHttpRequest): 
   if (request.targetDeviceId !== deviceId) return;
   const startedAt = Date.now();
   const controller = inFlightHttpRequests.begin(request.id);
+  if (controller.signal.aborted) { inFlightHttpRequests.finish(request.id, controller); return; }
   let streamStarted = false;
   try {
     switch (tunnelHttpRoute(request.path)) {
@@ -439,7 +496,7 @@ async function handleTunnelHttp(socket: WebSocket, request: TunnelHttpRequest): 
   }
 }
 
-function sendResponseChunk(
+async function sendResponseChunk(
   socket: WebSocket,
   requestId: string,
   sequence: number,
@@ -450,7 +507,7 @@ function sendResponseChunk(
   const waiting = responseChunkWaiters.wait(
     requestId,
     sequence,
-    httpResponseChunkAckTimeoutMs,
+    negotiatedSockets.has(socket) ? Math.max(75_000, httpResponseChunkAckTimeoutMs) : httpResponseChunkAckTimeoutMs,
     signal,
   );
   if (signal.aborted) return waiting;
@@ -700,14 +757,21 @@ async function handleStreamUploadStart(socket: WebSocket, request: TunnelHttpReq
     return;
   }
   const partial = `${path}.part`;
+  const controller = inFlightHttpRequests.begin(request.id);
+  if (controller.signal.aborted) { inFlightHttpRequests.finish(request.id, controller); return; }
   try {
     await mkdir(uploadRoot, { recursive: true, mode: 0o700 });
     const handle = await open(partial, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
-    streamUploads.set(request.id, { socket, handle, partial, path, name: requestedName, bytes: 0, nextSequence: 0 });
+    if (controller.signal.aborted || socket.readyState !== WebSocket.OPEN) {
+      await handle.close(); await unlink(partial).catch(() => undefined);
+      inFlightHttpRequests.finish(request.id, controller); return;
+    }
+    streamUploads.set(request.id, { controller, socket, handle, partial, path, name: requestedName, bytes: 0, nextSequence: 0 });
     sendControl(socket, {
       type: "tunnel.http.request.ack", version: PROTOCOL_VERSION, requestId: request.id, sequence: -1,
     });
   } catch (error) {
+    inFlightHttpRequests.finish(request.id, controller);
     await unlink(partial).catch(() => undefined);
     console.error("File upload start failed", safeError(error));
     sendFileError(socket, request.id, 500, "file_upload_failed");
@@ -737,6 +801,10 @@ async function handleStreamUploadChunk(
     state.writing = undefined;
     state.bytes += bytes.length;
     state.nextSequence += 1;
+    if (negotiatedSockets.has(socket)) {
+      await fileDownloads.budget.take(bytes.length, state.controller.signal);
+      if (streamUploads.get(id) !== state) return;
+    }
     sendControl(socket, {
       type: "tunnel.http.request.ack", version: PROTOCOL_VERSION, requestId: id, sequence,
     });
@@ -752,6 +820,8 @@ async function handleStreamUploadEnd(socket: WebSocket, id: string): Promise<voi
   const state = streamUploads.get(id);
   if (!state || state.socket !== socket) return;
   streamUploads.delete(id);
+  state.controller.abort();
+  inFlightHttpRequests.finish(id, state.controller);
   if (state.bytes === 0) {
     await state.handle.close().catch(() => undefined);
     await unlink(state.partial).catch(() => undefined);
@@ -779,6 +849,8 @@ async function abortStreamUpload(id: string): Promise<void> {
   const state = streamUploads.get(id);
   if (!state) return;
   streamUploads.delete(id);
+  state.controller.abort();
+  inFlightHttpRequests.finish(id, state.controller);
   await state.writing?.catch(() => undefined);
   await state.handle.close().catch(() => undefined);
   await unlink(state.partial).catch(() => undefined);
@@ -1302,6 +1374,12 @@ function emit(socket: WebSocket, requestId: string, event: RelayEvent["event"], 
 function sendControl(socket: WebSocket, message: WireMessage): boolean {
   if (socket.readyState !== WebSocket.OPEN) return false;
   const encoded = encodeWireMessage(message);
+  const wire = businessWires.get(socket);
+  if (wire) {
+    const sent = wire.send(encoded, businessFlow(message));
+    if (!sent) socket.close(1013, "business queue capacity");
+    return sent;
+  }
   if (socket.bufferedAmount + Buffer.byteLength(encoded) > maxControlBufferedBytes) {
     console.error("Control socket backpressure limit reached; reconnecting");
     socket.close(1013, "backpressure limit reached");
@@ -1338,6 +1416,29 @@ const hermesAuth = new HermesAuth({
   username: process.env.HERMES_BASIC_AUTH_USERNAME,
   password: process.env.HERMES_BASIC_AUTH_PASSWORD,
 });
+const localHealth = new LocalHealthMonitor((signal) => probeHermesHealth(hermesAuth, signal));
+const independentControl = transportEnabled && accountAuthenticator ? new ControlLane(
+  gatewayUrl, connectorInstanceId, accountAuthenticator, localHealth,
+  (state, diagnostics) => { log.info("relay.link_state", { lane: "control", state, ...diagnostics }); fileDownloads.setLinkState("control", state); },
+  revokeTransport,
+  cancelRequest,
+) : undefined;
+if (transportEnabled) void localHealth.start();
+
+function cancelRequest(requestId: string, reason: string): void {
+  if (controlSocket) businessWires.get(controlSocket)?.cancel(requestId);
+  inFlightHttpRequests.cancel(requestId, reason);
+  void abortStreamUpload(requestId);
+}
+
+function revokeTransport(): void {
+  stopping = true;
+  independentControl?.stop(); localHealth.stop(); lifecycleObserver?.stop();
+  inFlightHttpRequests.abortAll("device_session_revoked"); fileDownloads.clear();
+  responseChunkWaiters.rejectAll(new Error("device_session_revoked"));
+  void abortAllStreamUploads(); closeLocalSockets();
+  controlSocket?.close(4401, "device session revoked");
+}
 
 const contractMonitor = new HermesContractMonitor(
   {
@@ -1399,8 +1500,10 @@ async function readHermesStatus(): Promise<{ reachable: boolean; version?: strin
 
 
 function shutdown(signal: string): void {
-  if (stopping) return;
+  if (shuttingDown) return;
+  shuttingDown = true;
   stopping = true;
+  independentControl?.stop(); localHealth.stop(); fileDownloads.clear();
   if (controlSocket) healthResponders.get(controlSocket)?.stop();
   console.log(`Received ${signal}; closing Connector`);
   lifecycleObserver?.stop();

@@ -1,7 +1,7 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { ServerResponse } from "node:http";
 import { WebSocket } from "ws";
-import { encodeWireMessage, type WireMessage } from "@hermes-remote/protocol";
+import { BusinessWire, businessFlow, encodeWireMessage, type WireMessage } from "@hermes-remote/protocol";
 import { AccountConnectorAdmission } from "./account-connector-admission.js";
 import { AccountConnectorSessionHandler } from "./account-connector-session.js";
 import { AppWebSocketAuthorizer } from "./app-websocket-authorizer.js";
@@ -64,6 +64,7 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
   const lifecycleEvents = new LifecycleEventStore(lifecycleEventStoreFile, maxLifecycleEvents, log);
   const accountRuntime = createAccountRuntime(environment, release, Boolean(doubaoAsrApiKey));
   const connectorRegistry = new InMemoryConnectorRegistry<GatewayPeer>();
+  const businessWires = new WeakMap<WebSocket, BusinessWire>();
   const accountConnectorAdmission = new AccountConnectorAdmission(
     maxUnauthenticatedAccountConnectors,
     maxUnauthenticatedAccountConnectorsPerIp,
@@ -92,6 +93,9 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
   const fileDownloads = new ArtifactDownloadBroker(send);
   const unsubscribeAccessRevocations = accountRuntime.gatewayControl?.subscribeAccessRevocations?.(
     (event) => {
+      if (event.kind === "account" || event.kind === "binding") {
+        accountConnectorSessions?.transports.revoke(event.accountId, event.kind === "binding" ? event.bindingId : undefined);
+      }
       voiceProxy.revoke(event);
       fileDownloads.revalidateAll();
       switch (event.kind) {
@@ -147,6 +151,7 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
   });
   const accountConnectorSessions = accountRuntime.gatewayControl
     ? new AccountConnectorSessionHandler({
+        receive: (socket, raw) => businessWires.has(socket) ? businessWires.get(socket)!.receive(raw) : raw,
         control: accountRuntime.gatewayControl,
         admission: accountConnectorAdmission,
         send,
@@ -157,6 +162,7 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
         log,
       })
     : undefined;
+  accountRuntime.controller.setConnectionHealth((bindingId, generation) => accountConnectorSessions?.transports.snapshot(bindingId, generation));
   const httpRouter = new GatewayHttpRouter({
     accountController: accountRuntime.controller,
     ...(accountRuntime.resendWebhook ? { resendWebhook: accountRuntime.resendWebhook } : {}),
@@ -229,6 +235,7 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
     maxWirePayloadBytes,
     maxAppPayloadBytes,
     accountConnectorEnabled: Boolean(accountConnectorSessions),
+    transportIsolationEnabled: environment.CONNECTOR_TRANSPORT_ISOLATION === "1",
     accountConnectorAdmission,
     handleHttp: (request, response) => httpRouter.handle(request, response),
     authorizeAppWebSocket: (request, url) => appWebSocketAuthorizer.authorize(request, url),
@@ -243,8 +250,13 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
         : undefined);
     },
     attachLegacyControl: (socket) => legacyControlSessions.attach(socket),
-    attachAccountConnector: (socket, sourceIp) => {
-      if (accountConnectorSessions) accountConnectorSessions.attach(socket, sourceIp);
+    attachAccountConnector: (socket, sourceIp, transport) => {
+      if (transport?.role === "business") {
+        const wire = new BusinessWire((raw) => socket.send(raw), () => socket.bufferedAmount,
+          () => socket.close(1008, "invalid business fragments"), () => performance.now(), undefined, maxWirePayloadBytes);
+        businessWires.set(socket, wire); socket.once("close", () => wire.stop());
+      }
+      if (accountConnectorSessions) accountConnectorSessions.attach(socket, sourceIp, transport);
     },
     openAppWebSocket: (socket, request, connector) => {
       const access = connector.mode === "account"
@@ -273,9 +285,15 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
   });
 
   function send(socket: WebSocket, message: WireMessage): boolean {
+    if (message.type === "tunnel.http.cancel") {
+      businessWires.get(socket)?.cancel(message.requestId);
+      socket = accountConnectorSessions?.transports.controlFor(socket) ?? socket;
+    }
     if (socket.readyState !== WebSocket.OPEN) return false;
     const encoded = encodeWireMessage(message);
-    if (socket.bufferedAmount + Buffer.byteLength(encoded) > maxSocketBufferedBytes) {
+    const wire = businessWires.get(socket);
+    if (wire && wire.send(encoded, businessFlow(message))) return true;
+    if (wire || socket.bufferedAmount + Buffer.byteLength(encoded) > maxSocketBufferedBytes) {
       // A cancellation is tiny and frees Connector-side work; let it pass even when a previous
       // frame has filled the buffer.
       if (message.type === "tunnel.http.cancel") {
