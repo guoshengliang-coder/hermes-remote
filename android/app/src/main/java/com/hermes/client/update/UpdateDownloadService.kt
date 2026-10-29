@@ -231,7 +231,8 @@ class UpdateDownloadActionReceiver : BroadcastReceiver() {
 }
 
 internal fun formatUpdateBytes(bytes: Long): String = when {
-    bytes >= 1024L * 1024L -> "%.1f MB".format(bytes / (1024.0 * 1024.0)) // l10n-allow: byte counter
-    bytes >= 1024L -> "%.0f KB".format(bytes / 1024.0) // l10n-allow: byte counter
+    bytes >= 1_000_000_000L -> "%.2f GB".format(bytes / 1_000_000_000.0) // l10n-allow: byte counter
+    bytes >= 1_000_000L -> "%.1f MB".format(bytes / 1_000_000.0) // l10n-allow: byte counter
+    bytes >= 1_000L -> "%.0f KB".format(bytes / 1_000.0) // l10n-allow: byte counter
     else -> "$bytes B" // l10n-allow: byte counter
 }

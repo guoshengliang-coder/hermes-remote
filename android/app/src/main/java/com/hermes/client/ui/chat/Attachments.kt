@@ -48,8 +48,9 @@ fun attachmentKind(mimeType: String, name: String): AttachmentKind = when {
 }
 
 fun attachmentSizeLabel(bytes: Long): String = when {
-    bytes >= 1024 * 1024 -> "%.1f MB".format(java.util.Locale.US, bytes / (1024.0 * 1024.0))
-    bytes >= 1024 -> "%.0f KB".format(java.util.Locale.US, bytes / 1024.0)
+    bytes >= 1_000_000_000L -> "%.2f GB".format(java.util.Locale.US, bytes / 1_000_000_000.0)
+    bytes >= 1_000_000L -> "%.1f MB".format(java.util.Locale.US, bytes / 1_000_000.0)
+    bytes >= 1_000L -> "%.0f KB".format(java.util.Locale.US, bytes / 1_000.0)
     else -> "$bytes B"
 }
 

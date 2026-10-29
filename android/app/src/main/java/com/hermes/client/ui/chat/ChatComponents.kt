@@ -16,6 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.Canvas
@@ -1959,6 +1960,10 @@ internal fun ChatFileList(
     onOpen: (ChatFile) -> Unit,
     onShare: (ChatFile) -> Unit,
     modifier: Modifier = Modifier,
+    // The artifacts sheet owns those two: it renders its own footer inside the card and the
+    // playback hint is redundant there (the card plays and the download button is right below).
+    showPlaybackHint: Boolean = true,
+    footer: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         files.forEach { file ->
@@ -2053,10 +2058,15 @@ internal fun ChatFileList(
                                 Text(localized(LocalAppLanguage.current, "已下载", "Downloaded"),
                                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             } else if (video && !info.tooLarge && task == null) {
-                                Text(if (info.limitKnown && !info.independentDownloads)
-                                    localized(LocalAppLanguage.current, "当前服务需先下载再播放", "This service downloads before playback")
-                                    else localized(LocalAppLanguage.current, "可在线播放，也可下载", "Play online or download"),
-                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                val hint = when {
+                                    info.limitKnown && !info.independentDownloads ->
+                                        localized(LocalAppLanguage.current, "当前服务需先下载再播放", "This service downloads before playback")
+                                    showPlaybackHint -> localized(LocalAppLanguage.current, "可在线播放，也可下载", "Play online or download")
+                                    else -> null
+                                }
+                                hint?.let {
+                                    Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             } else if (needsDownload && !info.tooLarge && task == null) {
                                 Text(localized(LocalAppLanguage.current, "请先下载，再打开或分享", "Download before opening or sharing"),
                                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -2108,6 +2118,7 @@ internal fun ChatFileList(
                             }
                         }
                     }
+                    footer?.invoke(this)
                 }
             }
         }

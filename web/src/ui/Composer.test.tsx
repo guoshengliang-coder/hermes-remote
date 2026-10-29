@@ -249,7 +249,7 @@ it("rejects an ordinary file above 50 MiB with the registered local error", asyn
   Object.defineProperty(input, "files", { value: [file] });
   act(() => { input.dispatchEvent(new Event("change", { bubbles: true })); }); await settle();
   expect(h.host.textContent).toContain("HR-FILE-008");
-  expect(h.host.textContent).toContain("50 MiB");
+  expect(h.host.textContent).toContain("50 MB");
   expect(h.host.querySelector(".attachment-file")).toBeNull();
   expect(h.props.onSend).not.toHaveBeenCalled();
 });

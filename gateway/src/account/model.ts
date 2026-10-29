@@ -462,7 +462,7 @@ export const accountErrors = {
   webAvatarUnsupported: () => new AccountModeError(
     400,
     "HR-WEB-011",
-    "That image can't be used as an avatar. Choose a PNG, JPEG or WebP image of at most 4 MiB.",
+    "That image can't be used as an avatar. Choose a PNG, JPEG or WebP image of at most 4 MB.",
     false,
     "none",
   ),

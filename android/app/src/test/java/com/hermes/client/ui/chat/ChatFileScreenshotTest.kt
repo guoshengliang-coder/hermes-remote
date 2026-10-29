@@ -156,7 +156,7 @@ class ChatFileScreenshotTest {
             }
         }
         compose.waitUntil { metadata.info(file).tooLarge }
-        compose.onNodeWithText("126.0 MiB", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("132.2 MB", substring = true).assertIsDisplayed()
         compose.onNodeWithText("HR-FILE-004", substring = true).assertIsDisplayed()
         compose.onNodeWithContentDescription("Share file").assertIsNotEnabled()
         compose.onAllNodes(hasClickAction() and isEnabled()).assertCountEquals(0)

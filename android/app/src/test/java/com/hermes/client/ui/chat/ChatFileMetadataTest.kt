@@ -18,7 +18,7 @@ class ChatFileMetadataTest {
         assertFalse(FileCardInfo(ARTIFACT_DOWNLOAD_LIMIT_BYTES + 1).tooLarge)
         assertFalse(FileCardInfo().tooLarge)
         assertTrue(FileCardInfo(51, 50, limitKnown = true).tooLarge)
-        assertEquals("100.1 MiB", artifactSizeLabel(ARTIFACT_DOWNLOAD_LIMIT_BYTES + 1))
+        assertEquals("104.9 MB", artifactSizeLabel(ARTIFACT_DOWNLOAD_LIMIT_BYTES + 1))
     }
 
     @Test fun inspection_is_reused_only_within_one_screen_and_actual_size_wins() = runTest {
@@ -43,7 +43,7 @@ class ChatFileMetadataTest {
         for (language in AppLanguage.entries.filter { it == AppLanguage.ZH || it == AppLanguage.EN }) {
             val message = artifactLimitMessage(state.info(file), language)
             assertTrue(message.contains("HR-FILE-004"))
-            assertTrue(message.contains("100.0 MiB"))
+            assertTrue(message.contains("104.9 MB"))
         }
     }
 

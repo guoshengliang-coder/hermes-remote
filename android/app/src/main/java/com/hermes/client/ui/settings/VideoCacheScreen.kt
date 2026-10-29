@@ -84,7 +84,7 @@ internal fun VideoCacheContent(state: VideoCacheStats, busy: Boolean, error: App
 }
 
 internal fun cacheSize(bytes: Long): String = when {
-    bytes >= 1024L * 1024 * 1024 -> String.format(java.util.Locale.ROOT, "%.2fGB", bytes / (1024.0 * 1024 * 1024))
-    bytes >= 1024L * 1024 -> String.format(java.util.Locale.ROOT, "%.1fMB", bytes / (1024.0 * 1024))
-    else -> "${bytes.coerceAtLeast(0) / 1024}KB"
+    bytes >= 1_000_000_000L -> String.format(java.util.Locale.ROOT, "%.2fGB", bytes / 1_000_000_000.0)
+    bytes >= 1_000_000L -> String.format(java.util.Locale.ROOT, "%.1fMB", bytes / 1_000_000.0)
+    else -> "${bytes.coerceAtLeast(0) / 1_000}KB"
 }

@@ -224,9 +224,12 @@ internal fun videoNetworkSpeedLabel(speed: VideoNetworkSpeed, language: AppLangu
     return localized(language, "缓冲速度 $value", "Buffer speed $value")
 }
 
-private fun cacheBytes(value: Long): String = if (value >= 1024L * 1024 * 1024)
-    java.lang.String.format(java.util.Locale.ROOT, "%.2f GiB", value / (1024.0 * 1024 * 1024))
-else java.lang.String.format(java.util.Locale.ROOT, "%.1f MiB", value / (1024.0 * 1024))
+private fun cacheBytes(value: Long): String = when {
+    value >= 1_000_000_000L -> java.lang.String.format(java.util.Locale.ROOT, "%.2f GB", value / 1_000_000_000.0)
+    value >= 1_000_000L -> java.lang.String.format(java.util.Locale.ROOT, "%.1f MB", value / 1_000_000.0)
+    value >= 1_000L -> java.lang.String.format(java.util.Locale.ROOT, "%.1f KB", value / 1_000.0)
+    else -> "$value B"
+}
 
 @Composable
 private fun MediaButton(icon: ImageVector, label: String, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {

@@ -24,8 +24,8 @@ final class DesktopComponentPreflightPresentationTests: XCTestCase {
         XCTAssertEqual(presentation.reusedComponentCount, 2)
         XCTAssertEqual(presentation.bootstrapDownloadBytes, 36_000_000)
         XCTAssertEqual(presentation.deferredDownloadBytes, 80_000_000)
-        XCTAssertEqual(presentation.bootstrapDownloadText, "34.3 MiB")
-        XCTAssertEqual(presentation.deferredDownloadText, "76.3 MiB")
+        XCTAssertEqual(presentation.bootstrapDownloadText, "36.0 MB")
+        XCTAssertEqual(presentation.deferredDownloadText, "80.0 MB")
         XCTAssertEqual(presentation.rows.map(\.action), [
             .reuseManaged, .downloadAtInstall, .reuseExternal, .downloadOnDemand,
         ])
@@ -36,9 +36,9 @@ final class DesktopComponentPreflightPresentationTests: XCTestCase {
             "Python runtime", "Node.js runtime", "Browser automation", "Speech capability",
         ])
         XCTAssertTrue(presentation.rows[0].detailChinese.contains("受管组件"))
-        XCTAssertTrue(presentation.rows[1].detailEnglish.contains("34.3 MiB"))
+        XCTAssertTrue(presentation.rows[1].detailEnglish.contains("36.0 MB"))
         XCTAssertTrue(presentation.rows[2].detailChinese.contains("系统组件"))
-        XCTAssertTrue(presentation.rows[3].detailEnglish.contains("76.3 MiB"))
+        XCTAssertTrue(presentation.rows[3].detailEnglish.contains("80.0 MB"))
     }
 
     func testNamesEverySupportedComponentAndFormatsByteBoundaries() {
@@ -56,11 +56,11 @@ final class DesktopComponentPreflightPresentationTests: XCTestCase {
             "浏览器自动化", "语音能力", "文档工具",
         ]))
         XCTAssertEqual(DesktopComponentPreflightPresentation.formatBytes(0), "0 B")
-        XCTAssertEqual(DesktopComponentPreflightPresentation.formatBytes(1_023), "1023 B")
-        XCTAssertEqual(DesktopComponentPreflightPresentation.formatBytes(1_024), "1.0 KiB")
-        XCTAssertEqual(DesktopComponentPreflightPresentation.formatBytes(1_048_576), "1.0 MiB")
+        XCTAssertEqual(DesktopComponentPreflightPresentation.formatBytes(999), "999 B")
+        XCTAssertEqual(DesktopComponentPreflightPresentation.formatBytes(1_000), "1.0 KB")
+        XCTAssertEqual(DesktopComponentPreflightPresentation.formatBytes(1_000_000), "1.0 MB")
         XCTAssertEqual(
-            DesktopComponentPreflightPresentation.formatBytes(1_073_741_824), "1.0 GiB"
+            DesktopComponentPreflightPresentation.formatBytes(1_000_000_000), "1.0 GB"
         )
     }
 

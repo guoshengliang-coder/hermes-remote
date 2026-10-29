@@ -25,10 +25,19 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [34], qualifiers = "w360dp-h800dp-420dpi")
 class ConversationArtifactsScreenshotTest {
     @get:Rule val compose = createComposeRule()
+    /** Today at [hour]:[minute], so the footer always renders a bare "16:16" in any timezone and
+     *  on any date the suite runs. */
+    private fun todayAt(hour: Int, minute: Int): Long {
+        val zone = java.time.ZoneId.systemDefault()
+        return java.time.LocalDate.now(zone).atTime(hour, minute).atZone(zone).toInstant().toEpochMilli()
+    }
+
     private fun snap(dark: Boolean, language: AppLanguage, scale: Float) {
         val artifacts = conversationArtifacts(listOf(
-            ChatMessage("one", Role.ASSISTANT, "", files = listOf(ChatFile("a", "会话产物需求调研与验收方案.md", "text/markdown", 2048, remotePath = "/tmp/report.md"))),
-            ChatMessage("two", Role.ASSISTANT, "", files = listOf(ChatFile("b", "会话产物需求调研与验收方案.md", "text/markdown", 3072, remotePath = "/tmp/other.md"))),
+            ChatMessage("one", Role.ASSISTANT, "", timestamp = todayAt(15, 2),
+                files = listOf(ChatFile("a", "会话产物需求调研与验收方案.md", "text/markdown", 2048, remotePath = "/tmp/report.md"))),
+            ChatMessage("two", Role.ASSISTANT, "", timestamp = todayAt(16, 16),
+                files = listOf(ChatFile("b", "会话产物需求调研与验收方案.md", "text/markdown", 3072, remotePath = "/tmp/other.md"))),
         ))
         var opened = 0
         var source: String? = null

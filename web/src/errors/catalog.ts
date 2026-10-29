@@ -83,7 +83,7 @@ export const CATALOG = {
   "HR-SYNC-006": { zh: "资料已在其他设备更新，请刷新后重新确认修改。", en: "Your profile changed on another device. Refresh and confirm your edit again.", retryable: false, action: "none" },
   "HR-SYNC-007": { zh: "同步记录已失效，请刷新资料后重试。", en: "This sync record is no longer valid. Refresh your profile and try again.", retryable: false, action: "reload" },
   "HR-SYNC-008": { zh: "无法保存名字，请使用 1–40 个字符后重试。", en: "Couldn't save that name. Use 1–40 characters and try again.", retryable: false, action: "none" },
-  "HR-SYNC-009": { zh: "无法保存头像，请选择不超过 4 MiB 的 PNG、JPEG 或 WebP 图片。", en: "Couldn't save that avatar. Choose a PNG, JPEG or WebP image up to 4 MiB.", retryable: false, action: "none" },
+  "HR-SYNC-009": { zh: "无法保存头像，请选择不超过 4 MB 的 PNG、JPEG 或 WebP 图片。", en: "Couldn't save that avatar. Choose a PNG, JPEG or WebP image up to 4 MB.", retryable: false, action: "none" },
   "HR-SYNC-010": { zh: "资料修改仍在等待同步，请联网后重试。", en: "A profile edit is waiting to sync. Connect to the network and try again.", retryable: false, action: "none" },
   "HR-SYNC-011": { zh: "无法保存待同步修改，请检查浏览器存储空间后重试。", en: "Couldn't store the pending edit. Check browser storage and try again.", retryable: true, action: "retry" },
   "HR-SYNC-012": { zh: "模型偏好已在其他设备更新，请选择保留云端值或重新应用本机选择。", en: "Model preferences changed on another device. Keep the cloud value or apply your local choice again.", retryable: false, action: "none" },
@@ -127,8 +127,8 @@ export const CATALOG = {
   "HR-WEB-003": { zh: "无法连接 Hermes GO 服务器，请稍后重试。", en: "Couldn't reach the Hermes GO server. Try again shortly.", retryable: true, action: "retry" },
   "HR-WEB-004": { zh: "服务器暂时不可用，请稍后重试。", en: "The server is temporarily unavailable. Try again shortly.", retryable: true, action: "retry" },
   "HR-WEB-005": { zh: "服务器返回了无法处理的响应，请刷新页面后重试。", en: "The server sent a response this page can't handle. Reload and try again.", retryable: false, action: "reload" },
-  "HR-WEB-006": { zh: "附件不符合要求：每条消息最多 9 个，图片不超过 6 MiB、文件不超过 50 MiB，且不能是空文件或可执行文件。", en: "This attachment isn't allowed: up to 9 per message, images up to 6 MiB, files up to 50 MiB, and no empty or executable files.", retryable: false, action: "none" },
-  "HR-FILE-008": { zh: "文件超过 50 MiB 上传上限，请选择较小的文件。", en: "The file exceeds the 50 MiB upload limit. Choose a smaller file.", retryable: false, action: "none" },
+  "HR-WEB-006": { zh: "附件不符合要求：每条消息最多 9 个，图片不超过 6 MB、文件不超过 50 MB，且不能是空文件或可执行文件。", en: "This attachment isn't allowed: up to 9 per message, images up to 6 MB, files up to 50 MB, and no empty or executable files.", retryable: false, action: "none" },
+  "HR-FILE-008": { zh: "文件超过 50 MB 上传上限，请选择较小的文件。", en: "The file exceeds the 50 MB upload limit. Choose a smaller file.", retryable: false, action: "none" },
   "HR-FILE-009": { zh: "这台 Mac 正在接收另一个大文件，请稍后重试。", en: "This Mac is receiving another large file. Retry shortly.", retryable: true, action: "retry" },
   "HR-WEB-007": { zh: "无法复制到剪贴板，请长按文字手动选择复制。", en: "Couldn't copy to the clipboard. Press and hold the text to select and copy it.", retryable: false, action: "none" },
   "HR-CHART-001": { zh: "图表暂时无法显示，请重试或查看原始表格。", en: "The chart couldn't be displayed. Retry or view the original table.", retryable: true, action: "retry" },
@@ -145,7 +145,7 @@ export const CATALOG = {
   "HR-WEB-009": { zh: "无法读取这台 Mac 的默认模型，请重试。", en: "Couldn't read this Mac's default model. Retry.", retryable: true, action: "retry" },
   // Account profile (HG-181): the name and avatar the Web account page saves.
   "HR-WEB-010": { zh: "无法保存名字，请使用 1–40 个字符后重试。", en: "Couldn't save that name. Use 1-40 characters and try again.", retryable: true, action: "retry" },
-  "HR-WEB-011": { zh: "头像不符合要求：请选择 PNG、JPEG 或 WebP 图片，且不超过 4 MiB。", en: "That avatar isn't allowed: choose a PNG, JPEG or WebP image of at most 4 MiB.", retryable: false, action: "none" },
+  "HR-WEB-011": { zh: "头像不符合要求：请选择 PNG、JPEG 或 WebP 图片，且不超过 4 MB。", en: "That avatar isn't allowed: choose a PNG, JPEG or WebP image of at most 4 MB.", retryable: false, action: "none" },
   "HR-WEB-012": { zh: "消息通知设置未完成，请检查网络后重试。", en: "Notification setup did not complete. Check your connection and retry.", retryable: true, action: "retry" },
   "HR-WEB-013": { zh: "网页启动超时，请检查网络后重试。", en: "The web app took too long to start. Check your connection and retry.", retryable: true, action: "reload" },
 } satisfies Record<string, CatalogEntry>;

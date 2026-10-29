@@ -63,11 +63,15 @@ internal data class ChatFileDownloads(
 )
 internal val LocalChatFileDownloads = staticCompositionLocalOf<ChatFileDownloads?> { null }
 
-/** Round upwards so a file one byte above the cap cannot look like exactly 100 MiB. */
+/**
+ * Decimal units (1 KB = 1,000 bytes), matching Android's own file manager and the update screen.
+ * Round upwards so a file one byte above the cap cannot look like exactly 100 MB.
+ */
 internal fun artifactSizeLabel(bytes: Long): String = when {
-    bytes < 1024 -> "$bytes B"
-    bytes < 1024 * 1024 -> String.format(java.util.Locale.ROOT, "%.1f KiB", kotlin.math.ceil(bytes / 1024.0 * 10) / 10)
-    else -> String.format(java.util.Locale.ROOT, "%.1f MiB", kotlin.math.ceil(bytes / (1024.0 * 1024) * 10) / 10)
+    bytes < 1_000 -> "$bytes B"
+    bytes < 1_000_000 -> String.format(java.util.Locale.ROOT, "%.1f KB", kotlin.math.ceil(bytes / 1_000.0 * 10) / 10)
+    bytes < 1_000_000_000 -> String.format(java.util.Locale.ROOT, "%.1f MB", kotlin.math.ceil(bytes / 1_000_000.0 * 10) / 10)
+    else -> String.format(java.util.Locale.ROOT, "%.1f GB", kotlin.math.ceil(bytes / 1_000_000_000.0 * 10) / 10)
 }
 
 internal fun artifactLimitMessage(info: FileCardInfo, language: com.hermes.client.ui.localization.AppLanguage): String {
