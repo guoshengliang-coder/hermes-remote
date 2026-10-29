@@ -1,5 +1,10 @@
 # Connector control connection recovery
 
+## Connector 0.1.19 — HG-244 congestion resilience
+
+Adds opt-in independent control/business connections, bounded heartbeat suspicion and per-lane recovery, shared bulk-transfer backoff, fair fragmentation, and process-owned local health monitoring. Gateway 0.4.40 and Connector both require CONNECTOR_TRANSPORT_ISOLATION=1 to negotiate; publication leaves the flag off. Component channel 0.4.15 packages Node 22.23.2 and Connector only; upstream Hermes is unchanged.
+
+
 HG-232 adds pooled HTTP(S) returns and up to four ranges of one opaque file reference, sharing the
 existing aggregate upload budget. Old Gateways/Android clients remain serial. See
 `../docs/ATTACHMENT_PERFORMANCE.md` for negotiation, compatibility and the local benchmark.
