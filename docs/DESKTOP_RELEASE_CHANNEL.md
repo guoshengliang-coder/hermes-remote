@@ -1,5 +1,10 @@
 # Desktop release channel
 
+## Internal test release: 0.2.50 / build 53
+
+Owner-authorized HG-244 publication uses the established ad-hoc internal channel and existing public trust/update configuration. It separates congestion, recovery, business availability and local Hermes health. Build clean current main, run assets/Swift tests and app packaging, verify the exact DMG and mounted signature/identity, then use the unified internal publisher and complete public readback. Signed Node/Connector components publish independently as 0.4.15 with Connector 0.1.19. The legacy managed release pointer remains frozen. Publication does not install the app, enable transport isolation, or establish physical-device acceptance.
+
+
 ## Internal test release: 0.2.49 / build 52
 
 The owner requested continuation through publication and M2 verification after the actual M2

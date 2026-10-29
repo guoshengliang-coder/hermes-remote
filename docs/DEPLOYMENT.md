@@ -3191,3 +3191,10 @@ advanced by this publication. Hermes upstream PR #145969 remains open with the c
 holding READ permission. HG-240 remains in progress: this Go-side release does not establish
 installed three-client sync, and unsupported Hermes retains explicit independent mode. Real
 multi-client/device acceptance is outstanding; this host has L1 only, no attached device or emulator.
+
+
+### HG-244 release preparation — 2026-10-29 (authorized)
+
+Publish Gateway 0.4.40 before Connector 0.1.19 (component channel 0.4.15), Android 0.1.187, Desktop 0.2.50/build 53 and the Web bundle. The source is the clean main containing PR #701 and the release allocation. Schema 20, minimum clients and existing production flags remain unchanged. Run the normal candidate/switch/public-smoke/observation gate; retain the previous slot and Web release for rollback. Android uses the official CI release train; Desktop keeps the established ad-hoc internal channel. Signed components contain Node and Connector only.
+
+Transport isolation remains disabled on both ends during this publication. The existing /v2/connect route was updated under the production deployment lock from send=15s/read=75s to send=75s/read=75s; nginx validation, reload and effective-configuration readback passed, with the exact prior include retained for rollback. Before separately authorized per-Mac enablement, recheck these effective budgets and verify all running versions and permissions. Follow HG_244_CONGESTION.md for rollout, rollback and outstanding physical-network acceptance. Generated release receipts and public artifact hashes establish publication; source tests and version allocation alone do not.
