@@ -1,9 +1,18 @@
 # Connector control connection recovery
 
+## Connector 0.1.20 — HG-245 authorized external read roots (allocated, not published)
+
+Release allocation for the explicit external-volume read roots merged in PR
+[#708](https://github.com/guoshengliang-coder/hermes-remote/pull/708). The component channel is
+planned to advance from 0.4.15 to 0.4.16; the Node runtime stays pinned and is re-verified at
+packaging time. This is a Connector-only publication: Gateway and Android are unchanged.
+`EXTRA_READ_ROOTS` pins each authorized volume's identity at startup and refuses a swapped or
+unmounted volume at request time; see `../docs/ENVIRONMENT.md`. Publication and installation
+evidence is recorded separately after the gates.
+
 ## Connector 0.1.19 — HG-244 congestion resilience
 
 Adds opt-in independent control/business connections, bounded heartbeat suspicion and per-lane recovery, shared bulk-transfer backoff, fair fragmentation, and process-owned local health monitoring. Gateway 0.4.40 and Connector both require CONNECTOR_TRANSPORT_ISOLATION=1 to negotiate; publication leaves the flag off. Component channel 0.4.15 packages Node 22.23.2 and Connector only; upstream Hermes is unchanged.
-
 
 HG-232 adds pooled HTTP(S) returns and up to four ranges of one opaque file reference, sharing the
 existing aggregate upload budget. Old Gateways/Android clients remain serial. See

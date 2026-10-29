@@ -1,8 +1,8 @@
 import { WebSocket } from "ws";
 import { constants, readFileSync } from "node:fs";
-import { mkdir, open, readdir, rename, stat, unlink, type FileHandle } from "node:fs/promises";
+import { stat, realpath, mkdir, open, readdir, rename, unlink, type FileHandle } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, extname, resolve, sep } from "node:path";
+import { basename, dirname, extname, resolve, sep } from "node:path";
 import {
   ACCOUNT_CONNECTOR_PROTOCOL_VERSION,
   LinkHeartbeat, TRANSPORT_HEADER, transportOfferHeader, type TransportOffer,
@@ -39,7 +39,7 @@ import {
 import { ObserverStateStore } from "./session-observer.js";
 import { loadHermesSessionToken } from "./hermes-session-token.js";
 import { describeRejectedPath } from "./file-log.js";
-import { ArtifactFileError, openArtifactFile } from "./artifact-file.js";
+import { ArtifactFileError, openArtifactFile, type ExternalRootGrant } from "./artifact-file.js";
 import { tunnelCloseForApp } from "./tunnel-close.js";
 import { decideOversizedFrame } from "./oversized-frame.js";
 import { InFlightHttpRequests, ResponseChunkWaiters } from "./http-request-lifecycle.js";
@@ -48,7 +48,7 @@ import { historyProjection } from "./history-preview.js";
 import { hermesUnavailableBody, localHttpFailureFields, localHttpRoute } from "./local-http-failure.js";
 import { contractReportResponse, defaultModelResponse, setDefaultModelResponse, tunnelHttpRoute } from "./tunnel-routes.js";
 import { HermesContractMonitor } from "./hermes-contract-monitor.js";
-import { resolveHermesMode, type ConnectorMode } from "./connector-config.js";
+import { resolveExternalReadRoots, resolveHermesMode, type ConnectorMode } from "./connector-config.js";
 import { ControlReconnectBackoff } from "./control-reconnect.js";
 import { ControlHeartbeatDiagnostics } from "./control-heartbeat-diagnostics.js";
 import { LocalHealthMonitor } from "./local-health-monitor.js";
@@ -88,11 +88,37 @@ const hermesChatUrl = process.env.HERMES_CHAT_URL ?? `${hermesBaseUrl}/api/chat`
 const filesRoot = resolve(process.env.FILES_ROOT ?? homedir());
 const uploadRoot = resolve(process.env.UPLOAD_ROOT ?? resolve(filesRoot, ".hermes-remote", "uploads"));
 const thumbnailRoot = resolve(process.env.THUMBNAIL_ROOT ?? resolve(filesRoot, ".hermes-remote", "thumbs"));
+// HG-245: explicitly authorized external read roots. The baseline (canonical path + the mounted
+// root's dev/ino) is pinned once at startup; every artifact request re-checks it, so a volume
+// swapped onto the same mount point cannot widen the grant. An unreachable root is disabled with
+// a warning instead of blocking the Connector: the home-directory attachment path must survive an
+// unplugged disk, and the root recovers on the next Connector restart.
+const externalReadRoots = resolveExternalReadRoots(process.env);
+const externalRootGrants: Promise<readonly ExternalRootGrant[]> = (async () => {
+  const grants: ExternalRootGrant[] = [];
+  for (const lexical of externalReadRoots) {
+    try {
+      const canonical = await realpath(lexical);
+      const metadata = await stat(canonical);
+      if (!metadata.isDirectory() || canonical === dirname(canonical)) {
+        console.warn(`EXTRA_READ_ROOTS entry is not a directory grant: ${lexical}`);
+        continue;
+      }
+      grants.push({ lexical, canonical, dev: metadata.dev, ino: metadata.ino });
+    } catch (error) {
+      console.warn(
+        `EXTRA_READ_ROOTS entry unavailable at startup, disabled until restart: ${lexical} `
+        + `(${(error as NodeJS.ErrnoException).code ?? "unknown_error"})`);
+    }
+  }
+  return grants;
+})();
 const maxUploadBytes = Math.min(positiveIntEnv("MAX_UPLOAD_BYTES", MAX_PHONE_UPLOAD_BYTES), MAX_PHONE_UPLOAD_BYTES);
 const maxFileBytes = positiveIntEnv("MAX_FILE_BYTES", 100 * 1024 * 1024);
 const fileDownloads = new ArtifactDownloadSource(filesRoot, gatewayUrl, contentTypeFor,
   positiveIntEnv("MAX_DOWNLOAD_BYTES", ARTIFACT_DEFAULT_MAX_BYTES, Number.MAX_SAFE_INTEGER),
-  positiveIntEnv("FILE_DOWNLOAD_BYTES_PER_SECOND", 4 * 1024 * 1024, 128 * 1024 * 1024));
+  positiveIntEnv("FILE_DOWNLOAD_BYTES_PER_SECOND", 4 * 1024 * 1024, 128 * 1024 * 1024),
+  Date.now, async () => externalRootGrants);
 const maxUploadCacheBytes = positiveIntEnv("MAX_UPLOAD_CACHE_BYTES", 512 * 1024 * 1024);
 const maxUploadCacheFiles = positiveIntEnv("MAX_UPLOAD_CACHE_FILES", 200, 10_000);
 const uploadRetentionMs = positiveIntEnv("UPLOAD_RETENTION_HOURS", 7 * 24, 24 * 365) * 60 * 60 * 1000;
@@ -649,7 +675,9 @@ async function handleFileRequest(
   }
 
   try {
-    const { canonicalPath, handle, metadata } = await openArtifactFile(requestedPath, { filesRoot });
+    const { canonicalPath, handle, metadata } = await openArtifactFile(requestedPath, {
+      filesRoot, externalRoots: await externalRootGrants,
+    });
     const noFollow = constants.O_NOFOLLOW ?? 0;
     try {
       // Same authorized descriptor as GET. HEAD reports the original size even above the cap,
