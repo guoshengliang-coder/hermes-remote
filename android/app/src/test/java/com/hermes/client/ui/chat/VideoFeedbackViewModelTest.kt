@@ -93,4 +93,109 @@ class VideoFeedbackViewModelTest {
         assertTrue(full.localizedSummary(AppLanguage.ZH).contains("移除"))
         assertTrue(full.localizedSummary(AppLanguage.EN).contains("Remove"))
     }
+    @Test fun restored_draft_never_pins_a_fresh_point_and_both_survive_restart() = runBlocking {
+        val store = VideoFeedbackStore(temporary.newFolder())
+        store.write(key, VideoFeedbackDocument(draft = VideoNoteDraft(start = "0:01", text = "旧意见")))
+        val vm = VideoFeedbackViewModel(store, key, this)
+        waitFor { vm.state.loaded }
+        assertEquals(VideoFeedbackScreen.TOOLS, vm.state.screen)
+        vm.point(12_345, 60_000)
+        assertEquals(12_345L, parseVideoNoteTime(vm.state.document.draft!!.start))
+        assertEquals("旧意见", vm.state.document.parkedDrafts.single().text)
+        vm.text("新意见"); vm.later()
+        vm.point(24_678, 60_000); vm.text("第三条")
+        waitFor { !vm.state.dirty }
+        val restored = VideoFeedbackViewModel(store, key, this)
+        waitFor { restored.state.loaded }
+        assertEquals(VideoFeedbackScreen.TOOLS, restored.state.screen)
+        assertEquals(3, restored.state.document.allDrafts.size)
+        restored.resumeDraft(restored.state.document.parkedDrafts.first().draftKey)
+        assertEquals("旧意见", restored.state.document.draft!!.text)
+        assertEquals(VideoFeedbackScreen.EDITOR, restored.state.screen)
+    }
+    @Test fun range_marks_reject_bad_end_reset_cancel_and_resume_without_manual_time_input() = runBlocking {
+        val store = VideoFeedbackStore(temporary.newFolder())
+        val vm = VideoFeedbackViewModel(store, key, this)
+        waitFor { vm.state.loaded }
+        vm.markEnd(3_000, 60_000); assertNull(vm.state.document.draft)
+        vm.markStart(10_123, 60_000)
+        vm.markEnd(10_123, 60_000); assertEquals(VideoFeedbackScreen.SELECTING, vm.state.screen)
+        vm.markEnd(9_000, 60_000); assertEquals(VideoFeedbackScreen.SELECTING, vm.state.screen)
+        vm.point(15_000, 60_000); assertTrue(vm.state.selecting)
+        vm.markStart(12_345, 60_000); assertEquals(12_345L, vm.state.selectionStart)
+        vm.later(); waitFor { !vm.state.dirty }
+        val restored = VideoFeedbackViewModel(store, key, this)
+        waitFor { restored.state.loaded }
+        assertEquals(VideoFeedbackScreen.TOOLS, restored.state.screen)
+        restored.resumeDraft(restored.state.document.draft!!.draftKey)
+        assertEquals(12_345L, restored.state.selectionStart)
+        restored.markEnd(23_456, 60_000); assertTrue(restored.state.editing)
+        restored.text("拉长片段")
+        restored.reselect(); restored.markStart(14_000, 60_000); restored.markEnd(25_000, 60_000)
+        assertEquals("拉长片段", restored.state.document.draft!!.text)
+        assertTrue(restored.commit(60_000))
+        assertEquals(14_000L, store.read(key).notes.single().startMs)
+        assertEquals(25_000L, store.read(key).notes.single().endMs)
+        restored.markStart(30_000, 60_000); restored.cancelSelection()
+        assertNull(restored.state.document.draft); assertNull(restored.state.selectionStart)
+    }
+    @Test fun committing_waits_for_durable_write_and_failure_keeps_the_editor_until_retry() = runBlocking {
+        val entered = CompletableDeferred<Unit>(); val release = CompletableDeferred<Unit>()
+        val disk = VideoFeedbackStore(temporary.newFolder())
+        var fail = true
+        val storage = object : VideoFeedbackStorage {
+            override suspend fun read(key: String) = disk.read(key)
+            override suspend fun write(key: String, document: VideoFeedbackDocument) {
+                if (document.draft == null && document.notes.isNotEmpty()) {
+                    entered.complete(Unit); release.await()
+                    if (fail) throw IOException("private path")
+                }
+                disk.write(key, document)
+            }
+        }
+        val vm = VideoFeedbackViewModel(storage, key, this)
+        waitFor { vm.state.loaded }; vm.point(1_234, 60_000); vm.text("保留输入")
+        val commit = async { vm.commit(60_000) }
+        entered.await()
+        assertTrue(vm.state.committing); assertTrue(vm.state.editing)
+        assertEquals("保留输入", vm.state.document.draft!!.text)
+        assertTrue(vm.state.document.notes.isEmpty())
+        assertFalse(vm.commit(60_000))
+        release.complete(Unit); assertFalse(commit.await())
+        assertTrue(vm.state.editing); assertTrue(vm.state.commitFailed)
+        assertEquals("HR-ANNOT-001", vm.state.error!!.code.value)
+        assertEquals("保留输入", disk.read(key).draft!!.text)
+        fail = false; assertTrue(vm.commit(60_000))
+        assertNull(vm.state.document.draft); assertEquals(VideoFeedbackScreen.TOOLS, vm.state.screen)
+        assertEquals(1, disk.read(key).notes.size)
+    }
+    @Test fun retiming_point_retains_text_and_existing_edits_return_to_list() = runBlocking {
+        val vm = VideoFeedbackViewModel(VideoFeedbackStore(temporary.newFolder()), key, this)
+        waitFor { vm.state.loaded }
+        val original = "  原意见\n"
+        vm.point(1_000, 60_000); vm.text(original); vm.reselect()
+        vm.point(5_678, 60_000)
+        assertEquals(original, vm.state.document.draft!!.text)
+        assertEquals(5_678L, parseVideoNoteTime(vm.state.document.draft!!.start))
+        assertTrue(vm.commit(60_000))
+        assertEquals(original, vm.state.document.notes.single().text)
+        vm.editNote(vm.state.document.notes.single().id); vm.text("修订意见")
+        assertTrue(vm.commit(60_000))
+        assertEquals(VideoFeedbackScreen.LIST, vm.state.screen)
+        assertEquals(1, vm.state.document.notes.size)
+    }
+    @Test fun old_json_is_compatible_and_parked_work_is_excluded_from_markdown() = runBlocking {
+        val dir = temporary.newFolder()
+        File(dir, "$key.json").writeText("""{"draft":{"start":"00:00:01.000","text":"旧草稿"}}""")
+        val disk = VideoFeedbackStore(dir)
+        val vm = VideoFeedbackViewModel(disk, key, this); waitFor { vm.state.loaded }
+        vm.point(5_000, 60_000); vm.text("已完成"); assertTrue(vm.commit(60_000))
+        val doc = disk.read(key)
+        assertEquals("旧草稿", doc.parkedDrafts.single().text)
+        val md = videoFeedbackMarkdown("片段", "source", "chat", 60_000, doc)
+        assertTrue(md.contains("已完成")); assertFalse(md.contains("旧草稿"))
+        vm.discardDraft(doc.parkedDrafts.single().draftKey); waitFor { !vm.state.dirty }
+        assertTrue(disk.read(key).allDrafts.isEmpty())
+    }
+
 }

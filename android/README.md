@@ -1,9 +1,12 @@
-HG-243 adds Annotate to the video viewer: millisecond points/ranges, editable feedback and local
-automatic persistence of notes and unfinished drafts. Workspace/conversation/source generations are
-isolated; completed downloads retain the streaming generation. Save .md uses the system document
-picker; Attach to chat stages a Markdown file in the original composer, preserving existing text and
-attachments until the user sends. Keyboard editing pauses video and uses the available viewport.
-Source/testing boundaries are in `../docs/VIDEO_FEEDBACK.md`. No version or APK is published here.
+HG-243 follow-up separates watching from commenting: Annotate opens three stable marking actions
+without pausing or selecting a timestamp. Point notes capture the current confirmed frame; start/end
+marks form a range without typed times. New feedback resumes playback only after a successful durable
+save, and stays in annotation mode. Existing-note edits return to review; unfinished comments/ranges
+are offered separately and do not pin the next new note. Paused seeking renders the target frame
+without starting audio, then stops player loading again. Review holds Markdown export/staging,
+with existing composer content retained for the user's Send action. Local source/version isolation,
+keyboard/large-text layouts and verification boundaries are in `../docs/VIDEO_FEEDBACK.md`.
+This source change does not allocate or publish an APK.
 
 HG-242 gives each unknown-delivery notice bounded Check status progress and an explicit unknown/error
 result. Remove local notice requires confirmation, durably clears only that phone's record, and never

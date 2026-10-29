@@ -24,6 +24,7 @@ internal data class VideoPlayerState(
     val speed: Float = 1f,
     val boosting: Boolean = false,
     val speedError: AppError? = null,
+    val seeking: Boolean = false,
 )
 
 /** Owns loading independently of the persistent PlayerView/surface. All calls are on the UI thread. */
@@ -45,12 +46,14 @@ internal class VideoPlayerController(
     private var selectedSpeed = initialSpeed.takeIf { it in VIDEO_SPEEDS } ?: 1f
     private var requestedSpeed = selectedSpeed
     private var holding = false
+    private var previewingSeek = false
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (playbackState == Player.STATE_ENDED) {
                 endBoost()
                 refresh()
-                state = state.copy(wantsPlay = false, buffering = false, ended = true)
+                previewingSeek = false
+                state = state.copy(wantsPlay = false, buffering = false, ended = true, seeking = false)
                 savePosition(0)
                 playIntent(false)
                 releasePriority()
@@ -62,7 +65,18 @@ internal class VideoPlayerController(
                 speedError = if (actual != requestedSpeed || playbackParameters.pitch != 1f) speedFailure() else null)
             if (!holding) { selectedSpeed = actual; speedSelection(actual) }
         }
-        override fun onRenderedFirstFrame() { state = state.copy(hasFrame = true) }
+        override fun onRenderedFirstFrame() {
+            state = state.copy(hasFrame = true, seeking = false)
+            if (previewingSeek) {
+                previewingSeek = false
+                if (!state.wantsPlay) {
+                    refresh()
+                    player.stop()
+                    state = state.copy(buffered = state.position)
+                    releasePriority()
+                }
+            }
+        }
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             // Audio focus/noisy-route pauses must also stop the network loader.
             if (!playWhenReady && state.wantsPlay) pause()
@@ -104,8 +118,9 @@ internal class VideoPlayerController(
         if (closed || state.wantsPlay) return
         if (state.ended) { player.seekTo(0); state = state.copy(position = 0, ended = false) }
         state = state.copy(wantsPlay = true, buffering = true)
+        previewingSeek = false
         playIntent(true)
-        priority = lease()
+        if (priority == null) priority = lease()
         player.prepare()
         player.play()
     }
@@ -114,7 +129,9 @@ internal class VideoPlayerController(
         if (closed) return
         endBoost()
         refresh()
-        state = state.copy(wantsPlay = false, buffering = false, buffered = state.position)
+        previewingSeek = false
+        state = state.copy(wantsPlay = false, buffering = false, buffered = state.position,
+            hasFrame = state.hasFrame && !state.seeking, seeking = false)
         playIntent(false)
         player.pause()
         // pause() alone continues prefetch. stop() cancels loading but keeps playlist/position;
@@ -124,11 +141,26 @@ internal class VideoPlayerController(
     }
 
     fun seek(position: Long) {
+        if (closed) return
         endBoost()
         val target = position.coerceIn(0, state.duration.coerceAtLeast(0))
-        state = state.copy(position = target, buffered = target, ended = false)
+        state = state.copy(position = target, buffered = target, ended = false, hasFrame = false, seeking = true)
         savePosition(target)
+        if (!state.wantsPlay) player.pause() // Ended players may still have playWhenReady=true.
         player.seekTo(target)
+        // A stopped player cannot render a seek. Prepare just until the target frame arrives;
+        // keep audio paused, then stop loading again in onRenderedFirstFrame.
+        if (!state.wantsPlay) {
+            previewingSeek = true
+            if (priority == null) priority = lease()
+            player.prepare()
+        }
+    }
+
+    fun annotationPosition(): Long? {
+        if (closed || state.seeking || state.buffering || !state.hasFrame) return null
+        refresh() // Read the engine at the button press, not the 250ms UI polling snapshot.
+        return state.position
     }
 
     fun refresh() {

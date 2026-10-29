@@ -59,11 +59,25 @@ class VideoPlayerControllerTest {
         val second = controller(); second.play(); listener.captured.onPlaybackStateChanged(Player.STATE_ENDED)
         second.play(); verify { player.seekTo(0) }; assertFalse(second.state.ended)
     }
-    @Test fun paused_seek_changes_position_without_preparing_or_loading() {
+    @Test fun paused_seek_prepares_only_until_target_frame_and_never_starts_audio() {
         val c = controller(); c.refresh(); c.seek(90_000)
-        verify { player.seekTo(60_000) }
-        assertEquals(60_000, c.state.position); assertEquals(60_000, saved)
-        verify(exactly = 0) { player.prepare(); player.play() }
+        verify { player.seekTo(60_000); player.prepare() }
+        verifyOrder { player.pause(); player.seekTo(60_000); player.prepare() }
+        verify(exactly = 0) { player.play() }
+        assertTrue(c.state.seeking); assertNull(c.annotationPosition())
+        every { player.currentPosition } returns 60_000
+        listener.captured.onRenderedFirstFrame()
+        assertFalse(c.state.seeking); assertFalse(c.state.wantsPlay)
+        verify { player.stop(); priority.close() }
+        assertEquals(60_000L, c.annotationPosition())
+    }
+    @Test fun annotation_reads_engine_position_at_press_and_background_cancels_pending_seek() {
+        val c = controller(); c.refresh(); listener.captured.onRenderedFirstFrame()
+        every { player.currentPosition } returns 5_123
+        assertEquals(5_123L, c.annotationPosition())
+        c.seek(7_000); c.pause()
+        assertNull(c.annotationPosition()); assertFalse(c.state.seeking)
+        verify { player.stop(); priority.close() }
     }
     @Test fun duration_format_handles_hours_and_unknown_negative_times() {
         assertEquals("0:00", videoTime(-1)); assertEquals("1:05", videoTime(65_000))
