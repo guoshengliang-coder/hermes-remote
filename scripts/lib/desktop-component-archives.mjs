@@ -510,8 +510,8 @@ async function stageConnector({ destination, repo, nodeBinary, version, sourceCo
   await copyStrict(nodeBinary, path.join(destination, "runtime/node"));
   await copyStrict(path.join(repo, "connector/dist"), path.join(destination, "app/connector/dist"), connectorFilter);
   await copyStrict(path.join(repo, "connector/package.json"), path.join(destination, "app/connector/package.json"));
-  await copyStrict(path.join(repo, "protocol/dist/index.js"),
-    path.join(destination, "app/node_modules/@hermes-remote/protocol/dist/index.js"));
+  await copyStrict(path.join(repo, "protocol/dist"),
+    path.join(destination, "app/node_modules/@hermes-remote/protocol/dist"), connectorFilter);
   await copyStrict(path.join(repo, "protocol/package.json"),
     path.join(destination, "app/node_modules/@hermes-remote/protocol/package.json"));
   await copyStrict(path.join(repo, "node_modules/ws"), path.join(destination, "app/node_modules/ws"), runtimeJavaScriptFilter);
@@ -541,8 +541,8 @@ async function stageConnectorV2({ destination, repo, version, sourceCommit, arch
   });
   await copyStrict(path.join(repo, "connector/dist"), path.join(destination, "app/connector/dist"), connectorFilter);
   await copyStrict(path.join(repo, "connector/package.json"), path.join(destination, "app/connector/package.json"));
-  await copyStrict(path.join(repo, "protocol/dist/index.js"),
-    path.join(destination, "app/node_modules/@hermes-remote/protocol/dist/index.js"));
+  await copyStrict(path.join(repo, "protocol/dist"),
+    path.join(destination, "app/node_modules/@hermes-remote/protocol/dist"), connectorFilter);
   await copyStrict(path.join(repo, "protocol/package.json"),
     path.join(destination, "app/node_modules/@hermes-remote/protocol/package.json"));
   await copyStrict(path.join(repo, "node_modules/ws"),
