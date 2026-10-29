@@ -3214,3 +3214,24 @@ Publication reused the established component-channel machinery and added one ope
 | `Hermes-Component-node_runtime-22.23.2-arm64.tar.gz` | 36999103 | `325fc7bc1ef01f056316f8a8cca269528cc928a28b5f4221b75240b0a4815938` |
 
 All three were re-downloaded from the public origin and byte-compared. The Mac mini Connector turned out to be the manual 0.1.2 dist whose service had not run since 2026-09-10 (the 0.1.19 in the item record never matched this Mac; the component channel had never been installed here). It was redeployed as the self-contained managed layout under `~/Library/Application Support/Hermes Remote/managed/0.4.16/` (connector-0.1.20 + node-22.23.2, launched via `bin/hermes-connector` with `HERMES_NODE_RUNTIME_ROOT`), a new `com.hermesremote.connector` LaunchAgent pointing at a managed run script that sources the existing `connector.env` (backed up first) plus `EXTRA_READ_ROOTS=/Volumes/TiPlus-1T`. Verification: process up, `Connected to gateway as mac-mini`, Hermes 0.21.3 contract compatible, relay-health reports the connector online, and no `EXTRA_READ_ROOTS entry unavailable` warning (volume baseline pinned, TiPlus-1T mounted). Rate limits and the original environment are unchanged; a replugged volume that changes device identity needs one Connector restart to re-pin. The acceptance standard's ~552 MB real-footage phone download, integrity check and preview remain user verification; publication and installation do not constitute acceptance.
+
+### Desktop 0.2.51 internal publication — HG-245 allowlist, 2026-10-29 (authorized)
+
+Desktop **0.2.51/build 54** was allocated in PR #711 and published through the established ad-hoc
+internal channel from clean main `b9245879f674639c5bd0845c4d1ddb8175519d32` (which contains the
+PR #710 `EXTRA_READ_ROOTS` allowlist). Gates before publication: assets consistency, **732 Swift
+tests 0 failures**, app build, dev DMG packaging and `hdiutil verify`. The unified publisher
+performed its own ad-hoc signature, bundle identity, version/build/arm64 verification and
+source-commit gate; its first run failed transiently after the artifact install (public readback
+path) and the retry succeeded, returning both `DESKTOP_INTERNAL_RELEASE_AND_WEBSITE_SYNC_OK` and
+`DESKTOP_INTERNAL_APP_UPDATE_SYNC_OK`.
+
+Public package: https://mrlgs.net/desktop/apps/0.2.51/Hermes-Go-Desktop-0.2.51-dev.dmg —
+**4,265,454 bytes**, SHA-256 `48f5e316b5aaf1105182d40c8d6ad91977b0b45e1d0aa759ae90f8e1f5dc247e`,
+independently re-downloaded from the public origin and byte-compared; the `.dmg` alias route and
+both indexes (`internal-index.json`, `index.json`) report 0.2.51/54 from source `b9245879`.
+This is temporary-signing internal distribution; notarization has not been performed. Effect:
+managed connector reinstalls and repair now carry `EXTRA_READ_ROOTS` (validated verbatim), so the
+external-volume attachment authorization survives managed updates on any Mac running 0.2.51+.
+Desktop-app installation does not touch the running connector agent; the allowlist takes effect
+on that Mac's next managed connector regeneration.
