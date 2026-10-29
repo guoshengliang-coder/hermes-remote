@@ -5,11 +5,18 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.LocalActivityResultRegistryOwner
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
+import androidx.activity.OnBackPressedDispatcher
 import androidx.activity.result.ActivityResultRegistry
 import androidx.activity.result.ActivityResultRegistryOwner
 import androidx.activity.result.contract.ActivityResultContract
 import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.SoftwareKeyboardController
 import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.StateRestorationTester
+import com.github.takahirom.roborazzi.captureRoboImage
 import com.hermes.client.ui.createHermesComposeRule
 import androidx.core.app.ActivityOptionsCompat
 import androidx.test.core.app.ApplicationProvider
@@ -23,12 +30,15 @@ import org.junit.Assert.*
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w360dp-h800dp-420dpi")
 class VideoFeedbackWorkspaceTest {
     @get:Rule val compose = createHermesComposeRule()
+    private val restoration = StateRestorationTester(compose)
     private val androidContext = ApplicationProvider.getApplicationContext<Context>()
     private val scope = "account/mac/profile/original-session"
     private val generation = "source-generation"
@@ -38,31 +48,159 @@ class VideoFeedbackWorkspaceTest {
     private var position by mutableLongStateOf(1234)
     private var pauses = 0
     private var resumes = 0
-    private fun fixture(registry: ActivityResultRegistryOwner? = null) {
+    private var imeBottom by mutableIntStateOf(0)
+    private var keyboardShows = 0
+    private var showing by mutableStateOf(true)
+    private lateinit var back: OnBackPressedDispatcher
+    private val keyboard = object : SoftwareKeyboardController {
+        override fun show() { keyboardShows++ }
+        override fun hide() { imeBottom = 0 }
+    }
+    private fun fixture(registry: ActivityResultRegistryOwner? = null,
+        document: VideoFeedbackDocument = VideoFeedbackDocument(notes = listOf(VideoNote("one", 1234, 4567, "延长这一段\n保留原声"))),
+        enter: Boolean = true) {
         runBlocking { VideoFeedbackStore(File(androidContext.filesDir, "video-feedback")).write(
             videoFeedbackKey(scope, "/work/movie.mp4", generation),
-            VideoFeedbackDocument(notes = listOf(VideoNote("one", 1234, 4567, "延长这一段\n保留原声")))) }
-        compose.setContent {
+            document) }
+        restoration.setContent {
             HermesTheme {
-                CompositionLocalProvider(LocalAppLanguage provides AppLanguage.EN) {
+                CompositionLocalProvider(LocalAppLanguage provides AppLanguage.EN, LocalSoftwareKeyboardController provides keyboard) {
+                    back = requireNotNull(LocalOnBackPressedDispatcherOwner.current).onBackPressedDispatcher
                     val content: @androidx.compose.runtime.Composable () -> Unit = {
-                        VideoFeedbackWorkspace("movie.mp4", VideoFeedbackContext(scope, "/work/movie.mp4", "原会话", attach = {
+                        if (showing) VideoFeedbackWorkspace("movie.mp4", VideoFeedbackContext(scope, "/work/movie.mp4", "原会话", attach = {
                             if (refusal == null) attached = it
                             refusal
                         }), generation, 60_000, { position }, {}, { closed++ },
-                            playerPosition = position, pause = { pauses++ }, resume = { resumes++ }) { annotate, editing, start, locked ->
+                            playerPosition = position, pause = { pauses++ }, resume = { resumes++ },
+                            imeInsets = WindowInsets(bottom = imeBottom)) { annotate, editing, start, locked, review ->
                             VideoPlayerContent("movie.mp4", VideoPlayerState(position = 1234, duration = 60_000, hasFrame = true),
-                                onAnnotate = annotate, annotating = editing, annotationStartMs = start, canPlay = !locked)
+                                onAnnotate = annotate, annotating = editing, annotationStartMs = start, canPlay = !locked,
+                                onReviewNotes = review, onClose = { showing = false })
                         }
                     }
                     if (registry == null) content() else CompositionLocalProvider(LocalActivityResultRegistryOwner provides registry) { content() }
                 }
             }
         }
-        compose.onNodeWithText("Annotate").performClick()
-        compose.waitUntil(5_000) { compose.onAllNodesWithTag("video-note-point").fetchSemanticsNodes().isNotEmpty() }
+        if (enter) {
+            compose.onNodeWithText("Annotate").performClick()
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("video-note-point").fetchSemanticsNodes().isNotEmpty() }
+        }
     }
     @After fun cleanup() { attached?.delete() }
+    @Test fun hiding_and_showing_ime_does_not_request_focus_again() {
+        fixture()
+        compose.onNodeWithTag("video-note-point").performClick()
+        compose.waitForIdle()
+        assertEquals(1, keyboardShows)
+        compose.runOnIdle { imeBottom = 400 }
+        compose.waitForIdle()
+        compose.runOnIdle { imeBottom = 0 }
+        compose.waitForIdle()
+        assertEquals("IME layout changes must not reopen the keyboard", 1, keyboardShows)
+    }
+    @Test fun done_opens_export_summary_instead_of_hiding_saved_notes() {
+        fixture()
+        compose.onNodeWithText("Done").performClick()
+        compose.onNodeWithText("Save .md").assertIsDisplayed()
+        compose.onNodeWithText("Attach to chat").assertIsDisplayed()
+        compose.onNodeWithTag("video-note-point").assertDoesNotExist()
+        compose.onRoot().captureRoboImage("screenshots/video-feedback-workspace-summary.png")
+    }
+    @Test fun done_remains_available_with_only_a_range_start() {
+        fixture()
+        compose.onNodeWithTag("video-note-start").performClick()
+        compose.onNodeWithText("Done").assertIsEnabled().performClick()
+        compose.onNodeWithText("Save .md").assertIsDisplayed()
+        compose.onNodeWithText("Feedback not written yet").assertDoesNotExist()
+    }
+    @Test fun system_back_hides_keyboard_then_returns_to_tools_without_losing_feedback() {
+        fixture()
+        compose.onNodeWithTag("video-note-point").performClick()
+        compose.onNodeWithTag("video-note-text").performTextInput("unfinished feedback")
+        compose.runOnIdle { imeBottom = 400 }
+        compose.runOnIdle { back.onBackPressed() }
+        compose.onNodeWithTag("video-note-text").assertExists().assertIsNotFocused()
+        assertEquals(1, keyboardShows)
+        compose.onRoot().captureRoboImage("screenshots/video-feedback-workspace-keyboard-hidden.png")
+        compose.runOnIdle { back.onBackPressed() }
+        compose.onNodeWithTag("video-note-point").assertIsDisplayed()
+        compose.onNodeWithTag("video-note-text").assertDoesNotExist()
+        compose.onNodeWithText("Unfinished drafts", substring = true).performClick()
+        compose.onNodeWithText("unfinished feedback").assertIsDisplayed()
+        compose.onNodeWithText("Save .md").assertDoesNotExist()
+    }
+    @Test fun explicit_back_returns_in_one_action_even_with_keyboard_visible() {
+        fixture()
+        compose.onNodeWithTag("video-note-point").performClick()
+        compose.onNodeWithTag("video-note-text").performTextInput("unfinished feedback")
+        compose.runOnIdle { imeBottom = 400 }
+        compose.onNodeWithText("Back to video").performClick()
+        compose.onNodeWithTag("video-note-point").assertIsDisplayed()
+        compose.onNodeWithTag("video-note-text").assertDoesNotExist()
+        assertEquals(1, keyboardShows)
+    }
+    @Test fun restoring_editor_after_keyboard_was_hidden_does_not_reopen_it() {
+        fixture()
+        compose.onNodeWithTag("video-note-point").performClick()
+        compose.onNodeWithTag("video-note-text").performTextInput("unfinished feedback")
+        compose.runOnIdle { imeBottom = 400 }
+        compose.runOnIdle { back.onBackPressed() }
+        assertEquals(1, keyboardShows)
+        restoration.emulateSavedInstanceStateRestore()
+        compose.onNodeWithTag("video-note-text").assertTextContains("unfinished feedback")
+        assertEquals("Restoring a layout is not an explicit edit action", 1, keyboardShows)
+    }
+    @Test fun done_from_editor_exports_only_formal_notes_and_can_return_or_continue() {
+        fixture()
+        compose.onNodeWithTag("video-note-point").performClick()
+        compose.onNodeWithTag("video-note-text").performTextInput("unfinished feedback")
+        compose.onNodeWithText("Done").performClick()
+        compose.onNodeWithText("Notes · 1").assertIsDisplayed()
+        compose.onNodeWithText("unfinished feedback").assertDoesNotExist()
+        compose.onNodeWithText("Unfinished drafts", substring = true).assertDoesNotExist()
+        compose.onNodeWithText("Continue annotating").performClick()
+        compose.onNodeWithTag("video-note-point").assertIsDisplayed()
+        compose.onNodeWithText("Done").performClick()
+        compose.onNodeWithText("Back to video").performClick()
+        compose.onNodeWithTag("video-review-notes").assertIsDisplayed().performClick()
+        compose.onNodeWithText("Attach to chat").assertIsEnabled().performClick()
+        compose.waitUntil(5_000) { attached != null }
+        assertFalse(attached!!.readText().contains("unfinished feedback"))
+    }
+    @Test fun drafts_only_finish_goes_to_playback_without_summary_or_export() {
+        fixture(document = VideoFeedbackDocument())
+        compose.onNodeWithTag("video-note-start").performClick()
+        compose.onNodeWithText("Done").performClick()
+        compose.onNodeWithText("Annotate").assertIsDisplayed()
+        compose.onNodeWithText("Save .md").assertDoesNotExist()
+        compose.onNodeWithTag("video-review-notes").assertDoesNotExist()
+        compose.onNodeWithText("Annotate").performClick()
+        compose.onNodeWithText("Unfinished drafts", substring = true).performClick()
+        compose.onNodeWithText("Start around 00:01 · End not marked").assertIsDisplayed()
+    }
+    @Test fun closing_and_reopening_a_live_viewmodel_starts_playback_then_tools() {
+        fixture()
+        compose.onNodeWithTag("video-note-point").performClick()
+        compose.onNodeWithTag("video-note-text").performTextInput("unfinished feedback")
+        compose.onNodeWithContentDescription("Close").performClick()
+        compose.runOnIdle { showing = true }
+        compose.onNodeWithText("Annotate").assertIsDisplayed()
+        compose.onNodeWithTag("video-note-text").assertDoesNotExist()
+        compose.onNodeWithText("Annotate").performClick()
+        compose.onNodeWithTag("video-note-point").assertIsDisplayed()
+        compose.onNodeWithText("Unfinished drafts", substring = true).performClick()
+        compose.onNodeWithText("Continue draft").performClick()
+        compose.onNodeWithTag("video-note-text").assertTextContains("unfinished feedback")
+    }
+    @Test fun playback_offers_a_named_export_entry_without_entering_marking() {
+        fixture(enter = false)
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("video-review-notes").fetchSemanticsNodes().isNotEmpty() }
+        compose.onRoot().captureRoboImage("screenshots/video-feedback-workspace-export-entry.png")
+        compose.onNodeWithTag("video-review-notes").performClick()
+        compose.onNodeWithText("Save .md").assertIsDisplayed()
+        compose.onNodeWithTag("video-note-point").assertDoesNotExist()
+    }
     @Test fun range_editor_commits_typed_feedback_before_exporting() {
         fixture()
         compose.onNodeWithTag("video-note-start").performClick()
@@ -70,21 +208,21 @@ class VideoFeedbackWorkspaceTest {
         compose.runOnIdle { position = 4_567 }
         compose.onNodeWithTag("video-note-end").performClick()
         compose.onNodeWithTag("video-note-text").performScrollTo().performTextInput("延长片段并保留原声")
-        compose.onNodeWithText("Save and continue").performClick()
-        compose.waitUntil(5_000) { compose.onAllNodesWithText("Notes · 2").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Save note and continue").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("View notes (2)").fetchSemanticsNodes().isNotEmpty() }
         compose.runOnIdle { assertEquals(1, resumes) }
-        compose.onNodeWithText("Notes · 2").performClick()
+        compose.onNodeWithText("View notes (2)").performClick()
         compose.onNodeWithText("Attach to chat").assertIsEnabled().performClick()
         compose.waitUntil(5_000) { attached != null }
         assertTrue(attached!!.readText().contains("延长片段并保留原声"))
     }
     @Test fun attach_generates_a_real_markdown_file_and_returns_to_the_original_composer() {
         fixture()
-        compose.onNodeWithText("Notes · 1").performClick()
+        compose.onNodeWithText("View notes (1)").performClick()
         compose.onNodeWithText("Attach to chat").performClick()
         compose.waitUntil(5_000) { attached != null }
         val text = attached!!.readText()
-        assertTrue(text.contains("00:00:01.234 – 00:00:04.567"))
+        assertTrue(text.contains("约 00:01–00:04"))
         assertTrue(text.contains("延长这一段\n保留原声"))
         assertTrue(text.contains("/work/movie.mp4"))
         assertTrue(text.contains("source-generation"))
@@ -94,7 +232,7 @@ class VideoFeedbackWorkspaceTest {
     @Test fun attachment_refusal_preserves_notes_and_does_not_close_the_viewer() {
         refusal = AppError(AppErrorCode.VIDEO_NOTES_ATTACHMENTS_FULL, false)
         fixture()
-        compose.onNodeWithText("Notes · 1").performClick()
+        compose.onNodeWithText("View notes (1)").performClick()
         compose.onNodeWithText("Attach to chat").performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithText("HR-ANNOT-004", substring = true).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Back to notes").performClick()
@@ -115,7 +253,7 @@ class VideoFeedbackWorkspaceTest {
             }
         }
         fixture(owner)
-        compose.onNodeWithText("Notes · 1").performClick()
+        compose.onNodeWithText("View notes (1)").performClick()
         compose.onNodeWithText("Save .md").performClick()
         compose.waitUntil(5_000) { target.isFile && target.length() > 0 }
         assertTrue(target.readText().contains("延长这一段"))

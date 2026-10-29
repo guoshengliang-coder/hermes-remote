@@ -14,7 +14,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
-internal enum class VideoFeedbackScreen { TOOLS, SELECTING, EDITOR, LIST, RETIME_POINT, RETIME_RANGE }
+internal enum class VideoFeedbackScreen { TOOLS, SELECTING, EDITOR, LIST, DRAFTS, RETIME_POINT, RETIME_RANGE }
 internal data class VideoFeedbackState(
     val document: VideoFeedbackDocument = VideoFeedbackDocument(), val loaded: Boolean = false,
     val saving: Boolean = false, val dirty: Boolean = false, val error: AppError? = null,
@@ -105,8 +105,28 @@ internal class VideoFeedbackViewModel(private val store: VideoFeedbackStorage, p
     }
     fun edit(draft: VideoNoteDraft?) = change(state.document.copy(draft = draft))
     fun text(value: String) { if (value.length <= VIDEO_NOTE_TEXT_LIMIT) state.document.draft?.let { edit(it.copy(text = value)) } }
-    fun later() { if (!state.committing) state = state.copy(screen = VideoFeedbackScreen.TOOLS) }
-    fun showList() { if (state.loaded && !state.committing && state.screen == VideoFeedbackScreen.TOOLS) state = state.copy(screen = VideoFeedbackScreen.LIST) }
+    /** Back cancels accidental empty points, while explicit Finish later keeps the locator. */
+    fun returnToTools(keepEmpty: Boolean = false) {
+        if (state.committing) return
+        val draft = state.document.draft
+        when {
+            keepEmpty && draft != null && !draft.retained -> change(
+                state.document.copy(draft = draft.copy(retained = true)), VideoFeedbackScreen.TOOLS)
+            draft != null && draft.id == null && !draft.range && draft.text.isBlank() && !draft.retained ->
+                change(state.document.copy(draft = null), VideoFeedbackScreen.TOOLS)
+            else -> state = state.copy(screen = VideoFeedbackScreen.TOOLS)
+        }
+    }
+    fun later() = returnToTools(keepEmpty = true)
+    fun showList() {
+        if (!state.loaded || state.committing) return
+        returnToTools()
+        state = state.copy(screen = VideoFeedbackScreen.LIST)
+    }
+    fun showDrafts() {
+        if (state.loaded && !state.committing && state.screen == VideoFeedbackScreen.TOOLS)
+            state = state.copy(screen = VideoFeedbackScreen.DRAFTS)
+    }
     fun resumeDraft(draftKey: String) {
         if (state.committing) return
         val draft = state.document.allDrafts.find { it.draftKey == draftKey } ?: return

@@ -1,3 +1,10 @@
+HG-243 exit/export follow-up keeps editor identity stable through IME/size changes, separates Back
+from Done, and ends marking with a saved-notes-only summary and direct export/staging actions.
+Drafts have a separate recovery page; empty accidental point drafts are cancelled unless retained
+explicitly. Reopening starts in playback, and entering annotation starts with tools. UI and Markdown
+describe approximate moments/ranges; exact timestamps remain internal. See `../docs/VIDEO_FEEDBACK.md`.
+This source change does not allocate or publish an APK.
+
 HG-243 follow-up separates watching from commenting: Annotate opens three stable marking actions
 without pausing or selecting a timestamp. Point notes capture the current confirmed frame; start/end
 marks form a range without typed times. New feedback resumes playback only after a successful durable

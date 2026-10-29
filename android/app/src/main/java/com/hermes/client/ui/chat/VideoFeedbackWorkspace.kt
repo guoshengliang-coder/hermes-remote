@@ -8,9 +8,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Constraints
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -38,7 +41,9 @@ internal fun VideoFeedbackWorkspace(
     playerPosition: Long = 0, canMark: Boolean = true, pause: () -> Unit = {}, resume: () -> Unit = {},
     playbackEpoch: () -> Long = { 0L },
     feedbackModel: VideoFeedbackViewModel? = null,
-    video: @Composable (annotate: (() -> Unit)?, editing: Boolean, selectionStart: Long?, playbackLocked: Boolean) -> Unit,
+    imeInsets: WindowInsets = WindowInsets.ime,
+    video: @Composable (annotate: (() -> Unit)?, editing: Boolean, selectionStart: Long?, playbackLocked: Boolean,
+        review: (() -> Unit)?) -> Unit,
 ) {
     val androidContext = LocalContext.current
     val language = LocalAppLanguage.current
@@ -49,6 +54,7 @@ internal fun VideoFeedbackWorkspace(
     var exportError by remember { mutableStateOf<AppError?>(null) }
     var pendingSave by rememberSaveable { mutableStateOf<String?>(null) }
     val key = context?.let { info -> generation?.let { videoFeedbackKey(info.scope, info.reference, info.downloadedGeneration ?: it) } }
+    var reviewing by rememberSaveable(key) { mutableStateOf(false) }
     val vm: VideoFeedbackViewModel? = feedbackModel ?: key?.let { storageKey ->
         viewModel(key = "video-feedback:$storageKey", factory = remember(storageKey) {
             object : ViewModelProvider.Factory {
@@ -67,8 +73,8 @@ internal fun VideoFeedbackWorkspace(
     DisposableEffect(key) { onDispose { mounted = false } }
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    LaunchedEffect(vm?.state?.editing) {
-        if (vm?.state?.editing != true) { focus.clearFocus(); keyboard?.hide() }
+    LaunchedEffect(editing, vm?.state?.editing) {
+        if (!editing || vm?.state?.editing != true) { focus.clearFocus(); keyboard?.hide() }
     }
     val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
         val source = pendingSave?.let(::File)
@@ -121,29 +127,53 @@ internal fun VideoFeedbackWorkspace(
             finally { output?.delete(); busy = false }
         }
     }
-    val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
-    fun finish() {
+    val keyboardVisible = imeInsets.getBottom(LocalDensity.current) > 0
+    fun leaveInput(keepEmpty: Boolean = false) {
+        if (vm?.state?.committing == true) return
+        focus.clearFocus(); keyboard?.hide()
+        vm?.returnToTools(keepEmpty)
+    }
+    fun returnToVideo() {
+        if (vm?.state?.committing == true) return
+        leaveInput(); editing = false; reviewing = false
+    }
+    fun showSummary() {
+        if (vm?.state?.committing == true || busy || pendingSave != null) return
+        leaveInput(); editing = false
+        reviewing = vm?.state?.document?.notes?.isNotEmpty() == true
+        if (reviewing) { pause(); vm?.showList() }
+    }
+    fun startMarking() {
+        if (vm?.state?.committing == true) return
+        // A surviving ViewModel may still hold a previous viewer's editor. Restore work on demand.
+        leaveInput(); reviewing = false; editing = true
+    }
+    fun back() {
         if (vm?.state?.committing == true) return
         when {
             keyboardVisible -> { focus.clearFocus(); keyboard?.hide() }
-            vm?.state?.screen != VideoFeedbackScreen.TOOLS -> vm?.later()
-            else -> editing = false
+            reviewing -> returnToVideo()
+            vm?.state?.screen != VideoFeedbackScreen.TOOLS -> leaveInput()
+            else -> returnToVideo()
         }
     }
-    BackHandler(enabled = editing) { finish() }
+    BackHandler(enabled = editing || reviewing) { back() }
     val content: @Composable () -> Unit = {
-        video(if (vm != null) { { if (editing) finish() else editing = true } } else null,
+        video(if (vm != null) { { if (editing) showSummary() else startMarking() } } else null,
             editing, if (editing) vm?.state?.selectionStart else null,
-            editing && vm?.state?.let { it.editing || it.committing || it.screen == VideoFeedbackScreen.LIST } == true)
+            reviewing || editing && vm?.state?.let {
+                it.editing || it.committing || it.screen == VideoFeedbackScreen.DRAFTS
+            } == true,
+            if (!editing && !reviewing && vm?.state?.document?.notes?.isNotEmpty() == true) ({ showSummary() }) else null)
     }
-    BoxWithConstraints(Modifier.fillMaxSize().imePadding()) {
-        val toolHeight = maxHeight * .58f
-        if (editing && vm != null) {
+    Box(Modifier.fillMaxSize().windowInsetsPadding(imeInsets)) {
+        if ((editing || reviewing) && vm != null) {
             val actions = VideoFeedbackActions(
                 point = { if (canMark) position()?.let { vm.point(it, duration); if (vm.state.editing) pause() } },
                 start = { if (canMark) position()?.let { vm.markStart(it, duration) } },
                 end = { if (canMark) position()?.let { vm.markEnd(it, duration); if (vm.state.editing) pause() } },
-                cancelSelection = vm::cancelSelection, list = { pause(); vm.showList() },
+                cancelSelection = vm::cancelSelection, list = ::showSummary, drafts = { pause(); vm.showDrafts() },
+                back = { leaveInput() }, returnToVideo = ::returnToVideo, continueMarking = ::startMarking,
                 resumeDraft = { pause(); vm.resumeDraft(it) }, text = vm::text,
                 commit = {
                     val newNote = vm.state.document.draft?.id == null
@@ -153,29 +183,20 @@ internal fun VideoFeedbackWorkspace(
                         if (success && mounted && currentKey == storageKey) {
                             focus.clearFocus(); keyboard?.hide()
                             if (newNote && currentMode && currentEpoch() == epoch) currentResume()
+                            if (!newNote) { editing = false; reviewing = true }
                         }
                     }
                 },
-                reselect = vm::reselect, later = vm::later, editNote = { pause(); vm.editNote(it) },
+                reselect = { focus.clearFocus(); keyboard?.hide(); vm.reselect() }, later = { leaveInput(keepEmpty = true) },
+                editNote = { pause(); reviewing = false; editing = true; vm.editNote(it) },
                 delete = vm::delete, discardDraft = vm::discardDraft,
-                seek = { pause(); vm.later(); seek(it) },
+                seek = { pause(); returnToVideo(); seek(it) },
                 retry = vm::retry, saveFile = { export(false) }, attach = { export(true) },
             )
-            val panel: @Composable (Modifier) -> Unit = { modifier ->
-                VideoFeedbackPanel(vm.state, duration, playerPosition, canMark, actions, busy || pendingSave != null, modifier)
-            }
-            if (keyboardVisible && vm.state.editing) panel(Modifier.fillMaxSize())
-            else if (maxWidth > maxHeight) Row(Modifier.fillMaxSize()) {
-                Box(Modifier.weight(1f).fillMaxHeight()) { content() }
-                panel(Modifier.widthIn(max = 420.dp).weight(1f).fillMaxHeight())
-            } else Column(Modifier.fillMaxSize()) {
-                if (vm.state.editing || vm.state.screen == VideoFeedbackScreen.LIST) {
-                    Box(Modifier.fillMaxWidth().weight(.32f)) { content() }
-                    panel(Modifier.fillMaxWidth().weight(.68f))
-                } else {
-                    Box(Modifier.fillMaxWidth().weight(1f)) { content() }
-                    panel(Modifier.fillMaxWidth().heightIn(max = toolHeight))
-                }
+            val expanded = vm.state.editing || reviewing || vm.state.screen == VideoFeedbackScreen.DRAFTS
+            VideoFeedbackLayout(keyboardVisible && vm.state.editing, expanded, video = content) {
+                VideoFeedbackPanel(vm.state, duration, playerPosition, canMark, actions, busy || pendingSave != null,
+                    if (expanded) Modifier.fillMaxSize() else Modifier.fillMaxWidth())
             }
         } else content()
     }
@@ -186,4 +207,32 @@ internal fun VideoFeedbackWorkspace(
             androidContext.getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(
                 android.content.ClipData.newPlainText("Hermes diagnostics", failure.sanitizedDiagnostic()))
         }) { Text(localized(language, "复制诊断", "Copy diagnostics")) } }) }
+}
+
+/** Both slots keep their composition identity across IME and window changes. No focus effects rerun. */
+@Composable
+private fun VideoFeedbackLayout(editorOnly: Boolean, expanded: Boolean, video: @Composable () -> Unit,
+    panel: @Composable () -> Unit) {
+    Layout(content = {
+        Box(Modifier.clipToBounds()) { video() }
+        Box(Modifier.clipToBounds()) { panel() }
+    }, modifier = Modifier.fillMaxSize()) { children, constraints ->
+        val width = constraints.maxWidth
+        val height = constraints.maxHeight
+        val landscape = width > height
+        val panelWidth = if (!editorOnly && landscape) minOf(width / 2, 420.dp.roundToPx()) else width
+        val panelConstraints = when {
+            editorOnly || landscape -> Constraints.fixed(panelWidth, height)
+            expanded -> Constraints.fixed(width, (height * .68f).toInt())
+            else -> Constraints(minWidth = width, maxWidth = width, maxHeight = (height * .58f).toInt())
+        }
+        val tools = children[1].measure(panelConstraints)
+        val videoWidth = if (editorOnly) 0 else if (landscape) width - panelWidth else width
+        val videoHeight = if (editorOnly) 0 else if (landscape) height else height - tools.height
+        val media = children[0].measure(Constraints.fixed(videoWidth, videoHeight))
+        layout(width, height) {
+            media.placeRelative(0, 0)
+            tools.placeRelative(if (!editorOnly && landscape) videoWidth else 0, if (!editorOnly && !landscape) videoHeight else 0)
+        }
+    }
 }

@@ -45,9 +45,9 @@ class VideoFeedbackPlaybackTest {
         compose.setContent { HermesTheme { CompositionLocalProvider(LocalAppLanguage provides AppLanguage.EN) {
             if (showing) VideoFeedbackWorkspace("fixture.mp4", VideoFeedbackContext("scope", "source", "chat", attach = { null }),
                 "version", 60_000, { 12_345 }, {}, {}, mode = mode, playerPosition = 12_345,
-                pause = { pauses++ }, resume = { resumes++ }, playbackEpoch = { epoch }, feedbackModel = vm) { annotate, editing, start, locked ->
+                pause = { pauses++ }, resume = { resumes++ }, playbackEpoch = { epoch }, feedbackModel = vm) { annotate, editing, start, locked, review ->
                 VideoPlayerContent("fixture.mp4", VideoPlayerState(position = 12_345, duration = 60_000, hasFrame = true),
-                    onAnnotate = annotate, annotating = editing, annotationStartMs = start, canPlay = !locked)
+                    onAnnotate = annotate, annotating = editing, annotationStartMs = start, canPlay = !locked, onReviewNotes = review)
             }
         } } }
         compose.onNodeWithText("Annotate").performClick()

@@ -181,13 +181,13 @@ fun VideoPlayerDialog(
             pause = { controller?.let { if (it.state.hasFrame) captureFrame(); it.pause() } },
             resume = { controller?.let { if (foreground && error == null && !it.state.ended && it.state.position < it.state.duration) it.play() } },
             playbackEpoch = { playbackEpoch },
-        ) { annotate, editing, selectionStart, playbackLocked ->
+        ) { annotate, editing, selectionStart, playbackLocked, review ->
             VideoPlayerContent(
                 name = name,
                 state = controller?.state ?: VideoPlayerState(wantsPlay = wantsPlay, buffering = error == null),
                 error = error, fullscreen = fullscreen, canPlay = controller != null && !playbackLocked,
                 downloaded = downloaded, download = download, openExternally = openExternally,
-                onAnnotate = annotate, annotating = editing,
+                onAnnotate = annotate, annotating = editing, onReviewNotes = review,
                 annotationStartMs = selectionStart,
                 onClose = onDismiss, onFullscreen = { fullscreen = !fullscreen },
                 onTogglePlay = { controller?.let { if (it.state.wantsPlay) { if (it.state.hasFrame) captureFrame(); it.pause() } else it.play() } },
