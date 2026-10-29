@@ -146,7 +146,7 @@ internal class VideoFeedbackViewModel(private val store: VideoFeedbackStorage, p
         val draft = state.document.draft ?: return false
         val start = parseVideoNoteTime(draft.start)
         val end = if (draft.range) parseVideoNoteTime(draft.end) else null
-        val note = start?.let { VideoNote(draft.id ?: java.util.UUID.randomUUID().toString(), it, end, draft.text.trim()) }
+        val note = start?.let { VideoNote(draft.id ?: java.util.UUID.randomUUID().toString(), it, end, draft.text) }
         if (note == null || draft.range && end == null || !note.valid(duration)) {
             state = state.copy(error = AppError(AppErrorCode.VIDEO_NOTES_INVALID, false, stage = "video_note_validation"))
             return false

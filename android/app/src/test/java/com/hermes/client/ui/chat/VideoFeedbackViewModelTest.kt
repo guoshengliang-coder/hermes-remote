@@ -172,11 +172,13 @@ class VideoFeedbackViewModelTest {
     @Test fun retiming_point_retains_text_and_existing_edits_return_to_list() = runBlocking {
         val vm = VideoFeedbackViewModel(VideoFeedbackStore(temporary.newFolder()), key, this)
         waitFor { vm.state.loaded }
-        vm.point(1_000, 60_000); vm.text("原意见"); vm.reselect()
+        val original = "  原意见\n"
+        vm.point(1_000, 60_000); vm.text(original); vm.reselect()
         vm.point(5_678, 60_000)
-        assertEquals("原意见", vm.state.document.draft!!.text)
+        assertEquals(original, vm.state.document.draft!!.text)
         assertEquals(5_678L, parseVideoNoteTime(vm.state.document.draft!!.start))
         assertTrue(vm.commit(60_000))
+        assertEquals(original, vm.state.document.notes.single().text)
         vm.editNote(vm.state.document.notes.single().id); vm.text("修订意见")
         assertTrue(vm.commit(60_000))
         assertEquals(VideoFeedbackScreen.LIST, vm.state.screen)
