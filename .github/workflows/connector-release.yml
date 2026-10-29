@@ -37,6 +37,17 @@ jobs:
           test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
           test "$(node -p 'require("./connector/package.json").version')" = "$CONNECTOR_VERSION"
           test "$(node -p 'process.versions.node')" = 22.23.2
+      - name: Select macOS test prerequisites
+        run: |
+          set -euo pipefail
+          # The recovery gate requires CMS AuthEnvelopedData from OpenSSL 3.
+          # macOS /usr/bin/openssl is LibreSSL and is not that contract.
+          brew list --versions openssl@3 >/dev/null || brew install openssl@3
+          openssl_bin="$(brew --prefix openssl@3)/bin"
+          "$openssl_bin/openssl" version | grep '^OpenSSL 3\.'
+          printf '%s\n' "$openssl_bin" >> "$GITHUB_PATH"
+          # Python resolves /var to /private/var; use the same canonical temp root.
+          printf 'TMPDIR=%s\n' "$(cd "$TMPDIR" && pwd -P)" >> "$GITHUB_ENV"
       - run: npm ci --ignore-scripts
       - run: npm run build && npm test
       - name: Build independently versioned schema-v1 and schema-v2 archives
