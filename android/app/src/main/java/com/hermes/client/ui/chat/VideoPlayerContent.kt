@@ -53,6 +53,7 @@ internal fun VideoPlayerContent(
     onCacheRetry: () -> Unit = {},
     onStatusDiagnostics: (AppError) -> Unit = {},
     onAnnotate: (() -> Unit)? = null,
+    onReviewNotes: (() -> Unit)? = null,
     annotating: Boolean = false,
     annotationStartMs: Long? = null,
     onScrubbing: (Boolean) -> Unit = {},
@@ -98,9 +99,9 @@ internal fun VideoPlayerContent(
                 MediaButton(Icons.Rounded.Close, localized(language, "关闭", "Close"), onClick = onClose)
                 Text(name, Modifier.weight(1f).padding(horizontal = 8.dp), color = Color.White,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
-                if (onAnnotate != null) TextButton(enabled = !annotating || annotationStartMs == null, onClick = onAnnotate) {
+                if (onAnnotate != null) TextButton(onClick = onAnnotate) {
                     Text(if (annotating) localized(language, "完成批注", "Done") else localized(language, "批注", "Annotate"),
-                        color = Color.White.copy(alpha = if (annotating && annotationStartMs != null) .38f else 1f))
+                        color = Color.White)
                 }
                 Box {
                     MediaButton(Icons.Rounded.MoreVert, localized(language, "更多", "More"), onClick = { menu = true })
@@ -187,6 +188,10 @@ internal fun VideoPlayerContent(
                     MediaButton(if (fullscreen) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen,
                         if (fullscreen) localized(language, "退出全屏", "Exit fullscreen") else localized(language, "横屏全屏", "Fullscreen"),
                         onClick = { interaction++; onFullscreen() })
+                }
+                if (!annotating && onReviewNotes != null) TextButton(onClick = onReviewNotes,
+                    modifier = Modifier.align(Alignment.End).heightIn(min = 48.dp).testTag("video-review-notes")) {
+                    Text(localized(language, "查看 / 导出批注", "View / export notes"), color = Color.White)
                 }
                 val cacheLabel = if (precache.size <= 0) null
                     else if (precache.cleared) localized(language, "本次观看已停止预缓存；重新打开视频可恢复", "Precaching stopped for this viewing; reopen to resume")

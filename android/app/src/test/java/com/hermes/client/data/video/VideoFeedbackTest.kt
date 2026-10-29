@@ -25,14 +25,29 @@ class VideoFeedbackTest {
             assertFalse(bad.valid(4_567))
         assertFalse(note.valid(4_566))
     }
-    @Test fun markdown_sorts_notes_and_keeps_unicode_multiline_and_precise_ranges() {
+    @Test fun markdown_sorts_notes_and_keeps_unicode_multiline_with_approximate_locators() {
         val output = videoFeedbackMarkdown("clip.mp4", "/work/clip.mp4", "剪辑意见", 8_000,
             VideoFeedbackDocument(notes = listOf(note, note.copy(id = "zero", startMs = 0, endMs = null, text = "开头"))))
         assertTrue(output.indexOf("开头") < output.indexOf(note.text))
-        assertTrue(output.contains("00:00:01.234 – 00:00:04.567"))
+        assertTrue(output.contains("约 00:01–00:04"))
         assertTrue(output.contains(note.text))
         assertTrue(output.contains("/work/clip.mp4"))
         assertTrue(output.contains("剪辑意见"))
+        assertTrue(output.contains("不保证逐帧精确"))
+        assertTrue(output.contains("单点指向该时间附近的内容"))
+        assertTrue(output.contains("片段表示大致范围"))
+        assertTrue(output.contains("not frame-accurate edit boundaries"))
+        assertTrue(output.contains("单点：约 00:00 附近"))
+        assertFalse(output.contains("01.234"))
+    }
+    @Test fun nearby_time_display_handles_hours_and_subsecond_ranges_without_changing_seek_data() {
+        assertEquals("00:01", videoNoteReferenceTime(1_234))
+        assertEquals("01:00:01", videoNoteReferenceTime(3_601_234))
+        val short = note.copy(endMs = 1_500)
+        val md = videoFeedbackMarkdown("clip", "source", "chat", 8_000, VideoFeedbackDocument(notes = listOf(short)))
+        assertTrue(md.contains("片段：约 00:01 附近"))
+        assertFalse(md.contains("00:01–00:01"))
+        assertEquals(1_234L, short.startMs); assertEquals(1_500L, short.endMs)
     }
     @Test fun identity_is_framed_and_isolates_scope_path_and_file_generation() {
         val key = videoFeedbackKey("account/device/profile/session", "/clip", "etag1:100")

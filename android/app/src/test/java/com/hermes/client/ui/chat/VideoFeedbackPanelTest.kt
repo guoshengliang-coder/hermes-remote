@@ -32,7 +32,7 @@ class VideoFeedbackPanelTest {
                 CompositionLocalProvider(LocalAppLanguage provides language, LocalDensity provides Density(density.density, fontScale)) {
                     val state = VideoFeedbackState(VideoFeedbackDocument(notes = listOf(note), draft = draft), loaded = true, screen = screen)
                     val media: @Composable () -> Unit = { VideoPlayerContent("阶段二试片.mp4", VideoPlayerState(
-                        position = 3_456, duration = 60_000, hasFrame = true), onAnnotate = {}, annotating = true, annotationStartMs = state.selectionStart) }
+                        position = 3_456, duration = 60_000, hasFrame = true), onAnnotate = {}, annotating = screen != VideoFeedbackScreen.LIST, annotationStartMs = state.selectionStart) }
                     val panel: @Composable (Modifier) -> Unit = { modifier ->
                         VideoFeedbackPanel(state, 60_000, 3_456, true, VideoFeedbackActions(), modifier = modifier)
                     }
@@ -40,8 +40,9 @@ class VideoFeedbackPanelTest {
                         Box(Modifier.weight(1f).fillMaxHeight()) { media() }
                         panel(Modifier.weight(1f).fillMaxHeight())
                     } else Column(Modifier.fillMaxSize()) {
-                        Box(Modifier.weight(.42f)) { media() }
-                        panel(Modifier.weight(.58f))
+                        val expanded = screen in listOf(VideoFeedbackScreen.EDITOR, VideoFeedbackScreen.LIST, VideoFeedbackScreen.DRAFTS)
+                        Box(Modifier.weight(if (expanded) .32f else .42f)) { media() }
+                        panel(Modifier.weight(if (expanded) .68f else .58f))
                     }
                 }
             }
@@ -64,7 +65,7 @@ class VideoFeedbackPanelTest {
         render(false, AppLanguage.ZH, VideoFeedbackScreen.EDITOR,
             VideoNoteDraft(start = "00:00:01.234", end = "00:00:04.567", range = true, text = "这段需要拉长"))
         compose.onAllNodes(hasSetTextAction()).assertCountEquals(1)
-        compose.onNodeWithText("保存并继续").assertIsDisplayed().assertIsEnabled()
+        compose.onNodeWithText("保存批注并继续").assertIsDisplayed().assertIsEnabled()
         compose.onNodeWithTag("video-note-time").assertIsDisplayed()
         compose.onNodeWithText("重新选段").assertIsDisplayed()
         compose.onRoot().captureRoboImage("screenshots/video-feedback-range-editor-zh-fs13.png")
@@ -91,13 +92,42 @@ class VideoFeedbackPanelTest {
                     60_000, 2_345, true, VideoFeedbackActions(delete = { deleted = it }, seek = { target = it }))
             }
         } }
-        compose.onNodeWithText("00:00:01.234 – 00:00:04.567").performClick()
+        compose.onNodeWithText("Approx. 00:01–00:04").performClick()
         assertEquals(1_234L, target)
         compose.onNodeWithText("Delete").performClick(); assertNull(deleted)
         compose.onNodeWithText("Cancel").performClick(); assertNull(deleted)
         compose.onNodeWithText("Delete").performClick()
         compose.onAllNodesWithText("Delete").onLast().performClick()
         assertEquals("one", deleted)
+    }
+    @Test fun summary_never_displays_drafts_or_their_actions() {
+        render(false, AppLanguage.ZH, VideoFeedbackScreen.LIST,
+            VideoNoteDraft(start = "0:12", text = "这是一份未确认草稿"))
+        compose.onNodeWithText("这是一份未确认草稿").assertDoesNotExist()
+        compose.onNodeWithText("继续填写").assertDoesNotExist()
+        compose.onNodeWithText("删除草稿").assertDoesNotExist()
+        compose.onNodeWithText("批注汇总 · 1").assertIsDisplayed()
+        compose.onNodeWithText("保存 .md").assertIsDisplayed()
+        compose.onNodeWithText("加入原会话").assertIsDisplayed()
+        compose.onRoot().captureRoboImage("screenshots/video-feedback-summary-zh-fs13.png")
+    }
+    @Test fun drafts_have_their_own_surface_without_export_or_formal_notes() {
+        render(true, AppLanguage.ZH, VideoFeedbackScreen.DRAFTS,
+            VideoNoteDraft(start = "0:12", range = true, text = "等终点确认后再补充意见"))
+        compose.onNodeWithText("等终点确认后再补充意见").assertIsDisplayed()
+        compose.onNodeWithText(note.text).assertDoesNotExist()
+        compose.onNodeWithText("保存 .md").assertDoesNotExist()
+        compose.onNodeWithText("加入原会话").assertDoesNotExist()
+        compose.onNodeWithText("继续填写").assertIsDisplayed()
+        compose.onRoot().captureRoboImage("screenshots/video-feedback-drafts-dark-zh-fs13.png")
+    }
+    @Test fun summary_export_is_reachable_at_twice_normal_font_size() {
+        render(true, AppLanguage.EN, VideoFeedbackScreen.LIST, fontScale = 2f)
+        compose.onNodeWithText("Save .md").assertIsDisplayed()
+        compose.onNodeWithText("Attach to chat").assertIsDisplayed()
+        compose.onNodeWithText("Back to video").assertIsDisplayed()
+        compose.onNodeWithText(note.text).assertIsDisplayed()
+        compose.onRoot().captureRoboImage("screenshots/video-feedback-summary-en-fs20.png")
     }
     @Test fun unavailable_frame_and_backwards_end_never_accept_marks() {
         var ready by mutableStateOf(false); var position by mutableLongStateOf(500)

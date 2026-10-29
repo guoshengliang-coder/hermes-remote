@@ -198,4 +198,55 @@ class VideoFeedbackViewModelTest {
         assertTrue(disk.read(key).allDrafts.isEmpty())
     }
 
+    @Test fun backing_out_of_accidental_empty_points_does_not_fill_the_draft_limit() = runBlocking {
+        val store = VideoFeedbackStore(temporary.newFolder())
+        val vm = VideoFeedbackViewModel(store, key, this); waitFor { vm.state.loaded }
+        repeat(VIDEO_NOTE_LIMIT + 1) {
+            vm.point(1_234, 60_000)
+            assertTrue(vm.state.editing)
+            vm.returnToTools()
+            assertTrue(vm.state.document.allDrafts.isEmpty())
+        }
+        waitFor { !vm.state.dirty }
+        assertTrue(store.read(key).allDrafts.isEmpty())
+    }
+    @Test fun explicitly_kept_empty_point_survives_back_and_restart() = runBlocking {
+        val store = VideoFeedbackStore(temporary.newFolder())
+        val vm = VideoFeedbackViewModel(store, key, this); waitFor { vm.state.loaded }
+        vm.point(1_234, 60_000); vm.later(); vm.returnToTools()
+        waitFor { !vm.state.dirty }
+        val restored = VideoFeedbackViewModel(store, key, this); waitFor { restored.state.loaded }
+        val draft = restored.state.document.allDrafts.single()
+        assertTrue(draft.retained)
+        restored.resumeDraft(draft.draftKey); restored.returnToTools()
+        assertEquals(draft, restored.state.document.draft)
+    }
+    @Test fun back_retains_feedback_and_incomplete_ranges_in_the_separate_drafts_page() = runBlocking {
+        val store = VideoFeedbackStore(temporary.newFolder())
+        val vm = VideoFeedbackViewModel(store, key, this); waitFor { vm.state.loaded }
+        vm.point(1_234, 60_000); vm.text("unfinished"); vm.returnToTools()
+        vm.markStart(5_678, 60_000); vm.returnToTools(); vm.showDrafts()
+        assertEquals(VideoFeedbackScreen.DRAFTS, vm.state.screen)
+        assertEquals(2, vm.state.document.allDrafts.size)
+        waitFor { !vm.state.dirty }
+        val doc = store.read(key)
+        assertEquals(2, doc.allDrafts.size)
+        assertEquals(5_678L, parseVideoNoteTime(doc.draft!!.start))
+        assertEquals("unfinished", doc.parkedDrafts.single().text)
+    }
+    @Test fun unconfirmed_edits_export_the_last_formal_version_until_saved() = runBlocking {
+        val store = VideoFeedbackStore(temporary.newFolder())
+        val note = VideoNote("saved", 1_234, 4_567, "confirmed feedback")
+        store.write(key, VideoFeedbackDocument(notes = listOf(note)))
+        val vm = VideoFeedbackViewModel(store, key, this); waitFor { vm.state.loaded }
+        vm.editNote(note.id); vm.text("unconfirmed edit"); vm.returnToTools(); vm.showList()
+        waitFor { !vm.state.dirty }
+        val md = videoFeedbackMarkdown("clip", "source", "chat", 60_000, store.read(key))
+        assertTrue(md.contains("confirmed feedback")); assertFalse(md.contains("unconfirmed edit"))
+        vm.editNote(note.id)
+        assertEquals("unconfirmed edit", vm.state.document.draft!!.text)
+        assertTrue(vm.commit(60_000))
+        assertTrue(videoFeedbackMarkdown("clip", "source", "chat", 60_000, store.read(key)).contains("unconfirmed edit"))
+    }
+
 }

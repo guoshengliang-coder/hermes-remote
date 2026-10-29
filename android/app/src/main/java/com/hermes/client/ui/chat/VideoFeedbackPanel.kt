@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -30,7 +31,8 @@ import com.hermes.client.ui.theme.HermesMono
 
 internal data class VideoFeedbackActions(
     val point: () -> Unit = {}, val start: () -> Unit = {}, val end: () -> Unit = {},
-    val cancelSelection: () -> Unit = {}, val list: () -> Unit = {},
+    val cancelSelection: () -> Unit = {}, val list: () -> Unit = {}, val drafts: () -> Unit = {},
+    val back: () -> Unit = {}, val returnToVideo: () -> Unit = {}, val continueMarking: () -> Unit = {},
     val resumeDraft: (String) -> Unit = {}, val text: (String) -> Unit = {}, val commit: () -> Unit = {},
     val reselect: () -> Unit = {}, val later: () -> Unit = {}, val editNote: (String) -> Unit = {},
     val delete: (String) -> Unit = {}, val discardDraft: (String) -> Unit = {}, val seek: (Long) -> Unit = {},
@@ -51,34 +53,39 @@ internal fun VideoFeedbackPanel(
             .padding(horizontal = 16.dp)
         when {
             state.editing && document.draft != null -> VideoFeedbackEditor(state, actions, body.fillMaxSize())
-            state.screen == VideoFeedbackScreen.LIST -> Column(body.fillMaxSize()) {
+            state.screen == VideoFeedbackScreen.DRAFTS -> Column(body.fillMaxSize()) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(localized(language, "批注 · ${document.notes.size}", "Notes · ${document.notes.size}"),
-                        Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                    TextButton(onClick = actions.later) { Text(localized(language, "返回视频", "Back to video")) }
+                    Text(localized(language, "未完成草稿", "Unfinished drafts"), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                    TextButton(onClick = actions.back) { Text(localized(language, "返回视频", "Back to video")) }
                 }
                 LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
                     item { VideoFeedbackStatus(state, actions.retry) }
-                    if (document.allDrafts.isNotEmpty()) {
-                        item { Text(localized(language, "未完成 · 不计入导出", "Unfinished · Excluded from export"), style = MaterialTheme.typography.labelMedium,
-                            modifier = Modifier.padding(top = 12.dp)) }
-                        items(document.allDrafts, key = { "draft:${it.draftKey}" }) { draft ->
-                            Column(Modifier.fillMaxWidth().padding(vertical = 8.dp).testTag("video-note-draft:${draft.draftKey}")) {
-                                Text(draftTime(draft), fontFamily = HermesMono, style = MaterialTheme.typography.labelMedium)
-                                Text(draft.text.ifBlank { localized(language, "尚未填写意见", "Feedback not written yet") },
-                                    style = MaterialTheme.typography.bodyMedium)
-                                FlowRow {
-                                    TextButton(onClick = { actions.resumeDraft(draft.draftKey) }) { Text(localized(language, "继续填写", "Continue draft")) }
-                                    TextButton(onClick = { deleting = draft.draftKey to true }) { Text(localized(language, "删除草稿", "Delete draft")) }
-                                }
-                                HorizontalDivider()
+                    items(document.allDrafts, key = { it.draftKey }) { draft ->
+                        Column(Modifier.fillMaxWidth().padding(vertical = 8.dp).testTag("video-note-draft:${draft.draftKey}")) {
+                            Text(draftTime(draft), fontFamily = HermesMono, style = MaterialTheme.typography.labelMedium)
+                            Text(draft.text.ifBlank { localized(language, "尚未填写意见", "Feedback not written yet") }, style = MaterialTheme.typography.bodyMedium)
+                            FlowRow {
+                                TextButton(onClick = { actions.resumeDraft(draft.draftKey) }) { Text(localized(language, "继续填写", "Continue draft")) }
+                                TextButton(onClick = { deleting = draft.draftKey to true }) { Text(localized(language, "删除草稿", "Delete draft")) }
                             }
+                            HorizontalDivider()
                         }
                     }
+                    if (document.allDrafts.isEmpty()) item { Text(localized(language, "没有未完成草稿", "No unfinished drafts"), Modifier.padding(vertical = 16.dp)) }
+                }
+            }
+            state.screen == VideoFeedbackScreen.LIST -> Column(body.fillMaxSize()) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(localized(language, "批注汇总 · ${document.notes.size}", "Notes · ${document.notes.size}"),
+                        Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                    TextButton(onClick = actions.returnToVideo) { Text(localized(language, "返回视频", "Back to video")) }
+                }
+                LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("video-note-list")) {
+                    item { VideoFeedbackStatus(state, actions.retry) }
                     items(document.notes.sortedBy { it.startMs }, key = { "note:${it.id}" }) { note ->
                         Column(Modifier.fillMaxWidth().padding(vertical = 8.dp).testTag("video-note:${note.id}")) {
                             TextButton(onClick = { actions.seek(note.startMs) }, contentPadding = PaddingValues(0.dp)) {
-                                Text(videoNoteTime(note.startMs) + (note.endMs?.let { " – ${videoNoteTime(it)}" } ?: ""),
+                                Text(referenceTime(note.startMs, note.endMs),
                                     fontFamily = HermesMono, style = MaterialTheme.typography.labelMedium)
                             }
                             Text(note.text, style = MaterialTheme.typography.bodyMedium)
@@ -89,21 +96,25 @@ internal fun VideoFeedbackPanel(
                             HorizontalDivider()
                         }
                     }
-                    if (document.notes.isEmpty() && document.allDrafts.isEmpty()) item { Text(
+                    if (document.notes.isEmpty()) item { Text(
                         localized(language, "还没有批注，返回视频开始打点。", "No notes yet. Return to the video to mark a moment."),
                         Modifier.padding(vertical = 16.dp)) }
                 }
-                FlowRow(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val enabled = state.loaded && document.notes.isNotEmpty() && !state.dirty && !state.saving && state.error == null && !busy
-                    OutlinedButton(enabled = enabled, onClick = actions.saveFile) { Text(localized(language, "保存 .md", "Save .md")) }
-                    Button(enabled = enabled, onClick = actions.attach) { Text(localized(language, "加入原会话", "Attach to chat")) }
+                Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                    TextButton(onClick = actions.continueMarking, enabled = !busy) { Text(localized(language, "继续批注", "Continue annotating")) }
+                    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val enabled = state.loaded && document.notes.isNotEmpty() && !state.dirty && !state.saving && state.error == null && !busy
+                        Button(enabled = enabled, onClick = actions.attach) { Text(localized(language, "加入原会话", "Attach to chat")) }
+                        OutlinedButton(enabled = enabled, onClick = actions.saveFile) { Text(localized(language, "保存 .md", "Save .md")) }
+                    }
+                    Text(localized(language, "加入待发附件，由你检查后发送", "Review in chat before sending"), style = MaterialTheme.typography.bodySmall)
                 }
             }
             else -> Column(body.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 8.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(localized(language, "视频批注", "Video notes"), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                    TextButton(enabled = state.loaded && !state.selecting && state.screen == VideoFeedbackScreen.TOOLS, onClick = actions.list) {
-                        Text(localized(language, "批注 · ${document.notes.size}", "Notes · ${document.notes.size}"))
+                    TextButton(enabled = state.loaded && document.notes.isNotEmpty() && !state.selecting && state.screen == VideoFeedbackScreen.TOOLS, onClick = actions.list) {
+                        Text(localized(language, "查看批注（${document.notes.size}）", "View notes (${document.notes.size})"))
                     }
                 }
                 if (state.error != null || !state.loaded) VideoFeedbackStatus(state, actions.retry)
@@ -149,7 +160,7 @@ internal fun VideoFeedbackPanel(
                     else -> localized(language, "单点直接写意见；起点和终点组成片段。", "A point opens feedback; start and end form a range.")
                 }, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
                 if (state.screen == VideoFeedbackScreen.TOOLS && document.allDrafts.isNotEmpty()) TextButton(
-                    onClick = actions.list, contentPadding = PaddingValues(horizontal = 0.dp)) {
+                    onClick = actions.drafts, contentPadding = PaddingValues(horizontal = 0.dp)) {
                     Text(localized(language, "未完成草稿 · ${document.allDrafts.size}　继续填写", "Unfinished drafts · ${document.allDrafts.size}　Continue"))
                 }
             }
@@ -169,19 +180,21 @@ private fun VideoFeedbackEditor(state: VideoFeedbackState, actions: VideoFeedbac
     val draft = state.document.draft ?: return
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
-    LaunchedEffect(draft.draftKey) { focus.requestFocus(); keyboard?.show() }
+    var focusedOnEntry by rememberSaveable(draft.draftKey) { mutableStateOf(false) }
+    LaunchedEffect(draft.draftKey) {
+        if (!focusedOnEntry) { focusedOnEntry = true; focus.requestFocus(); keyboard?.show() }
+    }
     Column(modifier) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(when { draft.id != null -> localized(language, "编辑批注", "Edit note")
                 draft.range -> localized(language, "片段批注", "Range note") else -> localized(language, "单点批注", "Point note") },
                 Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-            TextButton(enabled = !state.committing, onClick = actions.later) { Text(localized(language, "稍后填写", "Finish later")) }
+            TextButton(enabled = !state.committing, onClick = actions.back) { Text(localized(language, "返回视频", "Back to video")) }
         }
         Text(draftTime(draft), fontFamily = HermesMono, color = MaterialTheme.colorScheme.primary,
             style = MaterialTheme.typography.labelLarge, modifier = Modifier.testTag("video-note-time"))
-        val interval = if (draft.range) parseVideoNoteTime(draft.end)?.let { end -> parseVideoNoteTime(draft.start)?.let { end - it } } else null
-        Text(if (interval != null && interval > 0) localized(language, "片段 ${shortTime(interval)} · 已暂停", "Range ${shortTime(interval)} · Paused")
-            else localized(language, "当前画面 · 已暂停", "Current frame · Paused"), style = MaterialTheme.typography.bodySmall)
+        Text(if (draft.range) localized(language, "大致片段范围 · 已暂停", "Approximate range · Paused")
+            else localized(language, "该时间附近的画面 · 已暂停", "Nearby footage · Paused"), style = MaterialTheme.typography.bodySmall)
         TextButton(enabled = !state.committing, onClick = actions.reselect, contentPadding = PaddingValues(0.dp)) {
             Text(if (draft.range) localized(language, "重新选段", "Mark range again") else localized(language, "重新打点", "Mark point again"))
         }
@@ -192,11 +205,14 @@ private fun VideoFeedbackEditor(state: VideoFeedbackState, actions: VideoFeedbac
             VideoFeedbackStatus(state, if (state.commitFailed) actions.commit else actions.retry)
         }
         Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(localized(language, "草稿自动保留在本机", "Draft retained on this device"), style = MaterialTheme.typography.bodySmall)
+            if (draft.id == null && !draft.range && draft.text.isBlank()) TextButton(onClick = actions.later, enabled = !state.committing) {
+                Text(localized(language, "保留点位，稍后填写", "Keep point for later"))
+            }
+            Text(localized(language, "有内容的草稿会自动保留", "Drafts with feedback are retained automatically"), style = MaterialTheme.typography.bodySmall)
             Button(onClick = actions.commit, enabled = draft.text.isNotBlank() && !state.committing,
                 modifier = Modifier.fillMaxWidth().testTag("video-note-commit")) {
                 Text(when { state.committing -> localized(language, "正在保存…", "Saving…")
-                    draft.id != null -> localized(language, "保存修改", "Save changes") else -> localized(language, "保存并继续", "Save and continue") })
+                    draft.id != null -> localized(language, "保存修改", "Save changes") else -> localized(language, "保存批注并继续", "Save note and continue") })
             }
         }
     }
@@ -210,7 +226,8 @@ private fun VideoFeedbackStatus(state: VideoFeedbackState, retry: () -> Unit) {
         !state.loaded -> localized(language, "正在读取批注…", "Loading notes…")
         state.saving || state.committing -> localized(language, "正在保存到本机…", "Saving on this device…")
         state.dirty -> localized(language, "有尚未保存的更改", "Some changes are not saved")
-        else -> localized(language, "已保存到本机 · 当前视频版本", "Saved on this device · This video version")
+        state.editing || state.screen == VideoFeedbackScreen.DRAFTS -> localized(language, "草稿已保存到本机", "Draft saved on this device")
+        else -> localized(language, "批注已保存到本机", "Notes saved on this device")
     }, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 8.dp))
     state.error?.let { error ->
         Text(error.localizedMessage(language), color = MaterialTheme.colorScheme.error)
@@ -224,8 +241,26 @@ private fun VideoFeedbackStatus(state: VideoFeedbackState, retry: () -> Unit) {
     }
 }
 
-private fun shortTime(value: Long) = videoNoteTime(value).let { if (value < 3_600_000) it.removePrefix("00:") else it }
-private fun draftTime(draft: VideoNoteDraft) = draft.start + if (draft.range) " – ${draft.end.ifBlank { "…" }}" else ""
+private fun shortTime(value: Long) = videoNoteReferenceTime(value)
+@Composable
+private fun referenceTime(start: Long, end: Long? = null): String {
+    val language = LocalAppLanguage.current
+    val a = shortTime(start)
+    val b = end?.let(::shortTime)
+    return when {
+        b == null -> localized(language, "约 $a 附近", "Around $a")
+        b == a -> localized(language, "约 $a 附近的片段", "Range near $a")
+        else -> localized(language, "约 $a–$b", "Approx. $a–$b")
+    }
+}
+@Composable
+private fun draftTime(draft: VideoNoteDraft): String {
+    val language = LocalAppLanguage.current
+    val start = parseVideoNoteTime(draft.start) ?: return localized(language, "待重新打点", "Mark a new position")
+    val end = if (draft.range) parseVideoNoteTime(draft.end) else null
+    return if (draft.range && end == null) localized(language, "起点约 ${shortTime(start)} · 待选终点", "Start around ${shortTime(start)} · End not marked")
+        else referenceTime(start, end)
+}
 
 @Composable
 private fun MarkButton(label: String, icon: ImageVector, enabled: Boolean, emphasized: Boolean,

@@ -16,7 +16,8 @@ data class VideoNote(val id: String, val startMs: Long, val endMs: Long? = null,
 
 @Serializable
 data class VideoNoteDraft(val id: String? = null, val start: String, val end: String = "", val range: Boolean = false,
-    val text: String = "", val draftKey: String = java.util.UUID.randomUUID().toString())
+    val text: String = "", val draftKey: String = java.util.UUID.randomUUID().toString(),
+    val retained: Boolean = false)
 
 @Serializable
 data class VideoFeedbackDocument(val schemaVersion: Int = 1, val notes: List<VideoNote> = emptyList(),
@@ -49,6 +50,11 @@ fun videoNoteTime(ms: Long): String {
         value / 60_000 % 60, value / 1_000 % 60, value % 1_000)
 }
 
+/** Human-facing locator; storage and seeking continue to use the original milliseconds. */
+fun videoNoteReferenceTime(ms: Long): String = videoNoteTime(ms).substringBefore('.').let {
+    if (ms < 3_600_000) it.removePrefix("00:") else it
+}
+
 fun parseVideoNoteTime(text: String): Long? {
     val match = Regex("^(?:(\\d{1,5}):)?(\\d{1,3}):([0-5]\\d)(?:\\.(\\d{1,3}))?$").matchEntire(text.trim()) ?: return null
     val (hours, minutes, seconds, millis) = match.destructured
@@ -67,10 +73,19 @@ fun videoFeedbackMarkdown(name: String, reference: String, conversation: String,
     append("- 会话 / Conversation: ").append(metadata(conversation)).append('\n')
     generation?.let { append("- 版本 / Version: ").append(metadata(it)).append('\n') }
     append("- 时长 / Duration: ").append(videoNoteTime(durationMs)).append("\n\n")
+    append("> **时间标记说明 / About time references**\n")
+    append("> 时间用于辅助定位，不保证逐帧精确。单点指向该时间附近的内容；片段表示大致范围，起止位置可能存在偏差。请结合批注文字，适当前后播放确认。\n")
+    append("> Times are approximate viewing references, not frame-accurate edit boundaries. A point refers to nearby content; a range indicates an approximate span. Read the feedback and review the surrounding footage.\n\n")
     document.validated().notes.sortedWith(compareBy<VideoNote> { it.startMs }.thenBy { it.endMs ?: it.startMs }.thenBy { it.id })
         .forEachIndexed { index, note ->
-            append("## ").append(index + 1).append(". ").append(videoNoteTime(note.startMs))
-            note.endMs?.let { append(" – ").append(videoNoteTime(it)) }
+            val start = videoNoteReferenceTime(note.startMs)
+            val end = note.endMs?.let(::videoNoteReferenceTime)
+            append("## ").append(index + 1).append(". ")
+            when {
+                end == null -> append("单点：约 $start 附近 / Point: around $start")
+                end == start -> append("片段：约 $start 附近 / Range near $start")
+                else -> append("片段：约 $start–$end / Approximate range: $start–$end")
+            }
             append("\n\n").append(note.text).append("\n\n")
         }
 }
