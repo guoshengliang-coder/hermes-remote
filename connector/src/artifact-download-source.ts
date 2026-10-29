@@ -10,7 +10,7 @@ import {
   ArtifactRangeError, type ArtifactDownloadDescriptor, type ArtifactErrorCode,
   type TunnelHttpRequest,
 } from "@hermes-remote/protocol";
-import { ArtifactFileError, openArtifactFile } from "./artifact-file.js";
+import { ArtifactFileError, openArtifactFile, type ExternalRootGrant } from "./artifact-file.js";
 import { TransferBudget } from "./transfer-budget.js";
 import type { LinkState } from "@hermes-remote/protocol";
 
@@ -40,6 +40,9 @@ export class ArtifactDownloadSource {
     readonly maxBytes = ARTIFACT_DEFAULT_MAX_BYTES,
     private readonly bytesPerSecond = 4 * 1024 * 1024,
     private readonly now: () => number = Date.now,
+    // HG-245: external read roots are pinned at Connector startup, so the grants arrive as the
+    // startup promise rather than a static list; both prepare and respond await the same one.
+    private readonly externalRoots: () => Promise<readonly ExternalRootGrant[]> = async () => [],
   ) {
     this.budget = new TransferBudget(bytesPerSecond);
     const url = new URL(gatewayUrl);
@@ -56,7 +59,9 @@ export class ArtifactDownloadSource {
 
   async prepare(path: string): Promise<ArtifactDownloadDescriptor> {
     if (!this.enabled) throw new ArtifactFileError(501, "HR-FILE-012");
-    const opened = await openArtifactFile(path, { filesRoot: this.filesRoot });
+    const opened = await openArtifactFile(path, {
+      filesRoot: this.filesRoot, externalRoots: await this.externalRoots(),
+    });
     try {
       if (!Number.isSafeInteger(opened.metadata.size) || opened.metadata.size > this.maxBytes) {
         throw new ArtifactFileError(413, "HR-FILE-004");
@@ -95,7 +100,9 @@ export class ArtifactDownloadSource {
     try {
       const reference = this.references.get(id);
       if (!reference || reference.expires <= this.now()) { await sendFailure(410, "HR-FILE-015"); return; }
-      const opened = await openArtifactFile(reference.path, { filesRoot: this.filesRoot });
+      const opened = await openArtifactFile(reference.path, {
+        filesRoot: this.filesRoot, externalRoots: await this.externalRoots(),
+      });
       try {
         const { metadata, handle } = opened;
         if (metadata.size > this.maxBytes) { await sendFailure(413, "HR-FILE-004"); return; }

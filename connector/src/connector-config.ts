@@ -1,3 +1,5 @@
+import { isAbsolute, resolve } from "node:path";
+
 export type ConnectorMode = "legacy" | "account";
 
 /**
@@ -17,4 +19,30 @@ export function resolveHermesMode(
   const explicit = env.HERMES_MODE?.trim();
   if (explicit) return explicit;
   return connectorMode === "account" ? "live" : "mock";
+}
+
+/**
+ * Additional read-only attachment roots (HG-245): `EXTRA_READ_ROOTS` is a semicolon-separated
+ * list of absolute directory paths, each an explicitly authorized external volume mount point.
+ * The primary `FILES_ROOT` keeps its role (uploads, thumbnails, and its existing boundary);
+ * these extra roots only widen authenticated attachment reads, never writes.
+ *
+ * A syntactically invalid entry aborts startup: a misparsed grant must fail loudly rather than
+ * silently narrow or shift the read boundary. A root that merely is not mounted yet is not a
+ * configuration error — it is disabled at runtime and re-checked on the next Connector start.
+ */
+export function resolveExternalReadRoots(env: Readonly<Record<string, string | undefined>>): string[] {
+  const raw = env.EXTRA_READ_ROOTS?.trim();
+  if (!raw) return [];
+  const roots: string[] = [];
+  for (const segment of raw.split(";")) {
+    const trimmed = segment.trim();
+    if (!trimmed) continue;
+    if (!isAbsolute(trimmed)) {
+      throw new Error(`EXTRA_READ_ROOTS entries must be absolute paths, got: ${trimmed}`);
+    }
+    const resolved = resolve(trimmed);
+    if (!roots.includes(resolved)) roots.push(resolved);
+  }
+  return roots;
 }

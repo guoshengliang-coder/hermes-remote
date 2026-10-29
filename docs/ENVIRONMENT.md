@@ -342,6 +342,19 @@ to real-path, owner, directory-permission and opened-file checks described in `c
 (HG-217). This does not grant other users' temporary files, permit links outside the matching
 root, or make files durable after system cleanup. No temporary grant is made when the effective
 user ID is unavailable; a filesystem-root temporary directory is never accepted.
+`EXTRA_READ_ROOTS` (HG-245) optionally adds explicitly authorized external read-only attachment
+roots as a semicolon-separated list of absolute paths, for example
+`EXTRA_READ_ROOTS=/Volumes/TiPlus-1T`. Each entry widens only authenticated attachment reads —
+never writes, uploads, or thumbnails, which keep living under `FILES_ROOT`. At startup the
+Connector resolves every entry and pins the mounted volume root's identity (`dev`/`ino`); every
+request re-checks that baseline, so a different volume swapped onto the same mount point is
+refused (`HR-FILE-003`), an unmounted volume reports not found (`HR-FILE-005`), and links may not
+cross out of their own grant. An entry that is not mounted at startup is disabled with a warning —
+the home-directory path stays up — and becomes active on the next Connector restart; a relative
+entry aborts startup. If the system assigns the replugged volume a different device identity,
+restart the Connector to re-pin the baseline. The GET stream keeps following `MAX_FILE_BYTES`,
+while large downloads use the independent artifact channel capped by `MAX_DOWNLOAD_BYTES` with its
+configured rate limit.
 `UPLOAD_ROOT` must remain inside `FILES_ROOT`; its defaults are
 `$HOME/.hermes-remote/uploads`, 50 MiB per upload, 100 MiB per download, 200 cached uploads, 512 MiB
 cached total, and seven-day retention. Gateway and the edge proxy permit 50 MiB only on
