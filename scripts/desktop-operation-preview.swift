@@ -12,6 +12,7 @@ enum DesktopHermesInstallPhase {
     var desktopUpdateSequence = DesktopUpdateSequence()
     var isDesktopUpdateRunning: Bool { desktopUpdateSequence.isRunning }
     var isAppUpdateInstalling = false, isAppUpdateHandoff = false
+    var isAutomaticConnectorRecovery = false, isUpdateSheetPresented = false
     var appUpdateIssue: DesktopIssue?
     var desktopUpdateBackgroundKind = DesktopOperationStatus.Kind.managedSetup
     var hermesInstallPhase = DesktopHermesInstallPhase.hidden
@@ -62,6 +63,8 @@ enum DesktopHermesInstallPhase {
         precondition(model.actions.last == "component-cleanup")
         model.desktopUpdateBackgroundKind = .componentSetup
         model.desktopUpdateSequence.begin(background: true, app: true)
+        model.componentBootstrapOperation = .idle
+        precondition(model.operationStatus(for: .desktopUpdate).state == .running)
         model.componentBootstrapOperation = .awaitingConfirmation
         precondition(model.activeOperationKind == .desktopUpdate)
         precondition(model.operationStatus(for: .desktopUpdate).state == .waitingForConfirmation)
@@ -82,6 +85,15 @@ enum DesktopHermesInstallPhase {
         model.isServiceRepairRunning = false
         model.serviceRepairCompleted = true
         precondition(model.operationStatus(for: .serviceRepair).state == .succeeded)
+
+        let confirmationMonitor = DesktopOperationWindow()
+        confirmationMonitor.sample(.init(kind: .desktopUpdate, state: .running, stage: "准备"))
+        precondition(NSApp.windows.contains { $0.title == "操作进度" && $0.isVisible })
+        confirmationMonitor.sample(.init(kind: .desktopUpdate, state: .waitingForConfirmation, stage: "确认"))
+        precondition(!NSApp.windows.contains { $0.title == "操作进度" && $0.isVisible })
+        confirmationMonitor.sample(.init(kind: .desktopUpdate, state: .running, stage: "执行"))
+        precondition(NSApp.windows.contains { $0.title == "操作进度" && $0.isVisible })
+        confirmationMonitor.close()
 
         let scenarios: [(String, DesktopOperationStatus)] = [
             ("download", .init(kind: .hermesUpgrade, state: .running, stage: "第 2 / 9 步 · 下载 Hermes", measurements: ["已下载 26 MiB / 84 MiB", "最近报告速度：2 MiB/s"], output: ["正在接收上游代码……"])),

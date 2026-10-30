@@ -15,7 +15,8 @@ import SwiftUI
         let old = tracker.status?.state
         let begins = tracker.update(status, now: now)
         // Confirmation already has its own sheet; don't cover it with a second window.
-        if begins && status?.state == .running { show() }
+        if status?.state == .waitingForConfirmation { hide(); return }
+        if status?.state == .running, begins || old == .waitingForConfirmation { show() }
         if old?.isActive == true, status?.state.isActive == false, status?.state != .cancelled { show() }
     }
     func show() {
@@ -108,7 +109,8 @@ struct DesktopOperationWindowHost: ViewModifier {
                         Text("\(status.kind.title) · \(status.state.title)").font(.system(size: 12, weight: .semibold))
                         Text(status.stage).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
                         Spacer()
-                        Button(status.state.isActive ? "查看进度" : "查看操作结果") { monitor.show() }
+                        Button(status.state == .waitingForConfirmation ? "请在主窗口确认" : status.state.isActive ? "查看进度" : "查看操作结果") { monitor.show() }
+                            .disabled(status.state == .waitingForConfirmation || model.isUpdateSheetPresented)
                     }.padding(12).background(.regularMaterial)
                 }
             }
@@ -130,6 +132,9 @@ struct DesktopOperationWindowHost: ViewModifier {
             .onDisappear { monitor.close() }
     }
     private func sample() {
+        // Automatic recovery reports inline, without opening an unsolicited progress panel.
+        guard !model.isAutomaticConnectorRecovery else { return }
+        if model.isUpdateSheetPresented { monitor.hide(); return }
         let kind = model.activeOperationKind ?? monitor.tracker.status?.kind
         var status = kind.map { model.operationStatus(for: $0) }
         if let kind, kind != .hermesUpgrade && kind != .hermesInstall {

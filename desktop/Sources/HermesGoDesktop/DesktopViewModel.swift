@@ -162,6 +162,9 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     let appVersion: String
     private var lastUpdateCheckAt: Date?
     private static let automaticUpdateInterval: TimeInterval = 12 * 60 * 60
+    private var connectorRecoveryPolicy = DesktopConnectorRecoveryPolicy()
+    @Published private(set) var connectorRecoveryMessage: String?
+    @Published private(set) var isAutomaticConnectorRecovery = false
     private var currentManagedInstallation: DesktopManagedBootstrapInstallationStatus = .absent
     /// The account Gateway's origin; the phone step's QR targets are derived from it.
     let accountGatewayURL: URL
@@ -343,11 +346,14 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         monitorTask = Task { [weak self] in
             await self?.refreshAccount(bootstrap: true)
             await self?.recoverManagedBootstrapAfterRestart()
+            await self?.refresh()
+            await self?.resumeStoppedConnectorIfNeeded()
             await self?.refreshComponentPreflight()
             await self?.runAutomaticUpdateCheckIfDue()
             var cycle = 0
             while !Task.isCancelled {
                 await self?.refresh()
+                await self?.resumeStoppedConnectorIfNeeded()
                 cycle += 1
                 if cycle.isMultiple(of: 4) {
                     await self?.refreshAccount()
@@ -1189,6 +1195,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             legacy: observation,
             managed: rawManagedInstallation,
             accountVerification: accountVerification,
+            connectorProcess: await readConnectorProcessState(),
             checkedAt: checkedAt
         )
 
@@ -1262,7 +1269,9 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         guard !isManagedBootstrapAccountLocked, !isAccountOperationInProgress, serviceRepair != nil,
               !serviceRepairNeeded, localManagedHermesHealth?.level == .healthy
         else { return false }
-        return DesktopConnectorReconnectEligibility.matches(currentManagedInstallation, device: selectedAccountDevice)
+        // This action always targets this Mac, even when another device is selected in account UI.
+        guard case .active = currentManagedInstallation else { return false }
+        return managedAccountVerification(for: currentManagedInstallation) == .verified
     }
 
     func prepareConnectorReconnect() async {
@@ -1271,9 +1280,52 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         serviceRepairCompleted = false
         serviceRepairIssue = nil
         serviceRepairGuidance = nil
+        connectorRecoveryMessage = nil
         do { serviceRepairPreparation = try await repair.prepare(reconnectOnly: true) }
         catch { showServiceRepairFailure(error, duringCommit: false) }
         isServiceRepairPreparing = false
+    }
+
+    private func readConnectorProcessState() async -> DesktopConnectorProcessState {
+        await Task.detached(priority: .utility) {
+            DesktopConnectorProcessState.inspect(userID: Darwin.getuid())
+        }.value
+    }
+
+    private func resumeStoppedConnectorIfNeeded() async {
+        guard canReconnectManagedConnector, let repair = serviceRepair else { return }
+        let process = await readConnectorProcessState()
+        // An account/sign-out/update action may have started during the process observation.
+        guard canReconnectManagedConnector,
+              connectorRecoveryPolicy.begin(process: process, eligible: true, now: ProcessInfo.processInfo.systemUptime)
+        else { return }
+        isServiceRepairRunning = true
+        isAutomaticConnectorRecovery = true
+        serviceRepairCompleted = false
+        connectorRecoveryMessage = "发现后台连接已停止，正在自动恢复…"
+        defer { isServiceRepairRunning = false; isAutomaticConnectorRecovery = false }
+        do {
+            if try await repair.resumeStoppedConnector() {
+                connectorRecoveryPolicy.succeeded()
+                serviceRepairCompleted = true
+                serviceRepairIssue = nil
+                serviceRepairGuidance = nil
+                connectorRecoveryMessage = "后台连接已自动恢复，云端验证通过。"
+            } else {
+                connectorRecoveryMessage = nil
+            }
+        } catch {
+            showServiceRepairFailure(error, duringCommit: true)
+            if let error = error as? DesktopManagedServiceRepairError,
+               error != .healthFailed {
+                connectorRecoveryPolicy.blocked()
+            }
+            connectorRecoveryMessage = "自动恢复未成功，可点击“重新连接”检查并重试。"
+        }
+        // Keep the operation lock until the recovery ends, then refresh the original local binding.
+        isServiceRepairRunning = false
+        await refreshAccount()
+        await refresh()
     }
 
     /// Runs on every refresh: keeps the managed Hermes service on this Mac's own Hermes when it has a
@@ -2249,7 +2301,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
                 // A repairable committed installation has a dedicated recovery surface; keep the
                 // generic ownership alarm out of its primary copy.
                 if managedBootstrapIssue?.code == .migrationConnectorMismatch { managedBootstrapIssue = nil }
-            } else {
+            } else if connectorRecoveryMessage == nil || serviceRepairCompleted {
                 serviceRepairIssue = nil
                 serviceRepairGuidance = nil
             }
@@ -2285,6 +2337,8 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         do {
             try await repair.commit(plan, confirmed: true)
             serviceRepairCompleted = true
+            connectorRecoveryPolicy.succeeded()
+            connectorRecoveryMessage = "后台连接已恢复，云端验证通过。"
         }
         catch { showServiceRepairFailure(error, duringCommit: true) }
         serviceRepairPreparation = nil

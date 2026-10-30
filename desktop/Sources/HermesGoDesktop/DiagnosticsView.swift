@@ -22,6 +22,14 @@ struct DiagnosticsView: View {
                         }.buttonStyle(PrimaryButtonStyle()).disabled(busy)
                     }
                 }
+                HStack {
+                    Button("重新连接这台 Mac") { Task { await model.prepareConnectorReconnect() } }
+                        .buttonStyle(.bordered)
+                        .disabled(busy || !model.canReconnectManagedConnector)
+                    if let message = model.connectorRecoveryMessage {
+                        Text(message).font(.system(size: 12)).foregroundStyle(.secondary)
+                    }
+                }
                 checks
                 DiagnosticLogsView().id("logs")
                 technicalDetails
@@ -77,9 +85,6 @@ struct DiagnosticsView: View {
             HStack {
                 if check.id == .localHermes {
                     Button("查看本机 Hermes") { selection = .localHermes }
-                }
-                if (check.id == .connector || check.id == .endToEnd), model.canReconnectManagedConnector {
-                    Button("重新连接这台 Mac") { Task { await model.prepareConnectorReconnect() } }.disabled(busy)
                 }
                 if let issue = check.health.issue {
                     if !check.health.detail.contains(issue.code.rawValue) {

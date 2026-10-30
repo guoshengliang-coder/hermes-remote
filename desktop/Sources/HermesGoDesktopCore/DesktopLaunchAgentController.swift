@@ -25,7 +25,8 @@ public enum DesktopLaunchAgentControllerError: Error, Equatable, Sendable {
 }
 
 /// Exact-label launchd operations for a user domain. Callers must first obtain the migration journal
-/// lock and explicit user confirmation. This type never discovers or kills arbitrary processes.
+/// lock and authorization for setup, repair or validated stopped-process recovery.
+/// This type never discovers or kills arbitrary processes.
 public struct DesktopLaunchAgentController<Runner: CommandRunning> {
     public static var legacyLabel: String { "com.hermesremote.connector" }
     public static var accountLabel: String { DesktopManagedInstallLayout.connectorLabel }
@@ -123,6 +124,17 @@ public struct DesktopLaunchAgentController<Runner: CommandRunning> {
         else { throw DesktopLaunchAgentControllerError.accountStopFailed }
     }
 
+    /// The caller proves the original identity, files, loaded arguments and stopped process under
+    /// the journal lease. No -k: if launchd already restarted it, leave that process alone.
+    public func resumeStoppedAccount() throws {
+        guard !isLoaded(Self.legacyLabel), isLoaded(Self.accountLabel) else {
+            throw DesktopLaunchAgentControllerError.invalidConfiguration
+        }
+        guard run(["kickstart", serviceTarget(Self.accountLabel)]).status == 0 else {
+            throw DesktopLaunchAgentControllerError.accountStartFailed
+        }
+    }
+
     public func startHermes(plistURL: URL) throws {
         guard validPlist(plistURL, label: Self.hermesLabel) else {
             log?.record("start \(Self.hermesLabel) refused reason=invalid-plist path=\(plistURL.path)")
@@ -181,7 +193,7 @@ public struct DesktopLaunchAgentController<Runner: CommandRunning> {
         }
         return result
     }
-    private static var loggedVerbs: Set<String> { ["bootstrap", "bootout", "enable", "disable"] }
+    private static var loggedVerbs: Set<String> { ["bootstrap", "bootout", "enable", "disable", "kickstart"] }
 
     private func validPlist(_ value: URL, label: String) -> Bool {
         let standardized = value.standardizedFileURL
