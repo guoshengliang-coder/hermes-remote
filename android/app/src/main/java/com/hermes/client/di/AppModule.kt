@@ -271,6 +271,7 @@ object AppModule {
         scope: CoroutineScope,
         routedRestRecoverySignal: RoutedRestRecoverySignal,
         diagnostics: com.hermes.client.data.network.ConnectionDiagnostics,
+        accountSessions: AccountSessionManager,
     ): com.hermes.client.data.network.GatewayHealthMonitor =
         com.hermes.client.data.network.GatewayHealthMonitor(
             api = api,
@@ -279,6 +280,11 @@ object AppModule {
             scope = scope,
             routedRestRecoverySignal = routedRestRecoverySignal,
             diagnostics = diagnostics,
+            recoverConnection = { trigger ->
+                // Every resumed socket re-resolves its bearer/device. Durable repair gates win.
+                com.hermes.client.data.network.recoverAccountConnection(accountSessions, client, trigger)
+                Unit
+            },
         )
 
     @Provides

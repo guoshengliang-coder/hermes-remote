@@ -1,3 +1,10 @@
+HG-248 gives the connection sheet an immediate, coalesced Re-check cycle with bounded progress,
+explicit unchanged-failure/success results and preserved server error codes. Valid foreground
+health recovery can resume a stopped WebSocket cycle; account/device repair gates remain enforced,
+healthy sockets are preserved, and no prompt is replayed. HTTP GET cancellation reaches the actual
+call, including body reads. Evidence and verification limits: `../docs/HG_248_CONNECTION_RECOVERY.md`.
+This source change does not allocate or publish an APK.
+
 HG-246/HG-247 unify the video-note editor into Submit, Finish later and Cancel and return; explicit
 Cancel durably drops only the current draft while preserving the formal note. The retiming entry is
 removed. Marking actions use equal outlined treatment; Annotate is an accessible icon and Done stays

@@ -127,5 +127,18 @@ class HealthStripTest {
     @Test fun a_device_with_no_network_is_named_as_the_phone_side() {
         assertEquals("HR-CONN-001", healthErrorCode(GatewayHealth.DeviceOffline))
         assertEquals("手机没有网络", healthStripLabel(GatewayHealth.DeviceOffline, zh = true))
+    }    @Test fun recheckFeedbackNamesBusySuccessAndUnchangedFailureInBothLanguages() {
+        val checking = com.hermes.client.data.network.HealthRecheckState.Checking("fixture")
+        val success = com.hermes.client.data.network.HealthRecheckState.Finished("fixture", null)
+        val failure = com.hermes.client.data.network.HealthRecheckState.Finished("fixture",
+            AppError(AppErrorCode.CONNECTOR_OFFLINE, true))
+        assertEquals("正在检查连接…", healthRecheckMessage(checking, true))
+        assertEquals("Checking the connection…", healthRecheckMessage(checking, false))
+        assertTrue(healthRecheckMessage(success, true)!!.contains("连接已恢复"))
+        assertTrue(healthRecheckMessage(success, false)!!.contains("Connection restored"))
+        assertTrue(healthRecheckMessage(failure, true)!!.contains("检查完成"))
+        assertTrue(healthRecheckMessage(failure, false)!!.contains("Check complete"))
+        assertEquals("HR-AUTH-003", healthErrorCode(GatewayHealth.GatewayUnreachable("HR-AUTH-003")))
     }
+
 }

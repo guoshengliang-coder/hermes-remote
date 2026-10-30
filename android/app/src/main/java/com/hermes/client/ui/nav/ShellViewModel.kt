@@ -27,6 +27,8 @@ class ShellViewModel @Inject constructor(
 
     /** Backend health for the shell's status strip + You-tab badge. */
     val health: StateFlow<com.hermes.client.data.network.GatewayHealth> = healthMonitor.health
+    val healthRecheck = healthMonitor.recheckState
+    private var healthOwner: List<String?>? = null
 
     /** The Mac's Hermes against the app's REST contract; null when there is nothing to say. */
     val hermesContract: StateFlow<com.hermes.client.data.network.HermesContractNotice?> =
@@ -44,6 +46,11 @@ class ShellViewModel @Inject constructor(
     fun refreshWorkspaceIdentity() = syncWorkspaceIdentity(accountSessions.session.value)
 
     private fun syncWorkspaceIdentity(account: com.hermes.client.data.auth.AccountSession?) {
+        val owner = listOf(account?.baseUrl, account?.accountId, account?.installationId, account?.selectedDeviceId)
+        if (owner != healthOwner) {
+            healthOwner = owner
+            healthMonitor.invalidate()
+        }
         defaultDevice.value = account?.selectedDeviceId
         val identity = com.hermes.client.ui.workspace.workspaceSessionKey(listOf(
             account?.baseUrl, account?.accountId ?: "signed-out",
@@ -67,6 +74,7 @@ class ShellViewModel @Inject constructor(
 
     /** Fire an immediate health probe (Re-check button). */
     fun recheckHealth() = healthMonitor.recheck()
+    fun clearHealthRecheckResult() = healthMonitor.clearRecheckResult()
 
     /** Foreground/background gating for periodic probing. */
     private var accountProfileJob: kotlinx.coroutines.Job? = null

@@ -7,6 +7,12 @@ import com.hermes.client.data.auth.AccountDeviceRouteMode
 import com.hermes.client.data.auth.normalizeGatewayBaseUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import okhttp3.Callback
+import okhttp3.Response
+import java.io.IOException
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
@@ -198,45 +204,56 @@ class HermesRestApi(
         // leaves a Compose loading screen spinning forever.
         call.timeout().timeout(timeoutSeconds, TimeUnit.SECONDS)
         val startedAt = System.currentTimeMillis()
-        val response = try {
-            call.execute()
-        } catch (error: Throwable) {
-            val elapsed = System.currentTimeMillis() - startedAt
-            com.hermes.client.data.diagnostics.DebugLog.log("rest") {
-                "GET $path ✗ ${error.javaClass.simpleName}: ${error.message} (${elapsed}ms) · net=${NetworkTransports.current()}"
-            }
-            throw error
-        }
-        response.use { resp ->
-            val elapsed = System.currentTimeMillis() - startedAt
-            val body = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) {
-                val structuredError = runCatching {
-                    json.decodeFromString<AccountErrorEnvelopeDto>(body).error
-                }.getOrNull()
-                val legacyConnectorFailure = resp.code == 502 && body == "{\"error\":\"hermes_unreachable\"}"
-                val correlationId = structuredError?.correlationId?.takeIf {
-                    it.matches(Regex("[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"))
+        suspendCancellableCoroutine { continuation ->
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, error: IOException) {
+                    val elapsed = System.currentTimeMillis() - startedAt
+                    com.hermes.client.data.diagnostics.DebugLog.log("rest") {
+                        "GET $path failed=${error.javaClass.simpleName} (${elapsed}ms) net=${NetworkTransports.current()}"
+                    }
+                    if (continuation.isActive) continuation.resumeWithException(error)
                 }
-                val stableCode = structuredError?.code
-                    ?: if (legacyConnectorFailure) "HR-CONN-006" else null
-                com.hermes.client.data.diagnostics.DebugLog.log("rest") {
-                    "GET $path ← ${resp.code} (${elapsed}ms) code=${stableCode ?: "unknown"} " +
-                        "requestId=${correlationId ?: "none"} · net=${NetworkTransports.current()}"
+
+                override fun onResponse(call: Call, response: Response) {
+                    try {
+                        val text = response.use { resp ->
+                            val elapsed = System.currentTimeMillis() - startedAt
+                            val body = resp.body?.string().orEmpty()
+                            if (!resp.isSuccessful) {
+                                val structuredError = runCatching {
+                                    json.decodeFromString<AccountErrorEnvelopeDto>(body).error
+                                }.getOrNull()
+                                val legacyConnectorFailure = resp.code == 502 && body == "{\"error\":\"hermes_unreachable\"}"
+                                val correlationId = structuredError?.correlationId?.takeIf {
+                                    it.matches(Regex("[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"))
+                                }
+                                val stableCode = structuredError?.code
+                                    ?: if (legacyConnectorFailure) "HR-CONN-006" else null
+                                com.hermes.client.data.diagnostics.DebugLog.log("rest") {
+                                    "GET $path ← ${resp.code} (${elapsed}ms) code=${stableCode ?: "unknown"} " +
+                                        "requestId=${correlationId ?: "none"} · net=${NetworkTransports.current()}"
+                                }
+                                throw HermesApiException(
+                                    code = resp.code,
+                                    message = stableCode ?: body.ifBlank { "HTTP ${resp.code}" },
+                                    errorCode = stableCode,
+                                    correlationId = correlationId,
+                                )
+                            }
+                            if (!isQuietPath(path) || elapsed >= SLOW_REQUEST_MS) {
+                                com.hermes.client.data.diagnostics.DebugLog.log("rest") {
+                                    "GET $path ← ${resp.code} (${elapsed}ms)"
+                                }
+                            }
+                            body
+                        }
+                        if (continuation.isActive) continuation.resume(text)
+                    } catch (failure: Exception) {
+                        if (continuation.isActive) continuation.resumeWithException(failure)
+                    }
                 }
-                throw HermesApiException(
-                    code = resp.code,
-                    message = stableCode ?: body.ifBlank { "HTTP ${resp.code}" },
-                    errorCode = stableCode,
-                    correlationId = correlationId,
-                )
-            }
-            if (!isQuietPath(path) || elapsed >= SLOW_REQUEST_MS) {
-                com.hermes.client.data.diagnostics.DebugLog.log("rest") {
-                    "GET $path ← ${resp.code} (${elapsed}ms)"
-                }
-            }
-            body
+            })
         }
     }
 

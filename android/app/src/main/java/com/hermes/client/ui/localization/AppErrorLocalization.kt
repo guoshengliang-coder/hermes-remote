@@ -5,6 +5,15 @@ import com.hermes.client.data.error.AppErrorCode
 
 /** Product-safe error copy. Technical causes remain available only through diagnostics. */
 fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
+        AppErrorCode.ACCOUNT_SESSION_EXPIRED -> localized(language, "登录已过期，请重新登录。", "Your session expired. Sign in again.")
+        AppErrorCode.ACCOUNT_SESSION_REVOKED -> localized(language, "这台设备的登录已被撤销，请重新登录。", "This device's session was revoked. Sign in again.")
+        AppErrorCode.ACCOUNT_SESSION_REUSED -> localized(language, "检测到登录凭据重复使用，为保护账号已退出这台设备。", "Reuse of a sign-in credential was detected, so this device was signed out for safety.")
+        AppErrorCode.ACCOUNT_RATE_LIMITED -> localized(language, "登录请求过于频繁，请稍候再试。", "Too many sign-in requests. Wait a moment and try again.")
+        AppErrorCode.ACCOUNT_DISABLED -> localized(language, "此 Hermes GO 账号当前不可用，请联系支持。", "This Hermes GO account is currently unavailable. Contact support.")
+        AppErrorCode.ACCOUNT_SERVICE_UNAVAILABLE -> localized(language, "账号服务暂时不可用，请稍后重试。", "The account service is temporarily unavailable. Try again shortly.")
+        AppErrorCode.ACCOUNT_DESKTOP_REQUIRED -> localized(language, "这个账号还没有连接 Desktop，请先在 Mac 上打开 Hermes Go Desktop。", "This account has no Desktop connection yet. Open Hermes Go Desktop on the Mac.")
+        AppErrorCode.ACCOUNT_DEVICE_REQUIRED -> localized(language, "请先选择要使用的 Mac，再打开此内容。", "Choose which Mac to use before opening this content.")
+        AppErrorCode.ACCOUNT_DEVICE_UNAVAILABLE -> localized(language, "这台 Mac 已无法由当前账号使用，请选择其他设备。", "That Mac is no longer available to this account. Choose another device.")
         AppErrorCode.DEVICE_OFFLINE ->
             localized(
                 language,

@@ -238,6 +238,7 @@ open class HermesGatewayClient(
 
     /** Opaque socket correlation ID; the Gateway logs it beside its own tunnel UUID. */
     @Volatile private var connectionId = "none"
+    @Volatile private var recoveryCycle = "none"
     @Volatile private var upgradedGeneration = -1
 
     /**
@@ -389,12 +390,12 @@ open class HermesGatewayClient(
                 val snapshot = connectionSnapshot()
                 DebugLog.log("error", "connection stalled in $state — repairing: $snapshot")
                 com.hermes.client.data.diagnostics.ConnectionIncidents.record("stalled-$state", snapshot)
-                reconnectNow()
+                reconnectNow(ConnectionRecoveryTrigger.STALLED)
             }
         }
     }
 
-    fun connect() {
+    fun connect(trigger: ConnectionRecoveryTrigger = ConnectionRecoveryTrigger.AUTOMATIC) {
         // Idempotent: multiple owners (the foreground service, view models, etc.) may all call
         // connect() on this shared singleton. If a socket is already open, or a connect/backoff
         // reconnect is already in flight, this must be a no-op — otherwise a second openSocket()
@@ -427,11 +428,21 @@ open class HermesGatewayClient(
         // The seam HG-42 came through: the flag says "the app wants a connection", and the state
         // does not say so yet. A close() landing here used to leave the client Connecting forever.
         lifecycleSeam?.invoke("connect:flag-cleared")
-        openSocket()
+        openSocket(trigger)
     }
 
-    protected fun openSocket() {
+    protected fun openSocket(
+        trigger: ConnectionRecoveryTrigger = ConnectionRecoveryTrigger.AUTOMATIC,
+        expectedGeneration: Int? = null,
+    ) {
         val gen = synchronized(lifecycleLock) {
+            // A backoff can pass its outer guard just before a manual recovery wins this lock.
+            // Validate again where the generation actually changes, so it cannot replace that
+            // newer socket or leave two live connections behind.
+            if (expectedGeneration != null && expectedGeneration != generation.get()) {
+                DebugLog.log("ws", "reconnect dropped (gen=$expectedGeneration): superseded before opening")
+                return
+            }
             // The guard that was missing. openSocket() used to enter Connecting unconditionally,
             // so a close() that landed after its caller had checked manuallyClosed still left the
             // client in Connecting — and, because close() had already failed the old readiness
@@ -443,6 +454,7 @@ open class HermesGatewayClient(
                 return
             }
             val next = generation.incrementAndGet()
+            recoveryCycle = ConnectionRecoveryTrace.start(trigger)
             if (accountAuthorizationClassificationPendingGen != next) {
                 accountAuthorizationClassificationPendingGen = null
             }
@@ -458,7 +470,7 @@ open class HermesGatewayClient(
         }
         val socketConnectionId = UUID.randomUUID().toString()
         connectionId = socketConnectionId
-        DebugLog.log("ws", "opening socket (gen=$gen, conn=$socketConnectionId)")
+        DebugLog.log("ws", "opening socket (gen=$gen, conn=$socketConnectionId) cycle=$recoveryCycle")
         // Connecting has exactly two exits — `gateway.ready` or the socket dying — and a socket
         // that establishes but never completes the handshake takes neither. On 2026-09-07 one
         // such socket left the app on 「正在连接 Relay…」 until it was force-stopped, while every
@@ -548,7 +560,7 @@ open class HermesGatewayClient(
      * cancelled; because openSocket() bumps the generation first, the old socket's close callback
      * is ignored and cannot schedule a competing reopen.
      */
-    fun reconnectNow() {
+    fun reconnectNow(trigger: ConnectionRecoveryTrigger = ConnectionRecoveryTrigger.MANUAL) {
         DebugLog.log("ws", "reconnectNow() forcing a fresh socket")
         val old = synchronized(lifecycleLock) {
             manuallyClosed = false
@@ -556,8 +568,17 @@ open class HermesGatewayClient(
             attempt.set(0)
             ws
         }
-        openSocket()
+        openSocket(trigger)
         old?.cancel()
+    }
+
+    /** A healthy REST answer or an explicit user action can resume a stopped recovery cycle. */
+    fun recoverIfNeeded(trigger: ConnectionRecoveryTrigger): Boolean = synchronized(lifecycleLock) {
+        val current = _state.value
+        if (current is ConnectionState.Connected ||
+            (current is ConnectionState.Connecting && !connectingHasStalled())) return@synchronized false
+        reconnectNow(trigger)
+        true
     }
 
     private fun makeListener(
@@ -624,6 +645,7 @@ open class HermesGatewayClient(
                                 advertiseServerRequests(webSocket, gen)
                                 _state.value = ConnectionState.Connected
                                 readyGate.complete(Unit)
+                                ConnectionRecoveryTrace.finish(recoveryCycle)
                             }
                             lifecycleSeam?.invoke("ready:after-closed-guard")
                         }
@@ -673,6 +695,7 @@ open class HermesGatewayClient(
                     .onFailure { DebugLog.log("ws", "account rejection handler failed: ${it.javaClass.simpleName}") }
                 onSocketClosed(gen, "account handshake rejected ($status)", retry = false)
             } else if (accountTransport && classificationPending) {
+                DebugLog.log("recovery", "cycle=$recoveryCycle phase=classification-stopped http=${status ?: 0}")
                 onSocketClosed(gen, "account authorization classification failed", retry = false)
             } else {
                 onSocketClosed(gen, t.message ?: "connection failed")
@@ -763,6 +786,7 @@ open class HermesGatewayClient(
             failAllPending(reason)
             connectingSinceMs = 0L
             if (manuallyClosed || !retry) {
+                DebugLog.log("recovery", "cycle=$recoveryCycle phase=stopped retry=$retry appClosed=$manuallyClosed")
                 _state.value = ConnectionState.Disconnected
                 return
             }
@@ -772,7 +796,7 @@ open class HermesGatewayClient(
             if (worthKeeping) attempt.set(0)
             val attemptNo = attempt.getAndIncrement()
             val delayMs = backoff.delayFor(attemptNo)
-            DebugLog.log("ws", "reconnect scheduled in ${delayMs}ms (gen=$gen, attempt=$attemptNo)")
+            DebugLog.log("ws", "reconnect scheduled in ${delayMs}ms (gen=$gen, attempt=$attemptNo) cycle=$recoveryCycle")
             scope.launch {
                 kotlinx.coroutines.delay(delayMs)
                 // The reconnect that does not happen is the shape of an unexplained permanent stall:
@@ -785,7 +809,8 @@ open class HermesGatewayClient(
                         if (manuallyClosed) "closed by the app" else "superseded by gen=${generation.get()}")
                     return@launch
                 }
-                openSocket()
+                lifecycleSeam?.invoke("reconnect:after-guard")
+                openSocket(expectedGeneration = gen)
             }
         }
     }
@@ -968,7 +993,7 @@ open class HermesGatewayClient(
             // generation heals the *next* action; retrying this action would risk duplicating it.
             if (sentGeneration == generation.get() && !manuallyClosed &&
                 recoveredTimeoutGeneration.getAndSet(sentGeneration) != sentGeneration
-            ) reconnectNow()
+            ) reconnectNow(ConnectionRecoveryTrigger.RPC_TIMEOUT)
             throw GatewayResponseTimeoutException("gateway response timeout")
         } finally {
             pending.remove(id, call)

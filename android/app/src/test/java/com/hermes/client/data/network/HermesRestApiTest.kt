@@ -6,6 +6,8 @@ import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.data.auth.AccountSessionStore
 import com.hermes.client.data.auth.AccountDeviceRouteMode
 import com.hermes.client.data.auth.PendingEmailChallenge
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.test.runTest
 import io.mockk.mockk
 import io.mockk.verify
@@ -26,6 +28,27 @@ class HermesRestApiTest {
 
     private fun api(server: MockWebServer) = HermesRestApi(testHttpClient(), json) {
         testAccountConnection(baseUrl = server.url("/").toString().trimEnd('/'), token = "secret")
+    }
+
+    @Test fun cancellingAStatusProbeCancelsTheCallEvenDuringBodyRead() = kotlinx.coroutines.runBlocking {
+        val cancelled = java.util.concurrent.CountDownLatch(1)
+        val http = testHttpClient().newBuilder().eventListener(object : okhttp3.EventListener() {
+            override fun canceled(call: okhttp3.Call) { cancelled.countDown() }
+        }).build()
+        serverRule.server.enqueue(MockResponse.Builder().code(200)
+            .body("{\"gateway_running\":true}").bodyDelay(4, java.util.concurrent.TimeUnit.SECONDS).build())
+        val api = HermesRestApi(http, json) {
+            testAccountConnection(serverRule.server.url("/").toString().trimEnd('/'), "secret")
+        }
+        val probe = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.currentCoroutineContext()).async(kotlinx.coroutines.Dispatchers.IO) { api.gatewayStatus() }
+        assertTrue(serverRule.server.takeRequest(2, java.util.concurrent.TimeUnit.SECONDS) != null)
+        // Let headers arrive; cancellation must still cover the blocked body read.
+        kotlinx.coroutines.delay(100)
+        val start = System.nanoTime()
+        probe.cancelAndJoin()
+        assertTrue("underlying Call.cancel must run", cancelled.await(1, java.util.concurrent.TimeUnit.SECONDS))
+        assertTrue("cancellation must not wait for the body", (System.nanoTime() - start) / 1_000_000 < 1_500)
+        http.connectionPool.evictAll()
     }
 
     @Test fun history_preserves_connector_error_code_and_correlation() = runTest {

@@ -96,6 +96,13 @@ ViewModels. Gateway/Connector/protocol responses should use a structured error e
 least `code`, `message`, and `retryable`; additional technical detail must remain optional and
 backward compatible.
 
+HG-248 connects the Android health/recheck boundary to the existing account codes
+`HR-AUTH-003/004/005/007`, `HR-ACCOUNT-001/002`, and `HR-BIND-001/009/011`, as well as the existing
+connection family. Definitive server codes outrank public-origin diagnostics and Android network
+capability hints. Manual check results use the typed AppError model and registered bilingual copy;
+a failed bounded check uses existing HR-CONN-009/003/002 as appropriate. No code meaning or wire
+field changes. Gateway, Connector, Desktop and Web retain their existing consumers unchanged.
+
 ## Presentation rules
 
 - Inline banners and dialogs show the localized summary, short explanation, and code.
