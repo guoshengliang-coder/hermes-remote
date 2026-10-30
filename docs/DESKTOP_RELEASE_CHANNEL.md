@@ -1,5 +1,23 @@
 # Desktop release channel
 
+## Internal test release: 0.2.52 / build 55
+
+The owner requested publication on 2026-10-30 after the stopped-Connector incident. PR #717
+adds visible local reconnect actions, bounded automatic resume of an identity-validated stopped
+Connector, actual process-state presentation and mutually exclusive confirmation/progress panels.
+Feature validation passed 740 Swift tests, assets, 26 publication-tooling tests and 18 isolated
+native progress-panel fixtures; the same iconset generates successfully outside the restricted
+execution sandbox. This version allocation changes only metadata and release documentation.
+
+Continue the established ad-hoc internal channel and preserve the installed public bootstrap,
+component, update and signature-trust settings. Build clean current main, rerun Desktop gates,
+verify the exact DMG and mounted version/build/identity/arm64/ad-hoc signature, then publish through
+the unified internal publisher. Both full public DMG readbacks, website/app-update synchronization
+and unchanged managed/component pointers are required. Exact source, size/hash and publication
+time belong to the generated verified receipts. Publication does not replace the owner's app,
+restart remote services or establish physical automatic-recovery acceptance. This is temporary
+ad-hoc internal distribution, not Apple notarization.
+
 ## Internal test release: 0.2.50 / build 53
 
 Owner-authorized HG-244 publication uses the established ad-hoc internal channel and existing public trust/update configuration. It separates congestion, recovery, business availability and local Hermes health. Build clean current main, run assets/Swift tests and app packaging, verify the exact DMG and mounted signature/identity, then use the unified internal publisher and complete public readback. Signed Node/Connector components publish independently as 0.4.15 with Connector 0.1.19. The legacy managed release pointer remains frozen. Publication does not install the app, enable transport isolation, or establish physical-device acceptance.
