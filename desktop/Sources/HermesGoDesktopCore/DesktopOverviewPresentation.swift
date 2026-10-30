@@ -85,6 +85,12 @@ public struct DesktopOverviewPresentation: Equatable, Sendable {
             desktop = status(.checking, "尚未确认", "正在检查这台 Mac 的 Desktop 后台。", agent.health.checkedAt)
         } else {
             switch agent.mode {
+            case .managedStopped:
+                background = "已停止"
+                desktop = status(.failed, "后台连接已停止", "点击“重新连接”恢复这台 Mac 的远程连接。", agent.health.checkedAt)
+            case .managedProcessUnknown:
+                background = "尚未确认"
+                desktop = status(.degraded, "后台状态待确认", "尚未确认后台连接进程，请重新检查或查看诊断。", agent.health.checkedAt)
             case .managedVerified, .managedUnverified:
                 background = "正在运行"
                 if !accountFresh || binding == nil || !identityVerified {
@@ -125,6 +131,8 @@ public struct DesktopOverviewPresentation: Equatable, Sendable {
         else if !fresh(agent.health.checkedAt) { backgroundLevel = .checking }
         else {
             switch agent.mode {
+            case .managedStopped: backgroundLevel = .failed
+            case .managedProcessUnknown: backgroundLevel = .checking
             case .managedVerified, .managedUnverified: backgroundLevel = .healthy
             case .attentionRequired: backgroundLevel = .failed
             case .checking: backgroundLevel = .checking

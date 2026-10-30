@@ -109,9 +109,14 @@ struct OverviewView: View {
             if let guidance = model.serviceRepairGuidance {
                 Text(guidance).font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
             }
+            if let message = model.connectorRecoveryMessage {
+                Text(message).font(.system(size: 12)).foregroundStyle(.secondary)
+            }
             footer("desktop", title: "连接详情") {
                 if state.desktop.level != .healthy { desktopAction }
                 if model.entryRoute == .main {
+                    Button("重新连接") { Task { await model.prepareConnectorReconnect() } }
+                        .disabled(!model.canReconnectManagedConnector)
                     Button("检查更新") { Task { await model.checkForUpdates(manual: true) } }
                         .disabled(model.isManagedBootstrapAccountLocked || model.isDesktopUpdateRunning)
                     Button("查看诊断") { selection = .diagnostics }

@@ -14,6 +14,7 @@ final class DesktopAgentPresentationTests: XCTestCase {
                 bindingGeneration: 1
             ),
             accountVerification: .verified,
+            connectorProcess: .running,
             checkedAt: checkedAt
         )
 
@@ -31,6 +32,7 @@ final class DesktopAgentPresentationTests: XCTestCase {
                 bindingGeneration: 1
             ),
             accountVerification: .unavailable,
+            connectorProcess: .running,
             checkedAt: checkedAt
         )
 
@@ -53,6 +55,19 @@ final class DesktopAgentPresentationTests: XCTestCase {
 
         XCTAssertEqual(result.mode, .attentionRequired)
         XCTAssertEqual(result.health.level, .failed)
+    }
+
+    func testLoadedButStoppedOrUnknownConnectorNeverReportsRunning() {
+        for process in [DesktopConnectorProcessState.stopped, .notLoaded, .unknown] {
+            let result = DesktopAgentPresentation.reduce(
+                legacy: legacy(installed: false, running: false),
+                managed: .active(releaseVersion: "0.3.1", bindingID: "binding", bindingGeneration: 1),
+                accountVerification: .verified, connectorProcess: process, checkedAt: checkedAt
+            )
+            XCTAssertNotEqual(result.health.level, .healthy)
+            XCTAssertFalse(result.health.detail.contains("正在运行"))
+            if process != .unknown { XCTAssertEqual(result.health.issue?.code, .managedServicesNeedRepair) }
+        }
     }
 
     func testRetiredServiceIsAConflictNotAHealthyFallback() {

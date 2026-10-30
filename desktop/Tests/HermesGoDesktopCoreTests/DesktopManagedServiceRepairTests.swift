@@ -4,6 +4,73 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopManagedServiceRepairTests: XCTestCase {
+    func testAutomaticRecoveryResumesOnlyStoppedConnectorAndPreservesIdentityAndFiles() async throws {
+        for componentStore in [false, true] {
+            let f = try RepairFixture(componentStore: componentStore); defer { f.remove() }
+            try f.configure(hermesFile: true, connectorFile: true, hermesLoaded: true, connectorLoaded: true)
+            if componentStore {
+                let local = try f.localInstallation(); f.detection = .usable(local)
+                _ = try f.installer.writeLocalHermesLaunchAgent(local)
+                f.runner.loaded[DesktopManagedInstallLayout.hermesLabel] = try args(Data(contentsOf: f.layout.hermesLaunchAgent))
+            }
+            f.runner.process = .stopped
+            let before = try f.identityBytes()
+            let hermes = try Data(contentsOf: f.layout.hermesLaunchAgent)
+            let connector = try Data(contentsOf: f.layout.connectorLaunchAgent)
+            let resumed = try await f.makeRepair().resumeStoppedConnector()
+            XCTAssertTrue(resumed)
+            XCTAssertEqual(f.runner.mutations, ["resume connector"])
+            XCTAssertEqual(try f.identityBytes(), before)
+            XCTAssertEqual(try Data(contentsOf: f.layout.hermesLaunchAgent), hermes)
+            XCTAssertEqual(try Data(contentsOf: f.layout.connectorLaunchAgent), connector)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: f.snapshot.path))
+            XCTAssertEqual(f.readiness.waits, 0)
+        }
+    }
+
+    func testAutomaticRecoverySkipsRunningUnloadedAndUnknownProcesses() async throws {
+        for state in [DesktopConnectorProcessState.running, .notLoaded, .unknown] {
+            let f = try RepairFixture(); defer { f.remove() }
+            f.runner.process = state
+            let resumed = try await f.makeRepair().resumeStoppedConnector()
+            XCTAssertFalse(resumed)
+            XCTAssertTrue(f.runner.mutations.isEmpty)
+        }
+    }
+
+    func testAutomaticRecoveryRefusesIdentityMismatchUnknownJobsAndStaleHealth() async throws {
+        for cause in ["account", "credential", "unknown-job", "local-health", "stale-health", "start-failed"] {
+            let f = try RepairFixture(); defer { f.remove() }
+            try f.configure(hermesFile: true, connectorFile: true, hermesLoaded: true, connectorLoaded: true)
+            f.runner.process = .stopped
+            switch cause {
+            case "account": f.runner.bindingID = UUID().uuidString
+            case "credential": try f.write(Data("{}".utf8), f.layout.connectorCredential)
+            case "unknown-job": f.runner.loaded[DesktopManagedInstallLayout.connectorLabel] = ["/unknown"]
+            case "local-health": f.localHealthy = false
+            case "stale-health": f.runner.staleHealth = true
+            case "start-failed": f.runner.failConnectorStart = true
+            default: break
+            }
+            do { _ = try await f.makeRepair().resumeStoppedConnector(); XCTFail(cause) }
+            catch {
+                if cause != "stale-health" { XCTAssertTrue(f.runner.mutations.isEmpty, cause) }
+                else { XCTAssertEqual(error as? DesktopManagedServiceRepairError, .healthFailed) }
+            }
+            XCTAssertFalse(f.runner.mutations.contains("stop hermes"))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: f.snapshot.path))
+        }
+    }
+
+    func testAutomaticRecoveryRechecksProcessImmediatelyBeforeStarting() async throws {
+        let f = try RepairFixture(); defer { f.remove() }
+        try f.configure(hermesFile: true, connectorFile: true, hermesLoaded: true, connectorLoaded: true)
+        f.runner.process = .stopped
+        f.runner.startsDuringCheck = true
+        let resumed = try await f.makeRepair().resumeStoppedConnector()
+        XCTAssertFalse(resumed)
+        XCTAssertTrue(f.runner.mutations.isEmpty)
+    }
     func testFileRateOverrideSurvivesReconnectAndRepairInBothLayouts() async throws {
         for componentStore in [false, true] {
             for reconnect in [false, true] {
@@ -525,7 +592,12 @@ private final class RepairFixture: @unchecked Sendable {
             gatewayURL: URL(string: "https://gateway.example")!, hermesHome: hermesHome,
             identity: { self.runner.remote() }, loadedArguments: { self.runner.loaded[$0] },
             localDetector: { self.detection }, localProbe: { ProbeResult(level: self.localHealthy ? .healthy : .failed, detail: "fixture") },
-            readiness: readiness, shutdown: shutdown, polls: 2, delay: 0)
+            readiness: readiness, shutdown: shutdown, polls: 2, delay: 0,
+            connectorProcess: {
+                self.runner.processReads += 1
+                if self.runner.startsDuringCheck && self.runner.processReads > 1 { return .running }
+                return self.runner.process
+            })
     }
     func write(_ data: Data, _ url: URL, mode: Int = 0o600) throws {
         try data.write(to: url); try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)
@@ -559,17 +631,25 @@ private final class RepairRunner: CommandRunning, @unchecked Sendable {
     var failConnectorStart = false
     var failStop = false
     var staleHealth = false
+    var process: DesktopConnectorProcessState = .running
+    var processReads = 0
+    var startsDuringCheck = false
     var fingerprint = ""
     var bindingID = "70000000-0000-4000-8000-000000000007"
     var ticks = 100.0
     func remote() -> DesktopManagedServiceRepairIdentity {
         if !staleHealth { ticks += 1 }
         return .init(bindingID: bindingID, generation: 8, fingerprint: fingerprint,
-                     healthy: loaded.count == 2, checkedAt: Date(timeIntervalSince1970: ticks))
+                     healthy: loaded.count == 2 && process == .running, checkedAt: Date(timeIntervalSince1970: ticks))
     }
     func run(executable: URL, arguments: [String]) -> CommandResult {
         let label = arguments.last!.split(separator: "/").last.map(String.init)!
         switch arguments[0] {
+        case "kickstart":
+            guard !failConnectorStart else { return .init(status: 1) }
+            XCTAssertEqual(arguments, ["kickstart", "gui/501/\(DesktopManagedInstallLayout.connectorLabel)"])
+            mutations.append("resume connector"); process = .running
+            return .init(status: 0)
         case "print": return .init(status: loaded[label] == nil ? 113 : 0)
         case "bootout":
             if failStop { return .init(status: 1) }

@@ -3,6 +3,15 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopOverviewPresentationTests: XCTestCase {
+    func testStoppedAndUnknownProcessesCannotBeShownAsRunningDespiteHealthyCloud() {
+        let stopped = make(process: .managedStopped(releaseVersion: "1"))
+        XCTAssertEqual(stopped.background, "已停止")
+        XCTAssertEqual(stopped.backgroundLevel, .failed)
+        XCTAssertEqual(stopped.desktop.level, .failed)
+        let unknown = make(process: .managedProcessUnknown(releaseVersion: "1"))
+        XCTAssertEqual(unknown.background, "尚未确认")
+        XCTAssertNotEqual(unknown.desktop.level, .healthy)
+    }
     private let now = Date(timeIntervalSince1970: 1_792_800_000)
 
     func testHealthyRequiresAllThreeAndFreshLocalRemoteVerification() {
@@ -152,7 +161,8 @@ final class DesktopOverviewPresentationTests: XCTestCase {
                       age: TimeInterval = 0, accountAge: TimeInterval = 0, reportAge: TimeInterval = 0,
                       accountIssue: Bool = false, remoteHealthy: Bool = true,
                       state: DesktopAccountState? = nil, manageOnly: Bool = false,
-                      busy: Bool = false, operation: DesktopOperationStatus? = nil, unsupported: Bool = false, unverified: Bool = false, latency: Int? = nil) -> DesktopOverviewPresentation {
+                      busy: Bool = false, operation: DesktopOperationStatus? = nil, unsupported: Bool = false, unverified: Bool = false, latency: Int? = nil,
+                      process: DesktopAgentMode? = nil) -> DesktopOverviewPresentation {
         let checked = now.addingTimeInterval(-age)
         let report = ISO8601DateFormatter().string(from: now.addingTimeInterval(-reportAge))
         let localHealth = localLevel.map { ComponentHealth(component: .hermes, level: $0, detail: "fixture", checkedAt: checked) }
@@ -173,7 +183,7 @@ final class DesktopOverviewPresentationTests: XCTestCase {
             installations: [], devices: selectedRemote ? [remote] : [], selectedDeviceID: selectedRemote ? remote.deviceId : nil)
         return DesktopOverviewPresentation(
             gateway: ComponentHealth(component: .gateway, level: cloudLevel, detail: "fixture", checkedAt: checked, latencyMilliseconds: latency),
-            agent: DesktopAgentPresentation(mode: unverified ? .managedUnverified(releaseVersion: "1") : .managedVerified(releaseVersion: "1"),
+            agent: DesktopAgentPresentation(mode: process ?? (unverified ? .managedUnverified(releaseVersion: "1") : .managedVerified(releaseVersion: "1")),
                 health: ComponentHealth(component: .desktopAgent, level: .healthy, detail: "fixture", checkedAt: checked)),
             localHermes: DesktopLocalHermesPresentation(detection: unsupported ? .unsupported(.unreadableIdentity, detail: "fixture") : .absent(hermesDataPresent: false), health: localHealth, hasManagedInstallation: true, now: now),
             localHealth: localHealth, accountState: state ?? .signedIn(dashboard), accountCheckedAt: now.addingTimeInterval(-accountAge),

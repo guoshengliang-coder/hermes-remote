@@ -58,6 +58,10 @@ extension DesktopViewModel {
             }
             if desktopUpdateSequence.stage == .completed { return .init(kind: kind, state: .succeeded, stage: "Desktop 更新已完成") }
             let backgroundKind = desktopUpdateBackgroundKind
+            if desktopUpdateSequence.stage == .background,
+               (backgroundKind == .componentSetup ? componentBootstrapOperation.uiState : managedBootstrapOperation.uiState) == .idle {
+                return .init(kind: kind, state: .running, stage: "正在准备 Desktop 更新")
+            }
             var result = setupOperationStatus(backgroundKind)
             result = .init(kind: kind, state: result.state, stage: result.stage, detail: result.detail,
                            issue: result.issue, measurements: result.measurements, activity: result.activity,

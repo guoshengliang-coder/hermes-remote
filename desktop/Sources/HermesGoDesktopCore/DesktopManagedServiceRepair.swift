@@ -79,6 +79,8 @@ public actor DesktopManagedServiceRepair<Runner: CommandRunning> {
     private let hermesHome: URL
     private let identity: IdentityReader
     private let loadedArguments: LoadedArguments
+    private let connectorProcess: @Sendable () -> DesktopConnectorProcessState
+    private var preparing = false
     private let localDetector: LocalDetector
     private let localProbe: () async -> ProbeResult
     private let readiness: any DesktopHermesCandidateReadinessChecking
@@ -97,11 +99,13 @@ public actor DesktopManagedServiceRepair<Runner: CommandRunning> {
         localProbe: (() async -> ProbeResult)? = nil,
         readiness: (any DesktopHermesCandidateReadinessChecking)? = nil,
         shutdown: any DesktopHermesShutdownChecking = DesktopHermesShutdownChecker(),
-        polls: Int = 75, delay: UInt64 = 1_000_000_000
+        polls: Int = 75, delay: UInt64 = 1_000_000_000,
+        connectorProcess: @escaping @Sendable () -> DesktopConnectorProcessState = { .unknown }
     ) {
         self.installer = installer; self.journal = journal; self.agents = agents
         self.gatewayURL = gatewayURL; self.hermesHome = hermesHome; self.identity = identity
         self.loadedArguments = loadedArguments; self.localDetector = localDetector
+        self.connectorProcess = connectorProcess
         self.localProbe = localProbe ?? { await installer.probeManagedHermes() }
         self.readiness = readiness ?? DesktopHermesCandidateReadinessChecker(
             authenticatedProbe: { await installer.probeManagedHermes() }
@@ -119,6 +123,13 @@ public actor DesktopManagedServiceRepair<Runner: CommandRunning> {
     }
 
     public func prepare(reconnectOnly: Bool = false) async throws -> DesktopManagedServiceRepairPreparation {
+        guard !executing, !preparing else { throw DesktopManagedServiceRepairError.stalePreparation }
+        preparing = true
+        defer { preparing = false }
+        return try await prepareValidated(reconnectOnly: reconnectOnly)
+    }
+
+    private func prepareValidated(reconnectOnly: Bool) async throws -> DesktopManagedServiceRepairPreparation {
         guard !executing else { throw DesktopManagedServiceRepairError.stalePreparation }
         guard let record = try journal.loadReadOnly(), record.state == .accountActive else {
             throw DesktopManagedServiceRepairError.installationRecordMissing
@@ -163,6 +174,48 @@ public actor DesktopManagedServiceRepair<Runner: CommandRunning> {
     public func cancel(_ preparation: DesktopManagedServiceRepairPreparation) {
         guard !executing, prepared == preparation else { return }
         prepared = nil
+    }
+
+    /// Restarting Desktop may leave a loaded launchd job with no process. Resume only that exact
+    /// original Connector; automatic recovery never reconstructs files, stops Hermes or rebinds.
+    @discardableResult
+    public func resumeStoppedConnector() async throws -> Bool {
+        guard !executing, !preparing, prepared == nil, connectorProcess() == .stopped else { return false }
+        preparing = true
+        defer { preparing = false }
+        let plan = try await prepareValidated(reconnectOnly: true)
+        // prepare() also excludes interrupted repair snapshots and validates local authentication.
+        executing = true
+        defer { executing = false; prepared = nil }
+        let lease = try journal.acquireOperationLease()
+        defer { withExtendedLifetime(lease) {} }
+        let image = plan.image
+        guard try journal.loadReadOnly() == image.record else { throw DesktopManagedServiceRepairError.stalePreparation }
+        let remote = try await requireIdentity(image.record)
+        guard await localProbe().level == .healthy else { throw DesktopManagedServiceRepairError.healthFailed }
+        guard digest(try validateCredential(image.record, remote: remote)) == image.credentialDigest,
+              digest(try installer.readOwnedPrivateFile(installer.layout.hermesSessionToken)) == image.tokenDigest
+        else { throw DesktopManagedServiceRepairError.stalePreparation }
+        try validateImage(image)
+        guard try optionalFile(snapshotURL) == nil,
+              try optionalFile(installer.layout.hermesLaunchAgent) == image.originalHermes,
+              try optionalFile(installer.layout.connectorLaunchAgent) == image.originalConnector,
+              try optionalFile(installer.layout.localHermesLauncher) == image.originalLauncher,
+              try inspectServices() == image.services else { throw DesktopManagedServiceRepairError.stalePreparation }
+        try requireLoadedArguments(image)
+        guard connectorProcess() == .stopped else { return false }
+        let log = DesktopServiceOperationLog(layout: installer.layout)
+        log.record("connector-recovery start reason=stopped-process hermes=unchanged")
+        do {
+            try agents.resumeStoppedAccount()
+            try await waitForHealth(image.record, newerThan: remote.checkedAt)
+            guard connectorProcess() == .running else { throw DesktopManagedServiceRepairError.healthFailed }
+            log.record("connector-recovery result=fresh-cloud-health")
+            return true
+        } catch {
+            log.record("connector-recovery result=failed reason=\(String(describing: type(of: error)))")
+            throw error
+        }
     }
 
     public func commit(_ preparation: DesktopManagedServiceRepairPreparation, confirmed: Bool) async throws {
@@ -675,7 +728,8 @@ public extension DesktopManagedServiceRepair where Runner == SystemCommandRunner
                         .arguments(fromLaunchctlPrint: text)
                 else { throw DesktopManagedServiceRepairError.unknownService }
                 return args
-            }, localDetector: { detector.detect() }
+            }, localDetector: { detector.detect() },
+            connectorProcess: { DesktopConnectorProcessState.inspect(userID: userID) }
         )
     }
 }
