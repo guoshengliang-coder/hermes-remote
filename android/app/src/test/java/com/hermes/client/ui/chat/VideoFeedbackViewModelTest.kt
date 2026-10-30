@@ -16,6 +16,66 @@ class VideoFeedbackViewModelTest {
     private val key = videoFeedbackKey("account/mac/profile/session", "clip", "version")
     private suspend fun waitFor(condition: () -> Boolean) = withTimeout(5_000) { while (!condition()) delay(1) }
 
+    @Test fun explicit_cancel_is_durable_for_new_points_ranges_and_existing_note_edits() = runBlocking {
+        val store = VideoFeedbackStore(temporary.newFolder())
+        val original = VideoNote("original", 1_000, 4_000, "正式原文")
+        val other = VideoNoteDraft(start = "0:20", text = "另一份草稿")
+        store.write(key, VideoFeedbackDocument(notes = listOf(original), parkedDrafts = listOf(other)))
+        val vm = VideoFeedbackViewModel(store, key, this)
+        waitFor { vm.state.loaded }
+        for (range in listOf(false, true)) {
+            vm.point(2_000, 60_000)
+            if (range) vm.edit(vm.state.document.draft!!.copy(range = true, end = "0:03"))
+            vm.text("本次放弃")
+            var result: Boolean? = null
+            vm.cancelEdit { result = it }.join()
+            assertEquals(true, result)
+            assertFalse(vm.state.editing)
+            assertNull(store.read(key).draft)
+            assertEquals(listOf(other), store.read(key).parkedDrafts)
+        }
+        vm.editNote(original.id); vm.text("不能覆盖原文")
+        vm.cancelEdit {}.join()
+        assertEquals(original, store.read(key).notes.single())
+        assertNull(store.read(key).draft)
+    }
+    @Test fun failed_cancel_keeps_editor_and_retry_discards_only_after_successful_write() = runBlocking {
+        var fail = false
+        var disk = VideoFeedbackDocument()
+        val store = object : VideoFeedbackStorage {
+            override suspend fun read(key: String) = disk
+            override suspend fun write(key: String, document: VideoFeedbackDocument) {
+                if (fail && document.draft == null) throw IOException("private fixture")
+                disk = document
+            }
+        }
+        val vm = VideoFeedbackViewModel(store, key, this)
+        waitFor { vm.state.loaded }; vm.point(2_000, 60_000); vm.text("保留到重试")
+        waitFor { !vm.state.dirty }; fail = true
+        vm.cancelEdit { assertFalse(it) }.join()
+        assertTrue(vm.state.editing); assertTrue(vm.state.cancelFailed)
+        assertEquals("保留到重试", vm.state.document.draft!!.text)
+        assertEquals(AppErrorCode.VIDEO_NOTES_STORAGE, vm.state.error!!.code)
+        assertFalse(vm.state.error!!.sanitizedDiagnostic().contains("private"))
+        fail = false; vm.cancelEdit { assertTrue(it) }.join()
+        assertNull(disk.draft); assertFalse(vm.state.editing)
+    }
+    @Test fun later_retains_empty_point_and_range_text_across_restart() = runBlocking {
+        val store = VideoFeedbackStore(temporary.newFolder())
+        val vm = VideoFeedbackViewModel(store, key, this)
+        waitFor { vm.state.loaded }; vm.point(1_234, 60_000); vm.later()
+        waitFor { !vm.state.dirty }
+        val restored = VideoFeedbackViewModel(store, key, this)
+        waitFor { restored.state.loaded }
+        assertTrue(restored.state.document.draft!!.retained)
+        restored.resumeDraft(restored.state.document.draft!!.draftKey)
+        assertTrue(restored.state.editing)
+        restored.cancelEdit {}.join()
+        restored.markStart(2_000, 60_000); restored.markEnd(4_000, 60_000); restored.text("稍后补充")
+        restored.later(); waitFor { !restored.state.dirty }
+        assertEquals(2_000L, parseVideoNoteTime(store.read(key).draft!!.start))
+        assertEquals("稍后补充", store.read(key).draft!!.text)
+    }
     @Test fun drafts_commit_edits_and_deletes_are_durable_and_latest_edit_wins() = runBlocking {
         val store = VideoFeedbackStore(temporary.newFolder())
         val vm = VideoFeedbackViewModel(store, key, this)

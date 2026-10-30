@@ -45,12 +45,12 @@ class VideoFeedbackPlaybackTest {
         compose.setContent { HermesTheme { CompositionLocalProvider(LocalAppLanguage provides AppLanguage.EN) {
             if (showing) VideoFeedbackWorkspace("fixture.mp4", VideoFeedbackContext("scope", "source", "chat", attach = { null }),
                 "version", 60_000, { 12_345 }, {}, {}, mode = mode, playerPosition = 12_345,
-                pause = { pauses++ }, resume = { resumes++ }, playbackEpoch = { epoch }, feedbackModel = vm) { annotate, editing, start, locked, review ->
+                pause = { pauses++ }, resume = { resumes++ }, playbackEpoch = { epoch }, feedbackModel = vm) { annotate, editing, start, locked, review, annotations ->
                 VideoPlayerContent("fixture.mp4", VideoPlayerState(position = 12_345, duration = 60_000, hasFrame = true),
-                    onAnnotate = annotate, annotating = editing, annotationStartMs = start, canPlay = !locked, onReviewNotes = review)
+                    onAnnotate = annotate, annotating = editing, annotationStartMs = start, canPlay = !locked, annotations = annotations, onReviewNotes = review)
             }
         } } }
-        compose.onNodeWithText("Annotate").performClick()
+        compose.onNodeWithContentDescription("Annotate").performClick()
         compose.waitUntil(5_000) { compose.onRoot().fetchSemanticsNode(); vm.state.loaded }
         assertEquals(0, pauses) // Entering annotation mode must not pause.
         compose.onNodeWithTag("video-note-point").performClick()

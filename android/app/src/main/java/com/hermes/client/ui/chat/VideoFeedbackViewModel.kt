@@ -19,7 +19,7 @@ internal data class VideoFeedbackState(
     val document: VideoFeedbackDocument = VideoFeedbackDocument(), val loaded: Boolean = false,
     val saving: Boolean = false, val dirty: Boolean = false, val error: AppError? = null,
     val screen: VideoFeedbackScreen = VideoFeedbackScreen.TOOLS, val committing: Boolean = false,
-    val commitFailed: Boolean = false,
+    val commitFailed: Boolean = false, val cancelFailed: Boolean = false,
 ) {
     val selecting get() = screen == VideoFeedbackScreen.SELECTING
     val selectionStart get() = if (selecting) document.draft?.start?.let(::parseVideoNoteTime) else null
@@ -50,7 +50,7 @@ internal class VideoFeedbackViewModel(private val store: VideoFeedbackStorage, p
     private fun change(document: VideoFeedbackDocument, screen: VideoFeedbackScreen = state.screen) {
         if (!state.loaded || state.committing) return
         revision++
-        state = state.copy(document = document, screen = screen, dirty = true, error = null, commitFailed = false)
+        state = state.copy(document = document, screen = screen, dirty = true, error = null, commitFailed = false, cancelFailed = false)
         persist()
     }
     private fun persist() {
@@ -158,6 +158,24 @@ internal class VideoFeedbackViewModel(private val store: VideoFeedbackStorage, p
     fun discardDraft(key: String) = change(state.document.copy(draft = state.document.draft?.takeUnless { it.draftKey == key },
         parkedDrafts = state.document.parkedDrafts.filterNot { it.draftKey == key }))
 
+    /** Explicit Cancel drops only this draft, and does not leave until the deletion is durable. */
+    fun cancelEdit(result: (Boolean) -> Unit) = scope.launch {
+        if (!state.loaded || state.committing || !state.editing) { result(false); return@launch }
+        val candidate = state.document.copy(draft = null)
+        state = state.copy(committing = true, error = null, commitFailed = false, cancelFailed = false)
+        var success = false
+        try {
+            job?.join()
+            store.write(key, candidate)
+            revision++; saved = revision
+            state = state.copy(document = candidate, dirty = false, screen = VideoFeedbackScreen.TOOLS)
+            success = true
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) { state = state.copy(error = videoFeedbackError(e), cancelFailed = true) }
+        finally { state = state.copy(committing = false) }
+        result(success)
+    }
+
     /** Return success only after the candidate is on disk; failure keeps the original editor. */
     fun submit(duration: Long, result: (Boolean) -> Unit) = scope.launch { result(commit(duration)) }
 
@@ -172,7 +190,7 @@ internal class VideoFeedbackViewModel(private val store: VideoFeedbackStorage, p
             return false
         }
         val candidate = state.document.copy(notes = state.document.notes.filterNot { it.id == note.id } + note, draft = null)
-        state = state.copy(committing = true, error = null, commitFailed = false)
+        state = state.copy(committing = true, error = null, commitFailed = false, cancelFailed = false)
         try {
             job?.join()
             store.write(key, candidate)
