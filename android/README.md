@@ -468,6 +468,9 @@ remain in `docs/ANDROID_SMOKE.md`; Web scope is being clarified against the appr
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.190 fixes HG-248 connection recheck progress/results and stopped recovery while
+  preserving account/device repair gates; includes HG-246/HG-247 unified video-note actions,
+  saved-note markers and simplified cache/buffer status, plus decimal file-size presentation.
 - Version 0.1.189 修复视频批注返回反复弹框，完成后直接汇总导出；独立草稿管理及近似时间说明。
 - Version 0.1.188 视频批注连续打点与片段选择、保存后继续播放及独立草稿恢复。
 - Version 0.1.187 HG-244：拥塞状态分层、聊天入口保留及文件空闲预算对齐。
@@ -1228,7 +1231,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.189-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.190-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
