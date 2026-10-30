@@ -3235,3 +3235,29 @@ managed connector reinstalls and repair now carry `EXTRA_READ_ROOTS` (validated 
 external-volume attachment authorization survives managed updates on any Mac running 0.2.51+.
 Desktop-app installation does not touch the running connector agent; the allowlist takes effect
 on that Mac's next managed connector regeneration.
+
+
+### Desktop 0.2.52 internal publication — connection recovery, 2026-10-30 (authorized)
+
+The owner requested publication after the stopped-Connector incident. Feature PR #717 and
+version PR #718 passed their complete PR and resulting main checks. Desktop **0.2.52/build 55**
+was built from clean main `a6f1a7e72b2f513480fec522de0a21cc7780b3c5` with the established ad-hoc internal channel and
+the installed public bootstrap/component/update trust configuration retained. Release gates passed:
+assets, **740 Swift tests with zero failures**, app and DMG builds, image integrity, and mounted
+bundle identity/version/build/minimum-macOS/arm64/strict ad-hoc signature verification. The feature
+also passed 26 publication-tooling tests and 18 isolated native progress-window fixtures.
+
+The unified internal publisher returned both `DESKTOP_INTERNAL_RELEASE_AND_WEBSITE_SYNC_OK` and
+`DESKTOP_INTERNAL_APP_UPDATE_SYNC_OK`. Public package: https://mrlgs.net/desktop/apps/0.2.52/Hermes-Go-Desktop-0.2.52-dev.dmg — **4,286,381 bytes**,
+SHA-256 `bd8272eced388751c190b38acd0ee436d45b7d3f725071b18504eb389a16ea7e`. Both the `-dev.dmg` URL and legacy-compatible `.dmg` alias were separately
+re-downloaded in full and byte-compared against the exact verified package. The website
+`/api/releases`, internal pointer and app-update pointer all report 0.2.52/build 55; the app index
+retains `Cache-Control: no-store`. Managed/component pointers remain byte-identical at 0.4.12
+and 0.4.16 respectively.
+
+This release exposes local reconnect actions, automatically resumes a validated stopped original
+Connector with bounded retries and fresh cloud-health proof, reports actual process state, and
+keeps update confirmation and progress panels from overlapping. It is temporary-signing internal
+distribution, not Apple notarization. Publication did not replace the owner's installed app or
+restart Gateway/Connector/Hermes services. Actual installed-client upgrade/relaunch, automatic
+recovery after a real process exit and physical phone acceptance remain separate verification.
