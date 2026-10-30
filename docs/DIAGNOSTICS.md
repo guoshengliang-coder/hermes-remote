@@ -34,6 +34,18 @@ socket. Bodies, params/results, attachments and credentials are not logged. No t
 release, an oversized frame or an untracked ID is evidence of non-delivery. Cross-machine clocks do
 not justify precise per-hop latency; compare local durations and causal IDs.
 
+## HG-248 recovery/recheck evidence
+
+Android `[recovery] cycle=<process-random-id>-<sequence> trigger=... phase=start/complete` distinguishes
+AUTOMATIC, MANUAL, FOREGROUND, COLD_START, HEALTH_RECOVERED, RPC_TIMEOUT and STALLED. Each socket
+opening and retry schedule names its cycle alongside the existing generation/connection ID. A
+`phase=classification-stopped` record means a bounded authorization classification attempt stopped;
+only a later valid foreground recovery cycle can resume it. Persisted account/device repair gates
+still win. Manual checks record completion even when their failure code stays unchanged; cancellation
+is explicit. The added fields carry no endpoint, credential, account/device name or remote text.
+Correlate `conn` to Gateway `clientConnectionId`; cross-host clock offsets still prevent exact latency
+claims. See `HG_248_CONNECTION_RECOVERY.md` for this incident and its separate reproduced recovery gap.
+
 ## 三个问题，三个数据源
 
 | # | 问题 | 谁知道答案 | 在哪 |

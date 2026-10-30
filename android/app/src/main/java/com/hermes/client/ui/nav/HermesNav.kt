@@ -277,6 +277,7 @@ fun HermesNav(
 
     val shellVm: ShellViewModel = hiltViewModel()
     val health by shellVm.health.collectAsStateWithLifecycle()
+    val healthRecheck by shellVm.healthRecheck.collectAsStateWithLifecycle()
     val hermesContract by shellVm.hermesContract.collectAsStateWithLifecycle()
     val showsHealthStrip = hasConfig && healthStripVisible(health, hermesContract)
     var showHealthSheet by rememberSaveable { mutableStateOf(false) }
@@ -391,7 +392,7 @@ fun HermesNav(
             // Renders nothing when healthy. When shown it owns the status-bar inset, so the content
             // below consumes that inset to avoid a second top gap under the strip.
             if (showsHealthStrip) {
-                HealthStrip(health = health, onClick = { showHealthSheet = true }, contract = hermesContract)
+                HealthStrip(health = health, onClick = { shellVm.clearHealthRecheckResult(); showHealthSheet = true }, contract = hermesContract)
             }
             val contentModifier =
                 if (showsHealthStrip) Modifier.weight(1f).consumeWindowInsets(WindowInsets.statusBars)
@@ -705,9 +706,10 @@ fun HermesNav(
     if (showHealthSheet) {
         HealthSheet(
             health = health,
+            recheckState = healthRecheck,
             contract = hermesContract,
             onRecheck = { shellVm.recheckHealth() },
-            onDismiss = { showHealthSheet = false },
+            onDismiss = { shellVm.clearHealthRecheckResult(); showHealthSheet = false },
         )
     }
 }

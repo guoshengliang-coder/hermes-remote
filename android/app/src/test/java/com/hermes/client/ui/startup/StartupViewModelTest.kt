@@ -101,7 +101,7 @@ class StartupViewModelTest {
         vm.onActivityCreated(processColdStart = true)
         runCurrent()
 
-        verify(exactly = 1) { chat.connect() }
+        verify(exactly = 1) { chat.connect(com.hermes.client.data.network.ConnectionRecoveryTrigger.COLD_START) }
         coVerify(exactly = 1) { rest.gatewayStatus() }
 
     }
@@ -130,7 +130,7 @@ class StartupViewModelTest {
         assertEquals(StartupFailure.ACCOUNT_AUTHENTICATION_FAILED, repair.failure)
 
         coVerify(exactly = 0) { rest.gatewayStatus() }
-        verify(exactly = 0) { chat.connect() }
+        verify(exactly = 0) { chat.connect(any()) }
     }
 
     @Test fun committedAccountDeletionBlocksLegacyColdStartFallback() = runTest {
@@ -147,7 +147,7 @@ class StartupViewModelTest {
         assertEquals(StartupFailure.ACCOUNT_DELETION_COMMITTED, repair.failure)
 
         coVerify(exactly = 0) { rest.gatewayStatus() }
-        verify(exactly = 0) { chat.connect() }
+        verify(exactly = 0) { chat.connect(any()) }
     }
 
     @Test fun revokedAccountDeviceClearsOnlySelectionAndRoutesToDevicePicker() = runTest {
@@ -168,7 +168,7 @@ class StartupViewModelTest {
         val repair = vm.state.value as StartupUiState.RepairRequired
         assertEquals(StartupFailure.ACCOUNT_DEVICE_UNAVAILABLE, repair.failure)
         verify(exactly = 1) { accountSessions.clearDeviceSelection() }
-        verify(exactly = 0) { chat.connect() }
+        verify(exactly = 0) { chat.connect(any()) }
     }
 
     @Test fun unknownAccountEndpointNeverOpensTheLegacyRelayEditor() = runTest {
@@ -189,7 +189,7 @@ class StartupViewModelTest {
         assertEquals(StartupFailure.ACCOUNT_SERVICE_UNAVAILABLE, repair.failure)
         verify(exactly = 0) { accountSessions.clearDeviceSelection() }
 
-        verify(exactly = 0) { chat.connect() }
+        verify(exactly = 0) { chat.connect(any()) }
     }
 
     @Test fun accountRefreshRateLimitRemainsRetryableInsteadOfForcingSignIn() = runTest {
@@ -267,7 +267,7 @@ class StartupViewModelTest {
         assertEquals(StartupFailure.ACCOUNT_DEVICE_UNAVAILABLE, repair.failure)
 
         coVerify(exactly = 0) { rest.gatewayStatus() }
-        verify(exactly = 0) { chat.connect() }
+        verify(exactly = 0) { chat.connect(any()) }
     }
 
     private fun accountSession() = AccountSession(
@@ -292,7 +292,7 @@ class StartupViewModelTest {
         runCurrent()
 
         assertEquals(StartupUiState.Hidden, vm.state.value)
-        verify(exactly = 0) { chat.connect() }
+        verify(exactly = 0) { chat.connect(any()) }
     }
 
     @Test fun configuredColdStartWaitsForGatewayReadyInitialSessionsAndMinimumBrandMoment() = runTest {
@@ -304,7 +304,7 @@ class StartupViewModelTest {
         runCurrent()
 
         assertTrue(vm.state.value is StartupUiState.Loading)
-        verify(exactly = 1) { chat.connect() }
+        verify(exactly = 1) { chat.connect(any()) }
 
         connection.value = ConnectionState.Connected
         runCurrent()
@@ -373,7 +373,7 @@ class StartupViewModelTest {
 
         assertEquals(StartupPhase.READY, (vm.state.value as StartupUiState.Loading).phase)
         coVerify(exactly = 2) { sessions.listAllProfiles() }
-        verify(exactly = 0) { chat.reconnect() }
+        verify(exactly = 0) { chat.reconnect(any()) }
     }
 
     @Test fun healthyHotStartLeavesCurrentScreenVisible() = runTest {
@@ -385,8 +385,8 @@ class StartupViewModelTest {
         runCurrent()
 
         assertEquals(StartupUiState.Hidden, vm.state.value)
-        verify(exactly = 0) { chat.connect() }
-        verify(exactly = 0) { chat.reconnect() }
+        verify(exactly = 0) { chat.connect(any()) }
+        verify(exactly = 0) { chat.reconnect(any()) }
         coVerify(exactly = 0) { sessions.listAllProfiles() }
     }
 
@@ -406,7 +406,7 @@ class StartupViewModelTest {
         advanceTimeBy(1)
         runCurrent()
         assertTrue(vm.state.value is StartupUiState.Loading)
-        verify(exactly = 1) { chat.connect() }
+        verify(exactly = 1) { chat.connect(any()) }
 
         connection.value = ConnectionState.Connected
         runCurrent()
@@ -467,7 +467,7 @@ class StartupViewModelTest {
         runCurrent()
 
         assertEquals(StartupUiState.Hidden, vm.state.value)
-        verify(exactly = 0) { chat.reconnect() }
+        verify(exactly = 0) { chat.reconnect(any()) }
     }
 
     @Test fun disconnectAfterForegroundEntryBringsRecoveryGateBack() = runTest {
@@ -482,7 +482,7 @@ class StartupViewModelTest {
         advanceTimeBy(StartupViewModel.HOT_START_DEBOUNCE_MS)
         runCurrent()
         assertTrue(vm.state.value is StartupUiState.Loading)
-        verify(exactly = 1) { chat.reconnect() }
+        verify(exactly = 1) { chat.reconnect(any()) }
 
         connection.value = ConnectionState.Connected
         runCurrent()
@@ -502,7 +502,7 @@ class StartupViewModelTest {
             StartupReason.INITIAL_SETUP,
             (vm.state.value as StartupUiState.Loading).reason,
         )
-        verify(exactly = 1) { chat.reconnect() }
+        verify(exactly = 1) { chat.reconnect(any()) }
 
         connection.value = ConnectionState.Connected
         runCurrent()
@@ -533,7 +533,7 @@ class StartupViewModelTest {
 
         val failed = vm.state.value as StartupUiState.Failed
         assertEquals(StartupFailure.DEVICE_OFFLINE, failed.failure)
-        verify(exactly = 0) { chat.connect() }
+        verify(exactly = 0) { chat.connect(any()) }
     }
 
     /**
@@ -649,7 +649,7 @@ class StartupViewModelTest {
         assertEquals(StartupReason.COLD_START, repair.reason)
         coVerify(exactly = 1) { rest.gatewayStatus() }
         coVerify(exactly = 0) { diagnostics.diagnose(any(), any(), any()) }
-        verify(exactly = 0) { chat.connect() }
+        verify(exactly = 0) { chat.connect(any()) }
     }
 
     @Test fun savedRepairRerunsStartupAndReturnsToOriginalRouteOnlyAfterReady() = runTest {
@@ -693,12 +693,12 @@ class StartupViewModelTest {
         runCurrent()
         val retrying = vm.state.value as StartupUiState.Loading
         assertEquals(1, retrying.retryAttempt)
-        verify(exactly = 0) { chat.connect() }
+        verify(exactly = 0) { chat.connect(any()) }
 
         advanceTimeBy(StartupViewModel.RETRY_DELAY_MS)
         runCurrent()
         coVerify(exactly = 2) { rest.gatewayStatus() }
-        verify(exactly = 1) { chat.connect() }
+        verify(exactly = 1) { chat.connect(any()) }
         coVerify(exactly = 0) { diagnostics.diagnose(any(), any(), any()) }
     }
 
@@ -790,6 +790,6 @@ class StartupViewModelTest {
         assertEquals(StartupUiState.Hidden, vm.state.value)
         verify(exactly = 0) { credentials.load() }
         coVerify(exactly = 0) { rest.gatewayStatus() }
-        verify(exactly = 0) { chat.connect() }
+        verify(exactly = 0) { chat.connect(any()) }
     }
 }

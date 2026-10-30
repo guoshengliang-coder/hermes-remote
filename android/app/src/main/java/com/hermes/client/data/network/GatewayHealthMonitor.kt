@@ -3,6 +3,12 @@ package com.hermes.client.data.network
 import android.content.Context
 import android.net.ConnectivityManager
 import com.hermes.client.data.diagnostics.DebugLog
+import com.hermes.client.data.error.AppError
+import com.hermes.client.data.error.AppErrorCode
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.atomic.AtomicLong
 import android.net.NetworkCapabilities
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -102,6 +108,7 @@ class GatewayHealthMonitor(
     private val clock: () -> Long = System::currentTimeMillis,
     private val routedRestRecoverySignal: RoutedRestRecoverySignal = RoutedRestRecoverySignal(),
     private val diagnostics: ConnectionDiagnostics? = null,
+    private val recoverConnection: ((ConnectionRecoveryTrigger) -> Unit)? = null,
 ) {
     private val _health = MutableStateFlow<GatewayHealth>(GatewayHealth.Unknown)
     val health: StateFlow<GatewayHealth> = _health.asStateFlow()
@@ -118,8 +125,11 @@ class GatewayHealthMonitor(
     private var contractVersion: String? = null
     private var contractFetchedAt: Long? = null
 
-    /** Set by [recheck]; the next healthy probe re-reads the report whatever the cache says. */
-    @Volatile private var contractRecheckRequested = false
+    private val _recheckState = MutableStateFlow<HealthRecheckState>(HealthRecheckState.Idle)
+    val recheckState: StateFlow<HealthRecheckState> = _recheckState.asStateFlow()
+    private val recheckLock = Any()
+    private var recheckJob: Job? = null
+    private val ownerEpoch = AtomicLong()
 
     private val probeGuard = Mutex()
     private var periodicJob: Job? = null
@@ -139,6 +149,12 @@ class GatewayHealthMonitor(
         // healthy client this collector then costs nothing.
         scope.launch {
             connectionState.collect { st ->
+                if (st is ConnectionState.Connected && _health.value is GatewayHealth.Healthy) {
+                    val previousCheck = _recheckState.value
+                    if (previousCheck is HealthRecheckState.Finished && previousCheck.error != null) {
+                        _recheckState.compareAndSet(previousCheck, HealthRecheckState.Idle)
+                    }
+                }
                 val recovered = st is ConnectionState.Connected && _health.value.isUnhealthy()
                 if (st is ConnectionState.Error || st is ConnectionState.Disconnected || recovered) probe()
             }
@@ -157,9 +173,11 @@ class GatewayHealthMonitor(
     /** Run one health probe, coalescing with any probe already in flight. */
     suspend fun probe() {
         if (!probeGuard.tryLock()) return
+        val epoch = ownerEpoch.get()
         val healthy: GatewayHealth.Healthy?
         try {
             val next = evaluate()
+            if (epoch != ownerEpoch.get()) return
             updateHealth(next)
             healthy = next as? GatewayHealth.Healthy
         } finally {
@@ -167,19 +185,28 @@ class GatewayHealthMonitor(
         }
         // Outside the probe lock: a slow report must never make the monitor drop the probes a
         // dropped or restored socket asks for.
+        if (epoch == ownerEpoch.get()) recoverHealthyConnection(healthy)
         refreshContract(healthy?.version, healthy != null)
     }
 
     /** A routed success is stronger than a socket hint, so wait for a concurrent probe. */
     private suspend fun probeAfterRoutedRestSuccess() {
+        val epoch = ownerEpoch.get()
         var result: GatewayHealth? = null
         probeGuard.withLock {
-            if (_health.value.isUnhealthy()) {
-                result = evaluate()
-                updateHealth(checkNotNull(result))
+            if (epoch == ownerEpoch.get() && _health.value.isUnhealthy()) {
+                val next = evaluate()
+                if (epoch == ownerEpoch.get()) {
+                    result = next
+                    updateHealth(next)
+                }
             }
         }
-        result?.let { refreshContract((it as? GatewayHealth.Healthy)?.version, it is GatewayHealth.Healthy) }
+        if (epoch != ownerEpoch.get()) return
+        result?.let {
+            recoverHealthyConnection(it as? GatewayHealth.Healthy)
+            refreshContract((it as? GatewayHealth.Healthy)?.version, it is GatewayHealth.Healthy)
+        }
     }
 
     /**
@@ -197,8 +224,8 @@ class GatewayHealthMonitor(
      * Relay's `device_offline`, a timeout, a dropped connection) says nothing about Hermes: the
      * last verdict stays and the next probe asks again.
      */
-    private suspend fun refreshContract(version: String?, healthy: Boolean) {
-        if (!contractGuard.tryLock()) return
+    private suspend fun refreshContract(version: String?, healthy: Boolean, force: Boolean = false) {
+        if (force) contractGuard.lock() else if (!contractGuard.tryLock()) return
         try {
             val target = currentContractTarget()
             if (target != contractTarget) {
@@ -210,11 +237,9 @@ class GatewayHealthMonitor(
             if (target == null || !healthy) return
             val fetchedAt = contractFetchedAt
             val now = clock()
-            val forced = contractRecheckRequested
-            if (!forced && fetchedAt != null && version == contractVersion && now - fetchedAt < CONTRACT_REFRESH_MS) {
+            if (!force && fetchedAt != null && version == contractVersion && now - fetchedAt < CONTRACT_REFRESH_MS) {
                 return
             }
-            contractRecheckRequested = false
             val next = try {
                 api.hermesContract().toNotice()
             } catch (e: HermesApiException) {
@@ -263,12 +288,19 @@ class GatewayHealthMonitor(
     }
 
     private fun updateHealth(next: GatewayHealth) {
+        val previous = _health.value
         // Only transitions: the probe runs every 30s in the foreground and the answer is usually
         // the same one as last time. Healthy carries a moving latency, so compare tiers.
         if (tier(next) != tier(_health.value)) {
             DebugLog.log("health", "${describe(_health.value)} → ${describe(next)}")
         }
         _health.value = next
+        if (previous.checkError()?.code != next.checkError()?.code) {
+            val previousCheck = _recheckState.value
+            if (previousCheck is HealthRecheckState.Finished) {
+                _recheckState.compareAndSet(previousCheck, HealthRecheckState.Idle)
+            }
+        }
     }
 
     /**
@@ -305,20 +337,20 @@ class GatewayHealthMonitor(
      * there is a network and the server is slow — a case that should never read as "device
      * offline" anyway.
      */
-    private suspend fun evaluate(): GatewayHealth {
+    private suspend fun evaluate(forceDiagnosis: Boolean = false): GatewayHealth {
         val connectivitySaysOffline = !connectivity.isOnline()
         // First attempt; on a retryable failure (null) try once more before declaring it down.
         val causes = mutableListOf<String?>()
         val status = attemptStatus(causes) ?: attemptStatus(causes)
         if (status != null) {
-            if (status is GatewayHealth.Healthy) diagnosedOrigin = null
+            diagnosedOrigin = null
             return status
         }
         if (connectivitySaysOffline) return GatewayHealth.DeviceOffline
         val previous = _health.value as? GatewayHealth.GatewayUnreachable
         val activeDiagnostics = diagnostics?.takeIf { appForeground }
         val origin = activeDiagnostics?.configuredBaseUrl()
-        if (previous?.detail?.startsWith("HR-CONN-") == true && diagnosedOrigin == origin) return previous
+        if (!forceDiagnosis && previous?.detail?.startsWith("HR-CONN-") == true && diagnosedOrigin == origin) return previous
         if (activeDiagnostics == null) return GatewayHealth.GatewayUnreachable("unreachable")
         val diagnosis = activeDiagnostics.diagnose(causes, baseUrl = origin)
         diagnosedOrigin = origin
@@ -333,14 +365,18 @@ class GatewayHealthMonitor(
             val latencyMs = (System.nanoTime() - start) / 1_000_000
             GatewayHealth.Healthy(version = dto.version, running = dto.gatewayRunning, latencyMs = latencyMs)
         } catch (e: HermesApiException) {
-            when (e.code) {
-                401 -> GatewayHealth.GatewayUnreachable("unauthorized") // definitive
-                0 -> GatewayHealth.Unknown // no gateway configured yet — not a down state
-                else -> {
-                    causes += "HTTP_${e.code}"
-                    null // retryable
-                }
+            val explicit = connectionProbeError(e.errorCode)
+            when {
+                explicit != null -> GatewayHealth.GatewayUnreachable(explicit.code.value)
+                e.code == 401 -> GatewayHealth.GatewayUnreachable(AppErrorCode.ACCOUNT_SESSION_EXPIRED.value)
+                e.code == 0 -> GatewayHealth.Unknown
+                else -> { causes += "HTTP_${e.code}"; null }
             }
+        } catch (e: AccountApiException) {
+            val explicit = connectionProbeError(e.errorCode)
+            if (explicit != null) GatewayHealth.GatewayUnreachable(explicit.code.value)
+            else if (e.statusCode == 401) GatewayHealth.GatewayUnreachable(AppErrorCode.ACCOUNT_SESSION_EXPIRED.value)
+            else { causes += "HTTP_${e.statusCode}"; null }
         } catch (e: TimeoutCancellationException) {
             causes += "SocketTimeoutException"
             null // probe timed out — retryable
@@ -352,18 +388,109 @@ class GatewayHealthMonitor(
         }
     }
 
-    /** Fire an immediate probe (the sheet's Re-check button). */
-    fun recheck() {
-        // The user is asking *now* — typically right after `hermes update`, which can leave the
-        // version string unchanged — so the cached verdict must not answer for the Mac.
-        contractRecheckRequested = true
-        scope.launch { probe() }
+    private fun recoverHealthyConnection(healthy: GatewayHealth.Healthy?) {
+        if (appForeground && healthy?.running == true) {
+            recoverConnection?.invoke(ConnectionRecoveryTrigger.HEALTH_RECOVERED)
+        }
+    }
+
+    /** One user-owned cycle: never dropped by an automatic probe's tryLock. */
+    fun recheck() = synchronized(recheckLock) {
+        if (recheckJob?.isActive == true) return@synchronized
+        val cycle = ConnectionRecoveryTrace.start(ConnectionRecoveryTrigger.MANUAL)
+        val epoch = ownerEpoch.get()
+        _recheckState.value = HealthRecheckState.Checking(cycle)
+        recheckJob = scope.launch(start = CoroutineStart.LAZY) {
+            try {
+                val error = withTimeout(RECHECK_TIMEOUT_MS) {
+                    if (appForeground && _health.value.checkError()?.retryable != false) {
+                        recoverConnection?.invoke(ConnectionRecoveryTrigger.MANUAL)
+                    }
+                    val next = probeGuard.withLock {
+                        val result = evaluate(forceDiagnosis = true)
+                        if (epoch != ownerEpoch.get()) throw CancellationException("connection owner changed")
+                        updateHealth(result)
+                        result
+                    }
+                    recoverHealthyConnection(next as? GatewayHealth.Healthy)
+                    // A manual check also waits for an older contract read and bypasses its cache.
+                    refreshContract((next as? GatewayHealth.Healthy)?.version, next is GatewayHealth.Healthy, force = true)
+                    next.checkError() ?: run {
+                        if (recoverConnection != null && connectionState.value !is ConnectionState.Connected) {
+                            val connected = withTimeoutOrNull(PROBE_HANDSHAKE_TIMEOUT_MS) {
+                                connectionState.first { it is ConnectionState.Connected }
+                            } != null
+                            if (!connected) AppError(AppErrorCode.HANDSHAKE_TIMEOUT, true, stage = "connection_check")
+                            else _contract.value?.error
+                        } else _contract.value?.error
+                    }
+                }
+                if (epoch == ownerEpoch.get()) {
+                    _recheckState.value = HealthRecheckState.Finished(cycle, error)
+                    ConnectionRecoveryTrace.finish(cycle, error)
+                }
+            } catch (_: TimeoutCancellationException) {
+                if (epoch == ownerEpoch.get()) {
+                    val error = AppError(AppErrorCode.CONNECTION_TIMEOUT, true, stage = "connection_check")
+                    _recheckState.value = HealthRecheckState.Finished(cycle, error)
+                    ConnectionRecoveryTrace.finish(cycle, error)
+                }
+            } catch (cancelled: CancellationException) {
+                DebugLog.log("recovery", "cycle=$cycle phase=cancelled")
+                throw cancelled
+            } catch (failure: Exception) {
+                if (epoch == ownerEpoch.get()) {
+                    val error = AppError(AppErrorCode.CONNECTION_FAILED, true,
+                        technicalCause = failure.javaClass.simpleName, stage = "connection_check")
+                    _recheckState.value = HealthRecheckState.Finished(cycle, error)
+                    ConnectionRecoveryTrace.finish(cycle, error)
+                }
+            } finally {
+                synchronized(recheckLock) {
+                    if ((_recheckState.value as? HealthRecheckState.Checking)?.cycle == cycle) {
+                        _recheckState.value = HealthRecheckState.Idle
+                    }
+                    // A newer owner's check may already exist; never clear its job.
+                    val currentCycle = when (val state = _recheckState.value) {
+                        is HealthRecheckState.Checking -> state.cycle
+                        is HealthRecheckState.Finished -> state.cycle
+                        HealthRecheckState.Idle -> null
+                    }
+                    if (currentCycle == null || currentCycle == cycle) recheckJob = null
+                }
+            }
+        }.also { it.start() }
+    }
+
+    fun clearRecheckResult() = synchronized(recheckLock) {
+        if (_recheckState.value is HealthRecheckState.Finished) _recheckState.value = HealthRecheckState.Idle
+    }
+
+    /** Discard results owned by another account/Mac without clearing the navigation stack. */
+    fun invalidate() {
+        ownerEpoch.incrementAndGet()
+        cancelRecheck()
+        diagnosedOrigin = null
+        contractTarget = null
+        contractFetchedAt = null
+        _contract.value = null
+        _health.value = GatewayHealth.Unknown
+        periodicJob?.cancel()
+        periodicJob = null
+        if (appForeground) startForeground()
+    }
+
+    private fun cancelRecheck() = synchronized(recheckLock) {
+        recheckJob?.cancel()
+        recheckJob = null
+        _recheckState.value = HealthRecheckState.Idle
     }
 
     /** Begin foreground probing: probe now, then every [PROBE_INTERVAL_MS]. Idempotent. */
     fun startForeground() {
         appForeground = true
         if (periodicJob?.isActive == true) return
+        ConnectionRecoveryTrace.start(ConnectionRecoveryTrigger.FOREGROUND)
         periodicJob = scope.launch {
             while (true) {
                 probe()
@@ -375,6 +502,7 @@ class GatewayHealthMonitor(
     /** Stop foreground probing (app backgrounded). */
     fun stopForeground() {
         appForeground = false
+        cancelRecheck()
         periodicJob?.cancel()
         periodicJob = null
     }
@@ -382,6 +510,8 @@ class GatewayHealthMonitor(
     companion object {
         const val PROBE_TIMEOUT_MS = 5_000L
         const val PROBE_INTERVAL_MS = 30_000L
+        const val RECHECK_TIMEOUT_MS = 25_000L
+        private const val PROBE_HANDSHAKE_TIMEOUT_MS = 20_000L
 
         /** How long a contract report is trusted while the Hermes version stays the same. */
         const val CONTRACT_REFRESH_MS = 5 * 60_000L

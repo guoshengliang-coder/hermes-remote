@@ -10,7 +10,9 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -47,6 +49,141 @@ class GatewayHealthMonitorTest {
         coEvery { api.contractTargetKey() } returns null
         monitor.probe()
         assertTrue(monitor.health.value is GatewayHealth.Healthy)
+    }
+
+    @Test fun structuredConnectorFailuresOutrankGenericDiagnosisAndConnectivityHints() = runTest {
+        coEvery { api.gatewayStatus() } throws HermesApiException(503, "raw body", errorCode = "HR-CONN-005")
+        val monitor = GatewayHealthMonitor(api, FakeConnectivity(false), MutableStateFlow(ConnectionState.Connected), backgroundScope)
+        monitor.probe()
+        assertEquals("HR-CONN-005", (monitor.health.value as GatewayHealth.GatewayUnreachable).detail)
+        coEvery { api.gatewayStatus() } throws HermesApiException(502, "raw body", errorCode = "HR-CONN-006")
+        monitor.probe()
+        assertEquals("HR-CONN-006", (monitor.health.value as GatewayHealth.GatewayUnreachable).detail)
+    }
+
+    @Test fun manualRecheckWaitsForConcurrentProbeAndRunsAFreshCheck() = runTest(UnconfinedTestDispatcher()) {
+        val first = kotlinx.coroutines.CompletableDeferred<GatewayStatusDto>()
+        var calls = 0
+        coEvery { api.gatewayStatus() } coAnswers { if (++calls == 1) first.await() else ok() }
+        coEvery { api.contractTargetKey() } returns null
+        val monitor = monitorAt { 0L }
+        val periodic = backgroundScope.launch { monitor.probe() }
+        monitor.recheck()
+        first.complete(ok())
+        periodic.join()
+        runCurrent()
+        assertEquals("the explicit user request must not be discarded", 2, calls)
+    }
+
+    @Test fun manualRecheckIsBusyCoalescesAndFinishesEvenWhenFailureIsUnchanged() = runTest(UnconfinedTestDispatcher()) {
+        val first = kotlinx.coroutines.CompletableDeferred<GatewayStatusDto>()
+        coEvery { api.gatewayStatus() } coAnswers { first.await() }
+        val monitor = monitorAt { 0L }
+        monitor.recheck()
+        assertTrue(monitor.recheckState.value is HealthRecheckState.Checking)
+        monitor.recheck()
+        coVerify(exactly = 1) { api.gatewayStatus() }
+        first.completeExceptionally(HermesApiException(503, "secret raw body", errorCode = "HR-CONN-005"))
+        runCurrent()
+        val completed = monitor.recheckState.value as HealthRecheckState.Finished
+        assertEquals("HR-CONN-005", completed.error?.code?.value)
+        assertTrue(completed.error!!.retryable)
+        monitor.recheck()
+        runCurrent()
+        val repeated = monitor.recheckState.value as HealthRecheckState.Finished
+        assertTrue("a second identical result still belongs to a new check", completed.cycle != repeated.cycle)
+        assertEquals(completed.error, repeated.error)
+    }
+
+    @Test fun manualRecheckTimeoutReleasesBusyAndBackgroundCancellationDoesNotInventFailure() = runTest(UnconfinedTestDispatcher()) {
+        coEvery { api.gatewayStatus() } returns ok()
+        coEvery { api.contractTargetKey() } coAnswers { kotlinx.coroutines.awaitCancellation() }
+        val monitor = monitorAt { 0L }
+        monitor.recheck()
+        advanceTimeBy(GatewayHealthMonitor.RECHECK_TIMEOUT_MS)
+        runCurrent()
+        assertEquals("HR-CONN-009", (monitor.recheckState.value as HealthRecheckState.Finished).error?.code?.value)
+        monitor.recheck()
+        assertTrue(monitor.recheckState.value is HealthRecheckState.Checking)
+        monitor.stopForeground()
+        runCurrent()
+        assertEquals(HealthRecheckState.Idle, monitor.recheckState.value)
+    }
+
+    @Test fun anOldOwnersProbeCannotPublishIntoTheNewAccountOrMac() = runTest(UnconfinedTestDispatcher()) {
+        val first = kotlinx.coroutines.CompletableDeferred<GatewayStatusDto>()
+        coEvery { api.gatewayStatus() } coAnswers { first.await() }
+        val monitor = monitorAt { 0L }
+        val probe = backgroundScope.launch { monitor.probe() }
+        monitor.invalidate()
+        first.complete(ok())
+        probe.join()
+        assertEquals(GatewayHealth.Unknown, monitor.health.value)
+    }
+
+    @Test fun foregroundHealthRecoveryResumesAStoppedSocketButBackgroundNeverDoes() = runTest(UnconfinedTestDispatcher()) {
+        var reachable = false
+        val connection = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
+        val triggers = mutableListOf<ConnectionRecoveryTrigger>()
+        coEvery { api.gatewayStatus() } answers {
+            if (reachable) ok() else throw HermesApiException(503, "offline", errorCode = "HR-CONN-005")
+        }
+        coEvery { api.contractTargetKey() } returns null
+        val monitor = GatewayHealthMonitor(api, FakeConnectivity(), connection, backgroundScope,
+            recoverConnection = { triggers += it; connection.value = ConnectionState.Connected })
+        monitor.startForeground()
+        assertTrue(triggers.isEmpty())
+        reachable = true
+        advanceTimeBy(GatewayHealthMonitor.PROBE_INTERVAL_MS)
+        runCurrent()
+        assertEquals(ConnectionState.Connected, connection.value)
+        assertTrue(triggers.contains(ConnectionRecoveryTrigger.HEALTH_RECOVERED))
+        monitor.stopForeground()
+        triggers.clear()
+        connection.value = ConnectionState.Disconnected
+        runCurrent()
+        assertTrue(triggers.isEmpty())
+    }
+
+    @Test fun routedRestRecoveryCannotPublishAfterOwnerChanges() = runTest(UnconfinedTestDispatcher()) {
+        coEvery { api.gatewayStatus() } throws HermesApiException(503, "offline", errorCode = "HR-CONN-005")
+        val signal = RoutedRestRecoverySignal()
+        val monitor = GatewayHealthMonitor(api, FakeConnectivity(), MutableStateFlow(ConnectionState.Connected),
+            backgroundScope, routedRestRecoverySignal = signal)
+        monitor.probe()
+        val pending = kotlinx.coroutines.CompletableDeferred<GatewayStatusDto>()
+        coEvery { api.gatewayStatus() } coAnswers { pending.await() }
+        signal.reportSuccess()
+        monitor.invalidate()
+        pending.complete(ok())
+        runCurrent()
+        assertEquals(GatewayHealth.Unknown, monitor.health.value)
+    }
+
+    @Test fun laterAutomaticRecoveryRetiresAnOldManualFailureResult() = runTest(UnconfinedTestDispatcher()) {
+        coEvery { api.gatewayStatus() } throws HermesApiException(503, "offline", errorCode = "HR-CONN-005")
+        coEvery { api.contractTargetKey() } returns null
+        val monitor = monitorAt { 0L }
+        monitor.recheck()
+        assertTrue(monitor.recheckState.value is HealthRecheckState.Finished)
+        coEvery { api.gatewayStatus() } returns ok()
+        monitor.probe()
+        assertEquals(HealthRecheckState.Idle, monitor.recheckState.value)
+        assertTrue(monitor.health.value is GatewayHealth.Healthy)
+    }
+
+    @Test fun laterSocketReadinessRetiresAnOldHandshakeFailureResult() = runTest(UnconfinedTestDispatcher()) {
+        coEvery { api.gatewayStatus() } returns ok()
+        coEvery { api.contractTargetKey() } returns null
+        val connection = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
+        val monitor = GatewayHealthMonitor(api, FakeConnectivity(), connection, backgroundScope, recoverConnection = {})
+        monitor.recheck()
+        advanceTimeBy(20_000)
+        runCurrent()
+        assertEquals("HR-CONN-003", (monitor.recheckState.value as HealthRecheckState.Finished).error?.code?.value)
+        connection.value = ConnectionState.Connected
+        runCurrent()
+        assertEquals(HealthRecheckState.Idle, monitor.recheckState.value)
     }
 
     /**
@@ -361,7 +498,7 @@ class GatewayHealthMonitorTest {
         m.probe()
         val h = m.health.value
         assertTrue(h is GatewayHealth.GatewayUnreachable)
-        assertEquals("unauthorized", (h as GatewayHealth.GatewayUnreachable).detail)
+        assertEquals("HR-AUTH-003", (h as GatewayHealth.GatewayUnreachable).detail)
         io.mockk.coVerify(exactly = 1) { api.gatewayStatus() }
     }
 

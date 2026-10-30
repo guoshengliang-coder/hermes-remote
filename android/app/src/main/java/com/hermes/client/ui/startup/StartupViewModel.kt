@@ -266,6 +266,10 @@ class StartupViewModel @Inject constructor(
             _state.value = StartupUiState.Loading(reason, StartupPhase.CONFIGURATION)
         }
         attemptJob = viewModelScope.launch {
+            com.hermes.client.data.network.ConnectionRecoveryTrace.start(
+                if (reason == StartupReason.COLD_START) com.hermes.client.data.network.ConnectionRecoveryTrigger.COLD_START
+                else com.hermes.client.data.network.ConnectionRecoveryTrigger.FOREGROUND,
+            )
             if (debounceMs > 0) {
                 delay(debounceMs)
                 if (
@@ -382,10 +386,12 @@ class StartupViewModel @Inject constructor(
                     }
                 }
                 val current = chat.connectionState.value
+                val trigger = if (reason == StartupReason.COLD_START) com.hermes.client.data.network.ConnectionRecoveryTrigger.COLD_START
+                    else com.hermes.client.data.network.ConnectionRecoveryTrigger.FOREGROUND
                 when {
-                    forceReconnect -> chat.reconnect()
-                    current is ConnectionState.Disconnected -> chat.connect()
-                    current is ConnectionState.Reconnecting || current is ConnectionState.Error -> chat.reconnect()
+                    forceReconnect -> chat.reconnect(trigger)
+                    current is ConnectionState.Disconnected -> chat.connect(trigger)
+                    current is ConnectionState.Reconnecting || current is ConnectionState.Error -> chat.reconnect(trigger)
                     else -> Unit
                 }
                 _state.value = StartupUiState.Loading(reason, StartupPhase.CONNECTION)
@@ -539,6 +545,8 @@ class StartupViewModel @Inject constructor(
             in 500..599 -> GatewayProbeResult.ServerFailure(error.code, error.errorCode)
             else -> GatewayProbeResult.InvalidEndpoint(error.code)
         }
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
     } catch (error: Exception) {
         GatewayProbeResult.Unreachable(error.javaClass.simpleName)
     }

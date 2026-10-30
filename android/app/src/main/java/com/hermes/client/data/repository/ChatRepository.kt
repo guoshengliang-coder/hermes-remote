@@ -140,11 +140,11 @@ class ChatRepository(private val client: HermesGatewayClient) {
     /** See [com.hermes.client.data.network.HermesGatewayClient.consecutiveDroppedConnections]. */
     val consecutiveDroppedConnections: Int get() = client.consecutiveDroppedConnections
 
-    fun connect() = client.connect()
+    fun connect(trigger: com.hermes.client.data.network.ConnectionRecoveryTrigger = com.hermes.client.data.network.ConnectionRecoveryTrigger.AUTOMATIC) = client.connect(trigger)
     fun disconnect() = client.close("chat repository disconnect")
 
     /** Force an immediate reconnect, skipping the backoff wait (user tapped "Retry"). */
-    fun reconnect() = client.reconnectNow()
+    fun reconnect(trigger: com.hermes.client.data.network.ConnectionRecoveryTrigger = com.hermes.client.data.network.ConnectionRecoveryTrigger.MANUAL) = client.reconnectNow(trigger)
 
     /**
      * Creates a new session. [profile] MUST be the active profile: the gateway binds the session to

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -18,10 +19,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import com.hermes.client.data.network.HealthRecheckState
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.hermes.client.data.error.AppErrorCode
@@ -89,7 +95,7 @@ fun unreachableStripLabel(detail: String?, zh: Boolean = false): String {
     return when (detail) {
         "unauthorized" -> localized(lang, "连接凭据无效", "Connection credentials invalid")
         null, "", "unreachable" -> localized(lang, "暂时连不上服务", "Couldn't reach the service")
-        else -> AppErrorCode.fromValue(detail)?.localizedShortLabel(lang)
+        else -> AppErrorCode.fromValue(detail)?.let { it.localizedShortLabel(lang) ?: it.localizedSummary(lang) }
             ?: localized(lang, "暂时连不上服务", "Couldn't reach the service")
     }
 }
@@ -211,6 +217,15 @@ fun HealthStrip(
     }
 }
 
+/** Explicit results remain visible even when a repeated check found the same failure. */
+fun healthRecheckMessage(state: HealthRecheckState, zh: Boolean, currentError: AppErrorCode? = null): String? = when (state) {
+    HealthRecheckState.Idle -> null
+    is HealthRecheckState.Checking -> localized(language(zh), "正在检查连接…", "Checking the connection…")
+    is HealthRecheckState.Finished -> state.error?.let {
+        localized(language(zh), "检查完成，仍需处理。", "Check complete. Action is still needed.") + if (it.code == currentError) "" else "\n" + it.localizedSummary(language(zh))
+    } ?: localized(language(zh), "检查完成，连接已恢复。", "Check complete. Connection restored.")
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HealthSheet(
@@ -218,13 +233,14 @@ fun HealthSheet(
     onRecheck: () -> Unit,
     onDismiss: () -> Unit,
     contract: HermesContractNotice? = null,
+    recheckState: HealthRecheckState = HealthRecheckState.Idle,
 ) {
     val accent = MaterialTheme.colorScheme.primary
     val zh = com.hermes.client.ui.localization.LocalAppLanguage.current == com.hermes.client.ui.localization.AppLanguage.ZH
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = com.hermes.client.ui.components.hermesSheetState()) {
         Column(Modifier.fillMaxWidth().padding(24.dp)) {
             Text(
-                healthStripLabel(health, zh, contract) ?: "Gateway",
+                healthStripLabel(health, zh, contract) ?: localized(language(zh), "连接状态", "Connection status"),
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
@@ -234,7 +250,8 @@ fun HealthSheet(
                 modifier = Modifier.padding(top = 8.dp),
             )
             // The code on its own line, labelSmall in the secondary colour (docs/DESIGN.md §5.11).
-            val errorCode = healthErrorCode(health) ?: contractShown(health, contract)?.error?.code?.value
+            val errorCode = (recheckState as? HealthRecheckState.Finished)?.error?.code?.value
+                ?: healthErrorCode(health) ?: contractShown(health, contract)?.error?.code?.value
             errorCode?.let { code ->
                 Text(
                     code,
@@ -243,9 +260,17 @@ fun HealthSheet(
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
+            healthRecheckMessage(recheckState, zh, AppErrorCode.fromValue(healthErrorCode(health)) ?: contractShown(health, contract)?.error?.code)?.let { message ->
+                Text(message, style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
+                        .semantics { liveRegion = LiveRegionMode.Polite })
+            }
+            val checking = recheckState is HealthRecheckState.Checking
             Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onRecheck) {
-                    Text(if (zh) "重新检查" else "Re-check", color = accent, textAlign = TextAlign.End)
+                TextButton(onClick = onRecheck, enabled = !checking) {
+                    if (checking) CircularProgressIndicator(Modifier.padding(end = 8.dp).size(16.dp), strokeWidth = 2.dp)
+                    Text(if (checking) localized(language(zh), "检查中…", "Checking…") else localized(language(zh), "重新检查", "Re-check"), color = accent, textAlign = TextAlign.End)
                 }
             }
         }

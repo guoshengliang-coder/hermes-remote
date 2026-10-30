@@ -71,15 +71,14 @@ class CronDetailViewModelTest {
     }
 
     /**
-     * A code this build has never heard of — a newer Gateway, or one of the `HR-BIND-*` family,
-     * which is presented elsewhere and is not in [AppErrorCode]. The headline falls back rather
+     * A code from a newer Gateway which is not registered in [AppErrorCode]. The headline falls back rather
      * than inventing a meaning for a string it cannot read, but **the code itself is not thrown
      * away**: it reaches the details toggle, which is the whole point of HG-51. Guessing by prefix
      * would be worse than falling back.
      */
     @Test fun an_unknown_server_code_falls_back_but_is_still_reported() = runTest(dispatcher) {
         val vm = viewModel(
-            tools { throw HermesApiException(409, "HR-BIND-009", errorCode = "HR-BIND-009") },
+            tools { throw HermesApiException(409, "HR-FUTURE-999", errorCode = "HR-FUTURE-999") },
         )
         vm.load("job-1")
         runCurrent()
@@ -89,8 +88,8 @@ class CronDetailViewModelTest {
 
         val failure = vm.state.value.actionError
         assertEquals(AppErrorCode.CRON_ACTION_FAILED, failure?.code)
-        assertEquals("HR-BIND-009", failure?.technicalCause)
-        assertTrue(failure!!.sanitizedDiagnostic().contains("HR-BIND-009"))
+        assertEquals("HR-FUTURE-999", failure?.technicalCause)
+        assertTrue(failure!!.sanitizedDiagnostic().contains("HR-FUTURE-999"))
     }
 
     /**

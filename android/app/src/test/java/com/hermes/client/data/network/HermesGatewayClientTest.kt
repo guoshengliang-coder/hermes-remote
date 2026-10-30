@@ -347,6 +347,68 @@ class HermesGatewayClientTest {
         }
     }
 
+    @Test fun oldBackoffCannotSupersedeAManualRecoveryAfterPassingItsFirstGuard() = runTest {
+        serverRule.server.enqueue(MockResponse.Builder().code(503).build())
+        serverRule.server.enqueue(MockResponse.Builder().webSocketUpgrade(object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) { webSocket.send(GATEWAY_READY_FRAME) }
+        }).build())
+        val reached = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val paused = AtomicBoolean()
+        val http = OkHttpClient.Builder().readTimeout(2, TimeUnit.SECONDS).build()
+        val endpoint = serverRule.server.url("/api/ws").toString().replace("http", "ws")
+        val client = HermesGatewayClient(http, json, testScope, backoff = BackoffPolicy(baseMs = 10, maxMs = 10)) {
+            GatewayWebSocketEndpoint(endpoint)
+        }
+        client.lifecycleSeam = { name ->
+            if (name == "reconnect:after-guard" && paused.compareAndSet(false, true)) {
+                reached.countDown()
+                check(release.await(5, TimeUnit.SECONDS))
+            }
+        }
+        try {
+            client.connect()
+            withContext(Dispatchers.IO) { assertTrue(reached.await(5, TimeUnit.SECONDS)) }
+            assertTrue(client.recoverIfNeeded(ConnectionRecoveryTrigger.MANUAL))
+            withContext(Dispatchers.Default) {
+                withTimeout(5_000) {
+                    while (client.connectionState.value !is ConnectionState.Connected) kotlinx.coroutines.delay(10)
+                }
+            }
+            release.countDown()
+            withContext(Dispatchers.IO) { Thread.sleep(150) }
+            assertEquals("the stale callback must not open a third socket", 2, serverRule.server.requestCount)
+            assertTrue(client.connectionSnapshot(), client.connectionState.value is ConnectionState.Connected)
+        } finally { release.countDown(); tearDownClient(client, http) }
+    }
+
+    @Test fun ordinary503RetriesReResolveTheEndpointAndRecoverWithoutRestart() = runTest {
+        repeat(3) { serverRule.server.enqueue(MockResponse.Builder().code(503).build()) }
+        serverRule.server.enqueue(MockResponse.Builder().webSocketUpgrade(object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) { webSocket.send(GATEWAY_READY_FRAME) }
+        }).build())
+        val http = OkHttpClient.Builder().readTimeout(2, TimeUnit.SECONDS).build()
+        val resolutions = java.util.concurrent.atomic.AtomicInteger()
+        val endpoint = serverRule.server.url("/v2/devices/mac-1/ws").toString().replace("http", "ws")
+        val client = HermesGatewayClient(http, json, testScope,
+            backoff = BackoffPolicy(baseMs = 10, maxMs = 20), accountOkHttp = http) {
+            resolutions.incrementAndGet()
+            GatewayWebSocketEndpoint(endpoint, "fixture-bearer", "mac-1")
+        }
+        try {
+            client.connect()
+            withContext(Dispatchers.Default) {
+                withTimeout(5_000) {
+                    while (client.connectionState.value !is ConnectionState.Connected) kotlinx.coroutines.delay(10)
+                }
+            }
+            assertEquals(4, resolutions.get())
+            assertEquals(4, serverRule.server.requestCount)
+            val ids = (1..4).map { serverRule.server.takeRequest().headers["X-Hermes-Connection-Id"] }
+            assertEquals(4, ids.toSet().size)
+        } finally { tearDownClient(client, http) }
+    }
+
     @Test fun accountAuthorizationCloseGetsOnlyOneClassificationReconnect() = runTest {
         serverRule.server.enqueue(
             MockResponse.Builder().webSocketUpgrade(
@@ -394,6 +456,19 @@ class HermesGatewayClientTest {
 
             assertEquals(2, serverRule.server.requestCount)
             assertTrue(rejected.isEmpty())
+            // A later, verified foreground health success owns a NEW recovery cycle.
+            serverRule.server.enqueue(MockResponse.Builder().webSocketUpgrade(object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: Response) { webSocket.send(GATEWAY_READY_FRAME) }
+            }).build())
+            assertTrue(client.recoverIfNeeded(ConnectionRecoveryTrigger.HEALTH_RECOVERED))
+            withContext(Dispatchers.Default) {
+                withTimeout(5_000) {
+                    while (client.connectionState.value !is ConnectionState.Connected) kotlinx.coroutines.delay(10)
+                }
+            }
+            assertEquals(3, serverRule.server.requestCount)
+            assertFalse("a healthy socket must not be replaced", client.recoverIfNeeded(ConnectionRecoveryTrigger.MANUAL))
+            assertEquals(3, serverRule.server.requestCount)
         } finally {
             tearDownClient(client, okHttp)
             accountOkHttp.dispatcher.executorService.shutdown()

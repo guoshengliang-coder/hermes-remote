@@ -1025,3 +1025,29 @@ L1 覆盖未完成分片的页面查询、已落盘断点与临时进度隔离�
 12. 缓冲中央只显示转圈和速度；TalkBack仍能区分首帧加载/缓冲/定位。底部为独立细缓存条、百分比、速度，
     点击缓存行或更多→缓存详情能看到已缓存/总大小。0速/测速中/本地无网速/清理/容量限制/低空间仍能理解，
     播放时间轴不误表示整文件缓存覆盖。缓存详情随状态刷新且能关闭，双主题、大字、短横屏不挤压播放动作。
+
+
+## HG-248 — connection recheck and stopped recovery
+
+Use the local development stack or a dedicated test binding. Do not stop the owner's production
+Connector/Hermes or alter its heartbeat settings for this test. Keep the Android process alive.
+
+1. Make the test Connector unavailable. Open the global health sheet: HR-CONN-005 must name the Mac,
+   rather than HR-CONN-010 blaming the Relay. Tap Re-check: progress/text appears immediately, the
+   action is disabled while checking, and unchanged failure still shows that this check completed.
+2. Restore the test upstream. Keep the phone process alive: normal socket backoff or a successful
+   foreground health probe must restore the connection. Re-check skips a pending backoff; once REST
+   and the socket are ready, show Connection restored and remove the down strip. Never resend a prompt.
+3. On a synthetic authorized test transport, deliver 4403 followed by a temporary classification 503.
+   After valid account/device health recovers, a new foreground recovery cycle must resume the stopped
+   socket. Confirm a genuine 401/revocation/device-removal gate still requires its existing repair flow.
+4. Check a delayed/no-response status route, a response whose body stalls, repeated taps, closing and
+   reopening the sheet, and backgrounding during a check. Waiting must end; a new check must work;
+   cancellation must not be presented as a successful or failed completed check.
+5. Switch account/Mac during an in-flight check. Old results must not update the new owner's health,
+   compatibility notice or check result. Verify Chinese/English, light/dark and 1.3x text, readable
+   error code, action reachability and screen-reader busy/result announcements.
+
+Automated loopback/JVM coverage and synthetic screenshots do not establish HONOR radio handover,
+background survival, or the root cause of M4's transport delay. Record each physical-device result
+with model/ROM and preserve the original app process when investigating automatic recovery.
