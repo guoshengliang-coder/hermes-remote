@@ -3251,7 +3251,7 @@ The unified internal publisher returned both `DESKTOP_INTERNAL_RELEASE_AND_WEBSI
 `DESKTOP_INTERNAL_APP_UPDATE_SYNC_OK`. Public package: https://mrlgs.net/desktop/apps/0.2.52/Hermes-Go-Desktop-0.2.52-dev.dmg — **4,286,381 bytes**,
 SHA-256 `bd8272eced388751c190b38acd0ee436d45b7d3f725071b18504eb389a16ea7e`. Both the `-dev.dmg` URL and legacy-compatible `.dmg` alias were separately
 re-downloaded in full and byte-compared against the exact verified package. The website
-`/api/releases`, internal pointer and app-update pointer all report 0.2.52/build 55; the app index
+`/api/releases` reports 0.2.52, and the internal/app-update pointers report 0.2.52/build 55; the app index
 retains `Cache-Control: no-store`. Managed/component pointers remain byte-identical at 0.4.12
 and 0.4.16 respectively.
 
