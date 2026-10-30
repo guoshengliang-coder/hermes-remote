@@ -48,6 +48,16 @@ class VideoFeedbackPanelTest {
             }
         }
     }
+    @Test fun editor_has_one_input_and_three_unified_actions_without_retiming() {
+        render(false, AppLanguage.EN, VideoFeedbackScreen.EDITOR,
+            VideoNoteDraft(start = "0:12", text = "Keep this moment"), fontScale = 1f)
+        compose.onAllNodes(hasSetTextAction()).assertCountEquals(1)
+        compose.onNodeWithText("Submit note").assertIsDisplayed()
+        compose.onNodeWithText("Finish later").assertIsDisplayed()
+        compose.onNodeWithText("Cancel and return").assertIsDisplayed()
+        compose.onNodeWithText("Mark point again").assertDoesNotExist()
+        compose.onNodeWithText("Back to video").assertDoesNotExist()
+    }
     @Test fun light_large_text_tools_are_separate_from_list_and_export() {
         render(false, AppLanguage.ZH)
         compose.onNodeWithTag("video-note-point").assertIsDisplayed().assertIsEnabled()
@@ -65,12 +75,12 @@ class VideoFeedbackPanelTest {
         render(false, AppLanguage.ZH, VideoFeedbackScreen.EDITOR,
             VideoNoteDraft(start = "00:00:01.234", end = "00:00:04.567", range = true, text = "这段需要拉长"))
         compose.onAllNodes(hasSetTextAction()).assertCountEquals(1)
-        compose.onNodeWithText("保存批注并继续").assertIsDisplayed().assertIsEnabled()
+        compose.onNodeWithText("提交批注").assertIsDisplayed().assertIsEnabled()
         compose.onNodeWithTag("video-note-time").assertIsDisplayed()
-        compose.onNodeWithText("重新选段").assertIsDisplayed()
+        compose.onNodeWithText("重新选段").assertDoesNotExist()
         compose.onRoot().captureRoboImage("screenshots/video-feedback-range-editor-zh-fs13.png")
     }
-    @Test fun range_selection_disables_point_and_emphasizes_valid_end() {
+    @Test fun range_selection_disables_point_and_enables_valid_end() {
         render(false, AppLanguage.ZH, VideoFeedbackScreen.SELECTING, VideoNoteDraft(start = "0:01.234", range = true), fontScale = 1f)
         compose.onNodeWithTag("video-note-point").assertIsNotEnabled()
         compose.onNodeWithTag("video-note-end").assertIsEnabled()

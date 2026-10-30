@@ -48,6 +48,7 @@ class VideoFeedbackWorkspaceTest {
     private var position by mutableLongStateOf(1234)
     private var pauses = 0
     private var resumes = 0
+    private var seekTarget: Long? = null
     private var imeBottom by mutableIntStateOf(0)
     private var keyboardShows = 0
     private var showing by mutableStateOf(true)
@@ -70,12 +71,12 @@ class VideoFeedbackWorkspaceTest {
                         if (showing) VideoFeedbackWorkspace("movie.mp4", VideoFeedbackContext(scope, "/work/movie.mp4", "原会话", attach = {
                             if (refusal == null) attached = it
                             refusal
-                        }), generation, 60_000, { position }, {}, { closed++ },
+                        }), generation, 60_000, { position }, { seekTarget = it }, { closed++ },
                             playerPosition = position, pause = { pauses++ }, resume = { resumes++ },
-                            imeInsets = WindowInsets(bottom = imeBottom)) { annotate, editing, start, locked, review ->
+                            imeInsets = WindowInsets(bottom = imeBottom)) { annotate, editing, start, locked, review, annotations ->
                             VideoPlayerContent("movie.mp4", VideoPlayerState(position = 1234, duration = 60_000, hasFrame = true),
                                 onAnnotate = annotate, annotating = editing, annotationStartMs = start, canPlay = !locked,
-                                onReviewNotes = review, onClose = { showing = false })
+                                annotations = annotations, onReviewNotes = review, onClose = { showing = false })
                         }
                     }
                     if (registry == null) content() else CompositionLocalProvider(LocalActivityResultRegistryOwner provides registry) { content() }
@@ -83,9 +84,68 @@ class VideoFeedbackWorkspaceTest {
             }
         }
         if (enter) {
-            compose.onNodeWithText("Annotate").performClick()
+            compose.onNodeWithContentDescription("Annotate").performClick()
             compose.waitUntil(5_000) { compose.onAllNodesWithTag("video-note-point").fetchSemanticsNodes().isNotEmpty() }
         }
+    }
+    @Test fun marker_pauses_seeks_and_previews_without_keyboard_or_automatic_resume() {
+        fixture()
+        compose.onNodeWithTag("video-note-marker:one").performClick()
+        compose.onNodeWithTag("video-note-preview").assertIsDisplayed()
+        compose.onNodeWithText("延长这一段\n保留原声").assertIsDisplayed()
+        compose.onNodeWithTag("video-note-text").assertDoesNotExist()
+        assertEquals(1_234L, seekTarget); assertEquals(1, pauses); assertEquals(0, keyboardShows)
+        compose.onNodeWithTag("video-note-preview-close").performClick()
+        compose.onNodeWithTag("video-note-point").assertIsDisplayed()
+        assertEquals(0, resumes)
+    }
+    @Test fun cluster_opens_all_notes_then_chosen_time_and_explicit_edit() {
+        fixture(document = VideoFeedbackDocument(notes = listOf(
+            VideoNote("one", 1_234, text = "First formal note"), VideoNote("two", 2_000, 4_000, "Second formal note"))))
+        compose.onNodeWithTag("video-note-marker:one,two").performClick()
+        assertNull(seekTarget)
+        compose.onNodeWithText("First formal note").assertIsDisplayed()
+        compose.onNodeWithText("Second formal note").assertIsDisplayed()
+        compose.onNodeWithTag("video-note-preview-time:two").performClick()
+        assertEquals(2_000L, seekTarget)
+        compose.onNodeWithText("Edit").performClick()
+        compose.onNodeWithTag("video-note-text").assertTextContains("Second formal note")
+        assertEquals(1, keyboardShows)
+        compose.onNodeWithTag("video-note-marker:one,two").assertIsNotEnabled()
+        compose.onNodeWithTag("video-note-cancel").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("video-note-point").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("video-note-marker:one,two").performClick()
+        compose.onNodeWithText("Second formal note").assertIsDisplayed()
+    }
+    @Test fun preview_close_preserves_the_pending_range_and_does_not_add_drafts_to_track() {
+        fixture()
+        compose.onNodeWithTag("video-note-start").performClick()
+        compose.onNodeWithTag("video-note-marker:one").performClick()
+        compose.onNodeWithTag("video-note-preview-close").performClick()
+        compose.onNodeWithText("Start marked").assertIsDisplayed()
+        compose.onNodeWithTag("video-note-point").assertIsNotEnabled()
+        compose.onAllNodes(hasTestTag("video-note-marker:one")).assertCountEquals(1)
+        assertEquals(0, resumes)
+    }
+    @Test fun draft_only_video_has_no_formal_track() {
+        fixture(document = VideoFeedbackDocument(draft = VideoNoteDraft(start = "0:12", text = "unfinished")))
+        compose.onNodeWithTag("video-note-track").assertDoesNotExist()
+        compose.onNodeWithText("Unfinished drafts", substring = true).assertIsDisplayed()
+    }
+    @Test fun cancel_discards_text_while_later_recovers_blank_point() {
+        fixture()
+        compose.onNodeWithTag("video-note-point").performClick()
+        compose.onNodeWithTag("video-note-text").performTextInput("discard this")
+        compose.onNodeWithTag("video-note-cancel").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("video-note-point").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Unfinished drafts", substring = true).assertDoesNotExist()
+        compose.onNodeWithTag("video-note-point").performClick()
+        compose.onNodeWithTag("video-note-commit").assertIsNotEnabled()
+        compose.onNodeWithTag("video-note-later").performClick()
+        compose.onNodeWithText("Unfinished drafts", substring = true).performClick()
+        compose.onNodeWithText("Continue draft").performClick()
+        compose.onNodeWithTag("video-note-time").assertIsDisplayed()
+        compose.onNodeWithTag("video-note-text").assertTextContains("")
     }
     @After fun cleanup() { attached?.delete() }
     @Test fun hiding_and_showing_ime_does_not_request_focus_again() {
@@ -130,12 +190,12 @@ class VideoFeedbackWorkspaceTest {
         compose.onNodeWithText("unfinished feedback").assertIsDisplayed()
         compose.onNodeWithText("Save .md").assertDoesNotExist()
     }
-    @Test fun explicit_back_returns_in_one_action_even_with_keyboard_visible() {
+    @Test fun later_returns_in_one_action_even_with_keyboard_visible() {
         fixture()
         compose.onNodeWithTag("video-note-point").performClick()
         compose.onNodeWithTag("video-note-text").performTextInput("unfinished feedback")
         compose.runOnIdle { imeBottom = 400 }
-        compose.onNodeWithText("Back to video").performClick()
+        compose.onNodeWithText("Finish later").performClick()
         compose.onNodeWithTag("video-note-point").assertIsDisplayed()
         compose.onNodeWithTag("video-note-text").assertDoesNotExist()
         assertEquals(1, keyboardShows)
@@ -172,10 +232,10 @@ class VideoFeedbackWorkspaceTest {
         fixture(document = VideoFeedbackDocument())
         compose.onNodeWithTag("video-note-start").performClick()
         compose.onNodeWithText("Done").performClick()
-        compose.onNodeWithText("Annotate").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Annotate").assertIsDisplayed()
         compose.onNodeWithText("Save .md").assertDoesNotExist()
         compose.onNodeWithTag("video-review-notes").assertDoesNotExist()
-        compose.onNodeWithText("Annotate").performClick()
+        compose.onNodeWithContentDescription("Annotate").performClick()
         compose.onNodeWithText("Unfinished drafts", substring = true).performClick()
         compose.onNodeWithText("Start around 00:01 · End not marked").assertIsDisplayed()
     }
@@ -185,9 +245,9 @@ class VideoFeedbackWorkspaceTest {
         compose.onNodeWithTag("video-note-text").performTextInput("unfinished feedback")
         compose.onNodeWithContentDescription("Close").performClick()
         compose.runOnIdle { showing = true }
-        compose.onNodeWithText("Annotate").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Annotate").assertIsDisplayed()
         compose.onNodeWithTag("video-note-text").assertDoesNotExist()
-        compose.onNodeWithText("Annotate").performClick()
+        compose.onNodeWithContentDescription("Annotate").performClick()
         compose.onNodeWithTag("video-note-point").assertIsDisplayed()
         compose.onNodeWithText("Unfinished drafts", substring = true).performClick()
         compose.onNodeWithText("Continue draft").performClick()
@@ -208,7 +268,7 @@ class VideoFeedbackWorkspaceTest {
         compose.runOnIdle { position = 4_567 }
         compose.onNodeWithTag("video-note-end").performClick()
         compose.onNodeWithTag("video-note-text").performScrollTo().performTextInput("延长片段并保留原声")
-        compose.onNodeWithText("Save note and continue").performClick()
+        compose.onNodeWithText("Submit note").performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithText("View notes (2)").fetchSemanticsNodes().isNotEmpty() }
         compose.runOnIdle { assertEquals(1, resumes) }
         compose.onNodeWithText("View notes (2)").performClick()

@@ -34,7 +34,7 @@ internal data class VideoFeedbackActions(
     val cancelSelection: () -> Unit = {}, val list: () -> Unit = {}, val drafts: () -> Unit = {},
     val back: () -> Unit = {}, val returnToVideo: () -> Unit = {}, val continueMarking: () -> Unit = {},
     val resumeDraft: (String) -> Unit = {}, val text: (String) -> Unit = {}, val commit: () -> Unit = {},
-    val reselect: () -> Unit = {}, val later: () -> Unit = {}, val editNote: (String) -> Unit = {},
+    val cancel: () -> Unit = {}, val later: () -> Unit = {}, val editNote: (String) -> Unit = {},
     val delete: (String) -> Unit = {}, val discardDraft: (String) -> Unit = {}, val seek: (Long) -> Unit = {},
     val retry: () -> Unit = {}, val saveFile: () -> Unit = {}, val attach: () -> Unit = {},
 )
@@ -141,11 +141,11 @@ internal fun VideoFeedbackPanel(
                 val startEnabled = canMark && state.loaded && !state.committing && !retimePoint && (mayCreate || selecting != null || retimeRange)
                 val endEnabled = canMark && selecting != null && positionMs > selecting && positionMs <= durationMs
                 val point: @Composable (Modifier) -> Unit = { m -> MarkButton(localized(language, "单点批注", "Point note"), FeedbackBubbleIcon,
-                    pointEnabled, true, actions.point, m.testTag("video-note-point")) }
+                    pointEnabled, actions.point, m.testTag("video-note-point")) }
                 val start: @Composable (Modifier) -> Unit = { m -> MarkButton(if (selecting != null) localized(language, "重设起点", "Reset start") else localized(language, "起始点", "Start point"),
-                    VideoRangeStartIcon, startEnabled, false, actions.start, m.testTag("video-note-start")) }
+                    VideoRangeStartIcon, startEnabled, actions.start, m.testTag("video-note-start")) }
                 val end: @Composable (Modifier) -> Unit = { m -> MarkButton(localized(language, "终止点", "End point"), VideoRangeEndIcon,
-                    endEnabled, endEnabled, actions.end, m.testTag("video-note-end")) }
+                    endEnabled, actions.end, m.testTag("video-note-end")) }
                 BoxWithConstraints(Modifier.fillMaxWidth()) {
                     if (LocalDensity.current.fontScale > 1.15f || maxWidth < 320.dp) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         point(Modifier.fillMaxWidth())
@@ -189,30 +189,32 @@ private fun VideoFeedbackEditor(state: VideoFeedbackState, actions: VideoFeedbac
             Text(when { draft.id != null -> localized(language, "编辑批注", "Edit note")
                 draft.range -> localized(language, "片段批注", "Range note") else -> localized(language, "单点批注", "Point note") },
                 Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-            TextButton(enabled = !state.committing, onClick = actions.back) { Text(localized(language, "返回视频", "Back to video")) }
         }
         Text(draftTime(draft), fontFamily = HermesMono, color = MaterialTheme.colorScheme.primary,
             style = MaterialTheme.typography.labelLarge, modifier = Modifier.testTag("video-note-time"))
         Text(if (draft.range) localized(language, "大致片段范围 · 已暂停", "Approximate range · Paused")
             else localized(language, "该时间附近的画面 · 已暂停", "Nearby footage · Paused"), style = MaterialTheme.typography.bodySmall)
-        TextButton(enabled = !state.committing, onClick = actions.reselect, contentPadding = PaddingValues(0.dp)) {
-            Text(if (draft.range) localized(language, "重新选段", "Mark range again") else localized(language, "重新打点", "Mark point again"))
-        }
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
             OutlinedTextField(value = draft.text, onValueChange = actions.text, enabled = !state.committing,
                 label = { Text(localized(language, "修改意见", "Feedback")) }, minLines = 3,
                 modifier = Modifier.fillMaxWidth().focusRequester(focus).testTag("video-note-text"))
-            VideoFeedbackStatus(state, if (state.commitFailed) actions.commit else actions.retry)
+            VideoFeedbackStatus(state, when { state.cancelFailed -> actions.cancel; state.commitFailed -> actions.commit; else -> actions.retry })
         }
         Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (draft.id == null && !draft.range && draft.text.isBlank()) TextButton(onClick = actions.later, enabled = !state.committing) {
-                Text(localized(language, "保留点位，稍后填写", "Keep point for later"))
-            }
-            Text(localized(language, "有内容的草稿会自动保留", "Drafts with feedback are retained automatically"), style = MaterialTheme.typography.bodySmall)
             Button(onClick = actions.commit, enabled = draft.text.isNotBlank() && !state.committing,
                 modifier = Modifier.fillMaxWidth().testTag("video-note-commit")) {
                 Text(when { state.committing -> localized(language, "正在保存…", "Saving…")
-                    draft.id != null -> localized(language, "保存修改", "Save changes") else -> localized(language, "保存批注并继续", "Save note and continue") })
+                    draft.id != null -> localized(language, "保存修改", "Save changes") else -> localized(language, "提交批注", "Submit note") })
+            }
+            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                OutlinedButton(onClick = actions.later, enabled = !state.committing,
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("video-note-later")) {
+                    Text(localized(language, "稍后填写", "Finish later"))
+                }
+                TextButton(onClick = actions.cancel, enabled = !state.committing,
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("video-note-cancel")) {
+                    Text(localized(language, "取消返回", "Cancel and return"))
+                }
             }
         }
     }
@@ -243,7 +245,7 @@ private fun VideoFeedbackStatus(state: VideoFeedbackState, retry: () -> Unit) {
 
 private fun shortTime(value: Long) = videoNoteReferenceTime(value)
 @Composable
-private fun referenceTime(start: Long, end: Long? = null): String {
+internal fun referenceTime(start: Long, end: Long? = null): String {
     val language = LocalAppLanguage.current
     val a = shortTime(start)
     val b = end?.let(::shortTime)
@@ -263,7 +265,7 @@ private fun draftTime(draft: VideoNoteDraft): String {
 }
 
 @Composable
-private fun MarkButton(label: String, icon: ImageVector, enabled: Boolean, emphasized: Boolean,
+private fun MarkButton(label: String, icon: ImageVector, enabled: Boolean,
     onClick: () -> Unit, modifier: Modifier) {
     val content: @Composable RowScope.() -> Unit = {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -271,10 +273,7 @@ private fun MarkButton(label: String, icon: ImageVector, enabled: Boolean, empha
         }
     }
     val m = modifier.heightIn(min = 72.dp)
-    if (emphasized) FilledTonalButton(onClick, m, enabled, shape = RoundedCornerShape(10.dp),
-        colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = .1f),
-            contentColor = MaterialTheme.colorScheme.primary), contentPadding = PaddingValues(8.dp), content = content)
-    else OutlinedButton(onClick, m, enabled, shape = RoundedCornerShape(10.dp), contentPadding = PaddingValues(8.dp), content = content)
+    OutlinedButton(onClick, m, enabled, shape = RoundedCornerShape(10.dp), contentPadding = PaddingValues(8.dp), content = content)
 }
 
 private fun rangeIcon(end: Boolean) = ImageVector.Builder(if (end) "VideoRangeEnd" else "VideoRangeStart", 24.dp, 24.dp, 24f, 24f).apply {

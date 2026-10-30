@@ -21,6 +21,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.hermes.client.ui.components.FeedbackBubbleIcon
 import com.hermes.client.data.error.AppError
 import com.hermes.client.data.video.VideoPrecacheState
 import com.hermes.client.data.video.VideoNetworkSpeed
@@ -56,11 +57,13 @@ internal fun VideoPlayerContent(
     onReviewNotes: (() -> Unit)? = null,
     annotating: Boolean = false,
     annotationStartMs: Long? = null,
+    annotations: VideoAnnotationTimeline = VideoAnnotationTimeline(),
     onScrubbing: (Boolean) -> Unit = {},
     video: @Composable () -> Unit = {},
 ) {
     val language = LocalAppLanguage.current
-    val transferLabel = networkSpeed?.let { videoNetworkSpeedLabel(it, language) }
+    val transferLabel = networkSpeed?.let { videoNetworkSpeedLabel(it, language, compact = true) }
+    var cacheDetails by remember { mutableStateOf(false) }
     var controls by remember { mutableStateOf(true) }
     var menu by remember { mutableStateOf(false) }
     var speedMenu by remember { mutableStateOf(false) }
@@ -70,7 +73,7 @@ internal fun VideoPlayerContent(
     DisposableEffect(Unit) { onDispose { scrub(false) } }
     var seeking by remember { mutableStateOf<Float?>(null) }
     var interaction by remember { mutableIntStateOf(0) }
-    val pinned = annotating || !state.wantsPlay || state.buffering || state.seeking || error != null || menu || speedMenu || holdMenu || seeking != null
+    val pinned = annotating || !state.wantsPlay || state.buffering || state.seeking || error != null || menu || cacheDetails || speedMenu || holdMenu || seeking != null
     LaunchedEffect(pinned, interaction) {
         controls = true
         if (!pinned) { delay(3_000); controls = false }
@@ -99,15 +102,18 @@ internal fun VideoPlayerContent(
                 MediaButton(Icons.Rounded.Close, localized(language, "关闭", "Close"), onClick = onClose)
                 Text(name, Modifier.weight(1f).padding(horizontal = 8.dp), color = Color.White,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
-                if (onAnnotate != null) TextButton(onClick = onAnnotate) {
-                    Text(if (annotating) localized(language, "完成批注", "Done") else localized(language, "批注", "Annotate"),
-                        color = Color.White)
+                if (onAnnotate != null) {
+                    if (annotating) TextButton(onClick = onAnnotate) {
+                        Text(localized(language, "完成批注", "Done"), color = Color.White)
+                    } else MediaButton(FeedbackBubbleIcon, localized(language, "批注", "Annotate"), onClick = onAnnotate)
                 }
                 Box {
                     MediaButton(Icons.Rounded.MoreVert, localized(language, "更多", "More"), onClick = { menu = true })
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false; interaction++ }) {
                         DropdownMenuItem(text = { Text(if (downloaded) localized(language, "已下载", "Downloaded") else localized(language, "下载", "Download")) },
                             enabled = !downloaded, onClick = { menu = false; interaction++; download() })
+                        if (precache.size > 0) DropdownMenuItem(text = { Text(localized(language, "缓存详情", "Cache details")) },
+                            onClick = { menu = false; cacheDetails = true; interaction++ })
                         DropdownMenuItem(text = { Text(localized(language, "长按加速：${speedLabel(holdSpeed)}", "Hold speed: ${speedLabel(holdSpeed)}")) },
                             onClick = { menu = false; holdMenu = true; interaction++ })
                         openExternally?.let { open ->
@@ -140,13 +146,12 @@ internal fun VideoPlayerContent(
             }
         } else {
             if (state.buffering || state.seeking) {
-                Column(Modifier.align(Alignment.Center).background(Color.Black.copy(alpha = .65f), MaterialTheme.shapes.medium)
+                val loadingLabel = if (state.seeking) localized(language, "正在定位画面…", "Finding frame…")
+                    else if (state.hasFrame) localized(language, "正在缓冲…", "Buffering…") else localized(language, "正在加载视频…", "Loading video…")
+                Column(Modifier.align(Alignment.Center).semantics { contentDescription = loadingLabel }.background(Color.Black.copy(alpha = .65f), MaterialTheme.shapes.medium)
                     .padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     CircularProgressIndicator(Modifier.size(28.dp), color = Color.White, strokeWidth = 2.dp)
-                    Text(if (state.seeking) localized(language, "正在定位画面…", "Finding frame…")
-                        else if (state.hasFrame) localized(language, "正在缓冲…", "Buffering…") else localized(language, "正在加载视频…", "Loading video…"),
-                        color = Color.White, style = MaterialTheme.typography.bodySmall)
                     transferLabel?.let { Text(it, Modifier.testTag("video-buffer-speed"),
                         color = Color.White.copy(alpha = .75f), style = MaterialTheme.typography.bodySmall) }
                 }
@@ -161,6 +166,8 @@ internal fun VideoPlayerContent(
                 if (state.duration > 0) {
                     if (seeking != null) Text(videoTime(seeking!!.toLong()), Modifier.align(Alignment.CenterHorizontally),
                         color = Color.White, style = MaterialTheme.typography.labelLarge)
+                    if (annotating && annotations.notes.isNotEmpty()) VideoAnnotationTrack(annotations, state.duration, state.position,
+                        enabled = canPlay && seeking == null && !state.seeking && !state.buffering)
                     VideoTimeline(state, seeking, annotationStartMs, canPlay,
                         onChange = { seeking = it; scrub(true); interaction++ },
                         onFinished = { seeking?.let { onSeek(it.toLong()) }; seeking = null; scrub(false); interaction++ })
@@ -193,13 +200,7 @@ internal fun VideoPlayerContent(
                     modifier = Modifier.align(Alignment.End).heightIn(min = 48.dp).testTag("video-review-notes")) {
                     Text(localized(language, "查看 / 导出批注", "View / export notes"), color = Color.White)
                 }
-                val cacheLabel = if (precache.size <= 0) null
-                    else if (precache.cleared) localized(language, "本次观看已停止预缓存；重新打开视频可恢复", "Precaching stopped for this viewing; reopen to resume")
-                    else localized(language, "预览缓存 ${precache.percent}% · ${cacheBytes(precache.bytes)} / ${cacheBytes(precache.size)}",
-                        "Preview cache ${precache.percent}% · ${cacheBytes(precache.bytes)} / ${cacheBytes(precache.size)}")
-                if (cacheLabel != null || transferLabel != null) Text(
-                    listOfNotNull(cacheLabel, transferLabel).joinToString(" · "),
-                    Modifier.testTag("video-cache-progress"), color = Color.White.copy(alpha = .75f), style = MaterialTheme.typography.labelSmall)
+                VideoCacheProgress(precache, transferLabel, onDetails = { cacheDetails = true })
                 val status = state.speedError ?: precache.error
                 status?.let { failure ->
                     Text(failure.localizedMessage(language), color = Color.White, style = MaterialTheme.typography.bodySmall)
@@ -211,9 +212,19 @@ internal fun VideoPlayerContent(
             }
         }
     }
+    if (cacheDetails) AlertDialog(onDismissRequest = { cacheDetails = false },
+        title = { Text(localized(language, "缓存详情", "Cache details")) },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(localized(language, "已缓存 / 总大小", "Cached / Total size"))
+            Text("${cacheBytes(precache.bytes)} / ${cacheBytes(precache.size)}") // l10n-allow: language-neutral byte-size measurements.
+            Text(localized(language, "预览缓存 ${precache.percent}%", "Preview cache ${precache.percent}%"))
+            if (precache.cleared) Text(localized(language, "本次观看已停止预缓存；重新打开视频可恢复", "Precaching stopped for this viewing; reopen to resume"))
+        } },
+        confirmButton = { TextButton(onClick = { cacheDetails = false }) { Text(localized(language, "关闭", "Close")) } })
+
 }
 
-internal fun videoNetworkSpeedLabel(speed: VideoNetworkSpeed, language: AppLanguage): String {
+internal fun videoNetworkSpeedLabel(speed: VideoNetworkSpeed, language: AppLanguage, compact: Boolean = false): String {
     val rate = speed.bytesPerSecond
     val value = when {
         rate == null -> localized(language, "测速中…", "Measuring…")
@@ -221,7 +232,7 @@ internal fun videoNetworkSpeedLabel(speed: VideoNetworkSpeed, language: AppLangu
         rate < 1_000_000 -> java.lang.String.format(java.util.Locale.ROOT, "%.1f KB/s", rate / 1_000.0)
         else -> java.lang.String.format(java.util.Locale.ROOT, "%.1f MB/s", rate / 1_000_000.0)
     }
-    return localized(language, "缓冲速度 $value", "Buffer speed $value")
+    return if (compact) value else localized(language, "缓冲速度 $value", "Buffer speed $value")
 }
 
 private fun cacheBytes(value: Long): String = when {

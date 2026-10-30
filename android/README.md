@@ -1,3 +1,12 @@
+HG-246/HG-247 unify the video-note editor into Submit, Finish later and Cancel and return; explicit
+Cancel durably drops only the current draft while preserving the formal note. The retiming entry is
+removed. Marking actions use equal outlined treatment; Annotate is an accessible icon and Done stays
+text. A separate saved-note track clusters nearby markers, shows ranges and opens read-only previews
+with explicit Edit/Close; drafts stay separate. Buffering shows a spinner and current rate; whole-file
+cache coverage uses a thin bar, percentage and rate, with byte sizes in Cache details. Validation and
+physical-device limits are recorded in `../docs/VIDEO_FEEDBACK.md` and `../docs/ANDROID_SMOKE.md`.
+This source change does not allocate or publish an APK.
+
 HG-243 exit/export follow-up keeps editor identity stable through IME/size changes, separates Back
 from Done, and ends marking with a saved-notes-only summary and direct export/staging actions.
 Drafts have a separate recovery page; empty accidental point drafts are cancelled unless retained

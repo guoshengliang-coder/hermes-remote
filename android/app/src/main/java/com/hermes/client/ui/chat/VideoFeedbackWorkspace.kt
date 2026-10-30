@@ -43,7 +43,7 @@ internal fun VideoFeedbackWorkspace(
     feedbackModel: VideoFeedbackViewModel? = null,
     imeInsets: WindowInsets = WindowInsets.ime,
     video: @Composable (annotate: (() -> Unit)?, editing: Boolean, selectionStart: Long?, playbackLocked: Boolean,
-        review: (() -> Unit)?) -> Unit,
+        review: (() -> Unit)?, annotations: VideoAnnotationTimeline) -> Unit,
 ) {
     val androidContext = LocalContext.current
     val language = LocalAppLanguage.current
@@ -54,6 +54,7 @@ internal fun VideoFeedbackWorkspace(
     var exportError by remember { mutableStateOf<AppError?>(null) }
     var pendingSave by rememberSaveable { mutableStateOf<String?>(null) }
     val key = context?.let { info -> generation?.let { videoFeedbackKey(info.scope, info.reference, info.downloadedGeneration ?: it) } }
+    var previewIds by rememberSaveable(key) { mutableStateOf<List<String>>(emptyList()) }
     var reviewing by rememberSaveable(key) { mutableStateOf(false) }
     val vm: VideoFeedbackViewModel? = feedbackModel ?: key?.let { storageKey ->
         viewModel(key = "video-feedback:$storageKey", factory = remember(storageKey) {
@@ -130,6 +131,7 @@ internal fun VideoFeedbackWorkspace(
     val keyboardVisible = imeInsets.getBottom(LocalDensity.current) > 0
     fun leaveInput(keepEmpty: Boolean = false) {
         if (vm?.state?.committing == true) return
+        previewIds = emptyList()
         focus.clearFocus(); keyboard?.hide()
         vm?.returnToTools(keepEmpty)
     }
@@ -151,6 +153,7 @@ internal fun VideoFeedbackWorkspace(
     fun back() {
         if (vm?.state?.committing == true) return
         when {
+            previewIds.isNotEmpty() -> { previewIds = emptyList() }
             keyboardVisible -> { focus.clearFocus(); keyboard?.hide() }
             reviewing -> returnToVideo()
             vm?.state?.screen != VideoFeedbackScreen.TOOLS -> leaveInput()
@@ -158,13 +161,29 @@ internal fun VideoFeedbackWorkspace(
         }
     }
     BackHandler(enabled = editing || reviewing) { back() }
+    val previewNotes = vm?.state?.document?.notes.orEmpty().filter { it.id in previewIds }
+        .sortedWith(compareBy<VideoNote> { it.startMs }.thenBy { it.id })
+    fun preview(ids: List<String>) {
+        val state = vm?.state ?: return
+        if (!editing || !canMark || !state.loaded || state.editing || state.committing || busy || pendingSave != null ||
+            state.screen !in listOf(VideoFeedbackScreen.TOOLS, VideoFeedbackScreen.SELECTING)) return
+        val notes = state.document.notes.filter { it.id in ids }
+        if (notes.isEmpty()) return
+        pause()
+        previewIds = notes.map { it.id }
+        if (notes.size == 1) seek(notes.single().startMs)
+    }
     val content: @Composable () -> Unit = {
         video(if (vm != null) { { if (editing) showSummary() else startMarking() } } else null,
             editing, if (editing) vm?.state?.selectionStart else null,
             reviewing || editing && vm?.state?.let {
                 it.editing || it.committing || it.screen == VideoFeedbackScreen.DRAFTS
             } == true,
-            if (!editing && !reviewing && vm?.state?.document?.notes?.isNotEmpty() == true) ({ showSummary() }) else null)
+            if (!editing && !reviewing && vm?.state?.document?.notes?.isNotEmpty() == true) ({ showSummary() }) else null,
+            VideoAnnotationTimeline(if (editing) vm?.state?.document?.notes.orEmpty() else emptyList(),
+                enabled = canMark && vm?.state?.let { it.loaded && !it.editing && !it.committing &&
+                    it.screen in listOf(VideoFeedbackScreen.TOOLS, VideoFeedbackScreen.SELECTING) } == true && !busy && pendingSave == null,
+                select = ::preview))
     }
     Box(Modifier.fillMaxSize().windowInsetsPadding(imeInsets)) {
         if ((editing || reviewing) && vm != null) {
@@ -187,15 +206,18 @@ internal fun VideoFeedbackWorkspace(
                         }
                     }
                 },
-                reselect = { focus.clearFocus(); keyboard?.hide(); vm.reselect() }, later = { leaveInput(keepEmpty = true) },
-                editNote = { pause(); reviewing = false; editing = true; vm.editNote(it) },
+                cancel = { vm.cancelEdit { success -> if (success && mounted && currentKey == key) { focus.clearFocus(); keyboard?.hide() } } }, later = { leaveInput(keepEmpty = true) },
+                editNote = { pause(); previewIds = emptyList(); reviewing = false; editing = true; vm.editNote(it) },
                 delete = vm::delete, discardDraft = vm::discardDraft,
                 seek = { pause(); returnToVideo(); seek(it) },
                 retry = vm::retry, saveFile = { export(false) }, attach = { export(true) },
             )
-            val expanded = vm.state.editing || reviewing || vm.state.screen == VideoFeedbackScreen.DRAFTS
+            val expanded = previewNotes.isNotEmpty() || vm.state.editing || reviewing || vm.state.screen == VideoFeedbackScreen.DRAFTS
             VideoFeedbackLayout(keyboardVisible && vm.state.editing, expanded, video = content) {
-                VideoFeedbackPanel(vm.state, duration, playerPosition, canMark, actions, busy || pendingSave != null,
+                if (previewNotes.isNotEmpty()) VideoNotePreview(previewNotes,
+                    select = { id -> previewNotes.find { it.id == id }?.let { pause(); seek(it.startMs); previewIds = listOf(id) } },
+                    edit = actions.editNote, close = { previewIds = emptyList() }, modifier = Modifier.fillMaxSize())
+                else VideoFeedbackPanel(vm.state, duration, playerPosition, canMark, actions, busy || pendingSave != null,
                     if (expanded) Modifier.fillMaxSize() else Modifier.fillMaxWidth())
             }
         } else content()

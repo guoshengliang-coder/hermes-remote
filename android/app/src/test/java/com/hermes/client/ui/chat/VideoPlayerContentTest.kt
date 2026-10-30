@@ -28,6 +28,17 @@ import org.robolectric.annotation.GraphicsMode
 class VideoPlayerContentTest {
     @get:Rule val compose = createComposeRule()
     private val playing = VideoPlayerState(position = 12_000, duration = 60_000, buffered = 28_000, wantsPlay = true, hasFrame = true)
+    @Test fun cache_sizes_are_shown_only_on_request() {
+        compose.setContent { HermesTheme { CompositionLocalProvider(LocalAppLanguage provides AppLanguage.EN) {
+            VideoPlayerContent("fixture.mp4", playing.copy(wantsPlay = false),
+                precache = VideoPrecacheState(100_000_000, 500_000_000))
+        } } }
+        compose.onAllNodesWithText("100.0 MB", substring = true).assertCountEquals(0)
+        compose.onNodeWithContentDescription("Cache details").performClick()
+        compose.waitForIdle()
+        compose.onRoot().captureRoboImage("screenshots/video-cache-details.png")
+        compose.onNodeWithText("100.0 MB / 500.0 MB").assertIsDisplayed()
+    }
     @Test fun annotation_entry_pins_playback_controls_until_the_editor_is_closed() {
         var editing by mutableStateOf(false)
         compose.mainClock.autoAdvance = false
@@ -36,9 +47,9 @@ class VideoPlayerContentTest {
         } } }
         compose.mainClock.advanceTimeBy(100)
         compose.onRoot().captureRoboImage("screenshots/video-feedback-entry.png")
-        compose.onNodeWithText("Annotate").assertIsDisplayed().performClick()
+        compose.onNodeWithContentDescription("Annotate").assertIsDisplayed().performClick()
         compose.mainClock.advanceTimeBy(4_100)
-        compose.onNodeWithText("Annotate").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Annotate").assertDoesNotExist()
         compose.onNodeWithContentDescription("More").assertIsDisplayed()
     }
     @Test fun controls_auto_hide_and_tap_reveals_while_pause_pins_controls() {
@@ -92,14 +103,14 @@ class VideoPlayerContentTest {
             VideoPlayerContent("fixture.mp4", state, networkSpeed = speed,
                 precache = VideoPrecacheState(100_000_000, 500_000_000))
         } } }
-        compose.onNodeWithTag("video-buffer-speed").assertTextEquals("Buffer speed Measuring…")
-        compose.onNodeWithTag("video-cache-progress").assertTextContains("Buffer speed Measuring…", substring = true)
+        compose.onNodeWithTag("video-buffer-speed").assertTextEquals("Measuring…")
+        compose.onNodeWithTag("video-cache-speed", useUnmergedTree = true).assertTextContains("Measuring…", substring = true)
         compose.runOnIdle { speed = VideoNetworkSpeed(2_500_000) }
-        compose.onNodeWithTag("video-buffer-speed").assertTextEquals("Buffer speed 2.5 MB/s")
-        compose.onNodeWithTag("video-cache-progress").assertTextContains("Buffer speed 2.5 MB/s", substring = true)
+        compose.onNodeWithTag("video-buffer-speed").assertTextEquals("2.5 MB/s")
+        compose.onNodeWithTag("video-cache-speed", useUnmergedTree = true).assertTextContains("2.5 MB/s", substring = true)
         compose.runOnIdle { state = playing.copy(wantsPlay = false); speed = VideoNetworkSpeed(0) }
         compose.onNodeWithTag("video-buffer-speed").assertDoesNotExist()
-        compose.onNodeWithTag("video-cache-progress").assertTextContains("Buffer speed 0 KB/s", substring = true)
+        compose.onNodeWithTag("video-cache-speed", useUnmergedTree = true).assertTextContains("0 KB/s", substring = true)
         compose.runOnIdle { speed = null }
         compose.onAllNodesWithText("Buffer speed", substring = true).assertCountEquals(0)
     }
@@ -155,9 +166,9 @@ class VideoPlayerContentTest {
         compose.setContent { HermesTheme { CompositionLocalProvider(LocalAppLanguage provides AppLanguage.EN) {
             VideoPlayerContent("fixture.mp4", state)
         } } }
-        compose.onNodeWithText("Loading video…").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Loading video…").assertIsDisplayed()
         compose.runOnIdle { state = state.copy(hasFrame = true) }
-        compose.onNodeWithText("Buffering…").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Buffering…").assertIsDisplayed()
         compose.onNodeWithContentDescription("More").assertIsDisplayed()
     }
     @Test fun metadata_survives_activity_recreation_and_explicit_close() {
