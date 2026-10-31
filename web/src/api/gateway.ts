@@ -689,7 +689,7 @@ export class GatewayClient {
     try {
       return await call({ requestId: newFenceRequestId(), expectedRevision: initial });
     } catch (error) {
-      if (!(error instanceof GatewayHttpError) || error.status !== 409 || revisionConflict(error.body)) {
+      if (!(error instanceof GatewayHttpError) || error.status !== 409 || !revisionConflict(error.body)) {
         throw error;
       }
       return call({ requestId: newFenceRequestId(), expectedRevision: await currentRevision() });
