@@ -22,10 +22,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import kotlin.test.assertFailsWith
 
 class SessionRepositoryTest {
     private val rest = mockk<HermesRestApi>()
@@ -326,6 +326,10 @@ class SessionRepositoryTest {
         coEvery { rest.profileSessions(any(), false) } returns
             ProfileSessionsDto(sessions = listOf(revisionDto("s1", 5)))
         repo.listAllProfiles() // warm the cache the fence is read from
+        coEvery {
+            rest.patchSession("s1", archived = true, profile = "personal", deviceId = null,
+                requestId = any(), expectedRevision = any())
+        } returns Unit
 
         repo.archive("s1", archived = true, "personal")
 
@@ -339,6 +343,10 @@ class SessionRepositoryTest {
         coEvery { rest.profileSessions(any(), false) } returns
             ProfileSessionsDto(sessions = listOf(revisionDto("s1", null)))
         repo.listAllProfiles()
+        coEvery {
+            rest.patchSession("s1", title = "new title", profile = "personal", deviceId = null,
+                requestId = any(), expectedRevision = any())
+        } returns Unit
 
         repo.rename("s1", "new title", "personal")
 
@@ -387,9 +395,13 @@ class SessionRepositoryTest {
                 requestId = any(), expectedRevision = any())
         } throws com.hermes.client.data.network.HermesApiException(404, "not_found")
 
-        assertFailsWith<com.hermes.client.data.network.HermesApiException> {
+        var caught: Throwable? = null
+        try {
             repo.archive("s1", archived = true, "personal")
+        } catch (expected: com.hermes.client.data.network.HermesApiException) {
+            caught = expected
         }
+        assertNotNull("the 404 must surface to the caller", caught)
         coVerify(exactly = 1) {
             rest.patchSession(any(), any(), any(), any(), any(), any(), any())
         }

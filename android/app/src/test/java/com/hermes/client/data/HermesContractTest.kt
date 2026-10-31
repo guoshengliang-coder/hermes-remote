@@ -35,6 +35,9 @@ class HermesContractTest {
                 "display_name",
                 // `dm` / `group`. Needed because display_name is blank on every DM row.
                 "chat_type",
+                // Hermes ≥ 0.22.5's mutation fence (HG-250): echo it as expected_revision on
+                // PATCH/DELETE, or the write is refused 409 client_upgrade_required.
+                "runtime_revision",
             ),
             names,
         )
