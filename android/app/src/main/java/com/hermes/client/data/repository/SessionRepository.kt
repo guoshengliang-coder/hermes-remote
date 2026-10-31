@@ -1,5 +1,6 @@
 package com.hermes.client.data.repository
 
+import com.hermes.client.data.network.HermesApiException
 import com.hermes.client.data.network.HermesRestApi
 import com.hermes.client.data.network.MessageDto
 import com.hermes.client.data.network.MessageOrder
@@ -523,19 +524,55 @@ class SessionRepository(
         context?.let { "${it.accountId}:${it.deviceId}" } ?: "legacy"
 
     // All mutations carry the session's profile so the gateway hits the right per-profile DB
-    // (otherwise the call 404s and the change silently no-ops).
+    // (otherwise the call 404s and the change silently no-ops). Hermes ≥ 0.22.5 additionally
+    // fences every session write (upstream change 2026-10-16): without a fresh request id and
+    // the row's runtime revision the answer is 409 client_upgrade_required and nothing changes —
+    // the silent archive no-op of HG-250. A concurrent edit answers 409 revision_conflict; the
+    // fresh fence is not in that response, so the row is re-read and the write retried once.
     suspend fun rename(sessionId: String, title: String, profile: String?, deviceId: String? = null) =
-        rest.patchSession(sessionId, title = title, profile = profile, deviceId = deviceId)
+        mutateFenced(sessionId, profile, deviceId) { requestId, revision ->
+            rest.patchSession(sessionId, title = title, profile = profile, deviceId = deviceId,
+                requestId = requestId, expectedRevision = revision)
+        }
     suspend fun archive(
         sessionId: String,
         archived: Boolean,
         profile: String?,
         deviceId: String? = null,
-    ) = rest.patchSession(sessionId, archived = archived, profile = profile, deviceId = deviceId)
+    ) = mutateFenced(sessionId, profile, deviceId) { requestId, revision ->
+        rest.patchSession(sessionId, archived = archived, profile = profile, deviceId = deviceId,
+            requestId = requestId, expectedRevision = revision)
+    }
     suspend fun delete(sessionId: String, profile: String?, deviceId: String? = null) {
-        rest.deleteSession(sessionId, profile, deviceId)
+        mutateFenced(sessionId, profile, deviceId) { requestId, revision ->
+            rest.deleteSession(sessionId, profile, deviceId, requestId = requestId, expectedRevision = revision)
+        }
         val account = accountSessions?.session?.value ?: return
         conversationDevices?.remove(account.accountId, profile, sessionId)
+    }
+
+    private suspend fun mutateFenced(
+        sessionId: String,
+        profile: String?,
+        deviceId: String?,
+        write: suspend (requestId: String, expectedRevision: Int) -> Unit,
+    ) {
+        val initial = cachedSession(sessionId, profile, deviceId)?.runtimeRevision ?: 0
+        try {
+            write(java.util.UUID.randomUUID().toString(), initial)
+        } catch (conflict: HermesApiException) {
+            if (conflict.code != 409 || conflict.message != "revision_conflict") throw conflict
+            write(java.util.UUID.randomUUID().toString(), freshRevision(sessionId, profile, deviceId))
+        }
+    }
+
+    /** The fence the conflict refused; from the list row the caller's cache copy was stale on. */
+    private suspend fun freshRevision(sessionId: String, profile: String?, deviceId: String?): Int {
+        runCatching { listAllProfiles() }
+        cachedSession(sessionId, profile, deviceId)?.let { return it.runtimeRevision ?: 0 }
+        // An archived row never appears in the active list; the archived page's unarchive needs it.
+        return runCatching { archivedAllProfiles() }.getOrNull()
+            ?.firstOrNull { it.id == sessionId }?.runtimeRevision ?: 0
     }
 
 

@@ -234,6 +234,14 @@ test("a session PATCH body may only rename, archive or unarchive", () => {
   assert.equal(ok({ title: "New name", profile: "work" }), true);
   assert.equal(ok({ archived: true }), true);
   assert.equal(ok({ archived: false, profile: "工作" }), true);
+  // HG-250: Hermes ≥ 0.22.5 fences every write; the fence keys ride along and are admitted.
+  assert.equal(ok({ archived: true, request_id: "r-1", expected_revision: 3 }), true);
+  assert.equal(ok({ title: "t", request_id: "r-2", expected_revision: 0, expected_generation: 7 }), true);
+  assert.equal(ok({ archived: true, request_id: "" }), false, "empty request id");
+  assert.equal(ok({ archived: true, request_id: 42 }), false, "request id must be a string");
+  assert.equal(ok({ archived: true, expected_revision: "3" }), false, "revision must be an integer");
+  assert.equal(ok({ archived: true, expected_revision: -1 }), false, "revision cannot be negative");
+  assert.equal(ok({ request_id: "r-3", expected_revision: 1 }), false, "fence alone changes nothing");
   assert.equal(ok({}), false);
   assert.equal(ok({ profile: "work" }), false, "profile alone changes nothing");
   assert.equal(ok({ title: "   " }), false);

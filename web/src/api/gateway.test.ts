@@ -385,3 +385,59 @@ it("profile sync uses cookie/CSRF with a fixed expected account and reuses avata
     "idempotency-key": operation.opId, "if-match": '"9007199254740993"', "x-hermes-operation-issued-at": operation.issuedAt });
   expect(calls[0]?.headers.authorization).toBeUndefined();
 });
+
+describe("HG-250 session mutation fence", () => {
+  it("updateSession sends request_id and the row's expected_revision", async () => {
+    const { client, calls } = fake(() => json(200, { ok: true }));
+    await client.updateSession("dev", "s1", { archived: true }, "work", 5);
+    const call = calls.find((c) => c.method === "PATCH")!;
+    expect(call.url).toBe("/v2/devices/dev/api/sessions/s1");
+    expect(call.body).toMatchObject({ archived: true, profile: "work", expected_revision: 5 });
+    expect((call.body as Record<string, unknown>).request_id).toEqual(expect.any(String));
+  });
+
+  it("deleteSession carries the fence as query params", async () => {
+    const { client, calls } = fake(() => json(200, { ok: true }));
+    await client.deleteSession("dev", "s1", "work", 2);
+    const call = calls.find((c) => c.method === "DELETE")!;
+    expect(call.url).toContain("profile=work");
+    expect(call.url).toContain("expected_revision=2");
+    expect(call.url).toMatch(/request_id=[^&]+/);
+  });
+
+  it("re-reads the row and retries once on 409 revision_conflict", async () => {
+    let patches = 0;
+    const { client, calls } = fake((call) => {
+      if (call.method === "PATCH") {
+        patches += 1;
+        if (patches === 1) return json(409, { detail: "revision_conflict" });
+        return json(200, { ok: true });
+      }
+      return json(200, { sessions: [{ id: "s1", runtime_revision: 9 }] });
+    });
+    await client.updateSession("dev", "s1", { archived: true }, null, 3);
+    const patchCalls = calls.filter((c) => c.method === "PATCH");
+    expect(patchCalls).toHaveLength(2);
+    expect(patchCalls[0]!.body).toMatchObject({ expected_revision: 3 });
+    expect(patchCalls[1]!.body).toMatchObject({ expected_revision: 9 });
+    expect((patchCalls[1]!.body as Record<string, unknown>).request_id)
+      .not.toBe((patchCalls[0]!.body as Record<string, unknown>).request_id);
+  });
+
+  it("other refusals surface unchanged", async () => {
+    const { client, calls } = fake(() => json(404, { detail: "not_found" }));
+    await expect(client.updateSession("dev", "s1", { archived: true }, null, 0)).rejects.toMatchObject({ status: 404 });
+    expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(1);
+  });
+
+  it("without a caller revision the row is read first", async () => {
+    const { client, calls } = fake((call) => {
+      if (call.method === "PATCH") return json(200, { ok: true });
+      return json(200, { sessions: [{ id: "s1", runtime_revision: 7 }] });
+    });
+    await client.updateSession("dev", "s1", { title: "t" });
+    const list = calls.find((c) => c.url.endsWith("/api/profiles/sessions"))!;
+    expect(list).toBeTruthy();
+    expect(calls.find((c) => c.method === "PATCH")!.body).toMatchObject({ expected_revision: 7 });
+  });
+});

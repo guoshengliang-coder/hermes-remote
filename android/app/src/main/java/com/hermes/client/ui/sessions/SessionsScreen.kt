@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.unit.dp
 import com.hermes.client.ui.localization.localizedMessage
+import com.hermes.client.ui.localization.localizedSummary
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -150,6 +151,16 @@ fun SessionsScreen(
         switchFailed?.let {
             Toast.makeText(context, localized(language, "切换身份失败，仍在当前身份", "Couldn't switch profile — staying on the current one"), Toast.LENGTH_SHORT).show()
             vm.clearSwitchFailed()
+        }
+    }
+
+    // A refused row action (archive / rename / delete) used to be swallowed silently (HG-250);
+    // the row stays as it was, and the refusal is named once.
+    val rowMutationFailed by vm.rowMutationFailed.collectAsStateWithLifecycle()
+    LaunchedEffect(rowMutationFailed) {
+        rowMutationFailed?.let { failure ->
+            Toast.makeText(context, failure.localizedSummary(language), Toast.LENGTH_SHORT).show()
+            vm.clearRowMutationFailed()
         }
     }
 

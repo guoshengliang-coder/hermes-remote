@@ -79,15 +79,26 @@ export interface BrowserRoute {
   audit?: "session.update" | "session.delete";
 }
 
-/** PATCH /api/sessions/{id}: title, archived and profile only (rename / archive / unarchive). */
+/**
+ * PATCH /api/sessions/{id}: title, archived, profile and Hermes ≥ 0.22.5's mutation fence only
+ * (rename / archive / unarchive). The fence keys are what upstream 2026-10-16 made mandatory
+ * (request_id + expected_revision, optional expected_generation): without them every write is
+ * refused 409 client_upgrade_required — HG-250's silent archive no-op.
+ */
 function sessionPatch(value: unknown): boolean {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const body = value as Record<string, unknown>;
   const keys = Object.keys(body);
-  if (keys.length === 0 || !keys.every((key) => key === "title" || key === "archived" || key === "profile")) return false;
+  const isFenceKey = (key: string) =>
+    key === "request_id" || key === "expected_revision" || key === "expected_generation";
+  if (keys.length === 0 || !keys.every((key) => key === "title" || key === "archived" || key === "profile" || isFenceKey(key))) return false;
   if ("title" in body && (typeof body.title !== "string" || body.title.trim() === "" || body.title.length > 200)) return false;
   if ("archived" in body && typeof body.archived !== "boolean") return false;
   if ("profile" in body && (typeof body.profile !== "string" || !PROFILE.test(body.profile))) return false;
+  if ("request_id" in body && (typeof body.request_id !== "string" || body.request_id.length === 0 || body.request_id.length > 128)) return false;
+  for (const key of ["expected_revision", "expected_generation"] as const) {
+    if (key in body && (!Number.isInteger(body[key]) || (body[key] as number) < 0)) return false;
+  }
   return "title" in body || "archived" in body;
 }
 
@@ -133,7 +144,9 @@ const BROWSER_ROUTES: ReadonlyArray<BrowserRoute> = [
   { method: "POST", path: /^\/api\/files\/upload$/ },
   // Web batch 4 (docs/ACCOUNT_MODE_SECURITY.md §4): session management and the model list.
   { method: "PATCH", path: new RegExp(`^/api/sessions/${SESSION_ID}$`), query: [], body: sessionPatch, audit: "session.update" },
-  { method: "DELETE", path: new RegExp(`^/api/sessions/${SESSION_ID}$`), query: ["profile"], audit: "session.delete" },
+  // Upstream takes the DELETE fence as query params (see sessions.py's delete endpoint), unlike
+  // the PATCH body; profile remains the only other key a browser may send.
+  { method: "DELETE", path: new RegExp(`^/api/sessions/${SESSION_ID}$`), query: ["profile", "request_id", "expected_revision", "expected_generation"], audit: "session.delete" },
   { method: "POST", path: /^\/api\/hermes-remote\/default-model\/set$/, query: ["profile"], body: defaultModelSelection },
   { method: "GET", path: /^\/api\/model\/options$/, query: ["profile"] },
   { method: "GET", path: /^\/api\/hermes-remote\/default-model$/, query: ["profile"], noBody: true },

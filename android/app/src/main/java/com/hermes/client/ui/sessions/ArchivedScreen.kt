@@ -31,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -38,6 +39,7 @@ import com.hermes.client.domain.Session
 import com.hermes.client.ui.chat.ChatLaunch
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
+import com.hermes.client.ui.localization.localizedSummary
 
 /**
  * Archived chats, as a full-screen page reached from the Chats overflow menu (docs/DESIGN.md
@@ -55,8 +57,22 @@ fun ArchivedScreen(
     val archivedState by vm.archivedState.collectAsStateWithLifecycle()
     val defaultProjectPath by vm.defaultProjectPath.collectAsStateWithLifecycle()
     val openSession = rememberSessionOpener(vm, onOpen)
+    val context = LocalContext.current
 
     LaunchedEffect(Unit) { vm.loadArchived() }
+
+    // A refused unarchive/delete used to be swallowed silently (HG-250); name it once here too.
+    val rowMutationFailed by vm.rowMutationFailed.collectAsStateWithLifecycle()
+    LaunchedEffect(rowMutationFailed) {
+        rowMutationFailed?.let { failure ->
+            android.widget.Toast.makeText(
+                context,
+                failure.localizedSummary(language),
+                android.widget.Toast.LENGTH_SHORT,
+            ).show()
+            vm.clearRowMutationFailed()
+        }
+    }
 
     Scaffold(
         topBar = {

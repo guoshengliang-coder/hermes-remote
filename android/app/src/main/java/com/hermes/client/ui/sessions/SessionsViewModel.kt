@@ -247,7 +247,24 @@ class SessionsViewModel @Inject constructor(
     fun unarchive(session: Session) = viewModelScope.launch {
         runCatching { sessions.archive(session.id, archived = false, session.profile, session.deviceId) }
             .onSuccess { loadArchived(); refresh() }
+            .onFailure { if (it !is kotlinx.coroutines.CancellationException) {
+                _rowMutationFailed.value = AppError(
+                    AppErrorCode.SESSION_ARCHIVE_FAILED, retryable = true,
+                    technicalCause = it.message, stage = "unarchive",
+                )
+            } }
     }
+
+    /**
+     * The last row action (archive / unarchive / rename / delete) the gateway refused, for a
+     * one-shot toast. Before HG-250 these failures were swallowed entirely: upstream Hermes
+     * ≥ 0.22.5 (2026-10-16) fences every session write, and the unfenced call being refused with
+     * 409 read on the phone as "confirm did nothing" — the exact report behind HG-250.
+     */
+    private val _rowMutationFailed = MutableStateFlow<AppError?>(null)
+    val rowMutationFailed: StateFlow<AppError?> = _rowMutationFailed.asStateFlow()
+
+    fun clearRowMutationFailed() { _rowMutationFailed.value = null }
 
     /**
      * What the one alert slot on this screen should say. Cron trouble and channel trouble share
@@ -757,6 +774,7 @@ class SessionsViewModel @Inject constructor(
     fun rename(session: Session, title: String) = viewModelScope.launch {
         runCatching { sessions.rename(session.id, title, session.profile, session.deviceId) }
             .onSuccess { refreshListsHolding(session) }
+            .onFailure { onRowMutationFailed(it, AppErrorCode.SESSION_RENAME_FAILED, "rename") }
     }
 
     fun archive(session: Session) = viewModelScope.launch {
@@ -765,11 +783,18 @@ class SessionsViewModel @Inject constructor(
         runCatching {
             sessions.archive(session.id, archived = true, session.profile, session.deviceId)
         }.onSuccess { refreshListsHolding(session) }
+            .onFailure { onRowMutationFailed(it, AppErrorCode.SESSION_ARCHIVE_FAILED, "archive") }
     }
 
     fun delete(session: Session) = viewModelScope.launch {
         runCatching { sessions.delete(session.id, session.profile, session.deviceId) }
             .onSuccess { refreshListsHolding(session) }
+            .onFailure { onRowMutationFailed(it, AppErrorCode.SESSION_DELETE_FAILED, "delete") }
+    }
+
+    private fun onRowMutationFailed(failure: Throwable, code: AppErrorCode, stage: String) {
+        if (failure is kotlinx.coroutines.CancellationException) return
+        _rowMutationFailed.value = AppError(code, retryable = true, technicalCause = failure.message, stage = stage)
     }
 
     /** Pin/unpin keyed by the session's OWN profile, so it works regardless of the active one. */
