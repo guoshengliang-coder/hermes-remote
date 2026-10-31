@@ -597,6 +597,17 @@ Load-bearing facts, all from the 17b5df02 source:
   advertisement is per transport (`server_requests._answering_clients`), and a request is sent when
   *any* live WebSocket client attached to the session advertised (`_session_client_answers_requests`);
   with no client attached it waits in `open_requests`.
+- **The delivery path leaves almost no server-side trace** (verified on v0.22.5, `bf0203a794`, in
+  production 2026-10-31). The only line the question path ever writes is the fail-fast INFO from
+  `server_requests._unanswerable` ("server request … not sent: the attached client predates
+  server→client requests"), and it fires **only when every live WebSocket client attached to the
+  session is bare**. A *mixed* attach — a capable client plus a bare one on the same session —
+  delivers normally and logs nothing (the success path has no log branch), the no-client wait in
+  `open_requests` logs nothing, and a successful delivery plus its answer resolution are silent
+  too. So "no fail-fast in the log" proves only that no request fired while the session was
+  bare-only — never that a given client received the card. That INFO goes to `gui.log`, which
+  **both** the `serve` and `dashboard` processes append to (`dashboard.log` has none of it), so a
+  headless `hermes serve` on a production mini still writes it.
 - **Answers are resolved by id, globally.** `rpc_dispatch.dispatch` sends every frame with an `id`,
   a `result`/`error` and no `method` to `server_requests.resolve_response`, which looks the id up in
   one process-wide table. An answer therefore works from a different connection than the one the
