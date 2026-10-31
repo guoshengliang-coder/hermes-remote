@@ -110,6 +110,10 @@ class ChatViewModelTest {
         coEvery { mediaRepo.hydrateMessages(any(), any()) } answers { firstArg() }
         coEvery { fileRepo.upload(any(), any(), any()) } returns
             com.hermes.client.data.network.UploadedArtifact("/tmp/uploaded", "attachment", 3)
+        // Relaxed mockk hands back a stub File / empty string for these nullable returns; say
+        // "no cached copy" and "nothing adopted" explicitly. HG-249 tests override them.
+        coEvery { fileRepo.cachedCopy(any(), any()) } returns null
+        coEvery { fileRepo.adoptSent(any(), any(), any(), any()) } returns null
         coEvery { fileRepo.uploadStagedFile(any(), any(), any()) } returns
             com.hermes.client.data.network.UploadedArtifact("/tmp/uploaded", "attachment", 3)
         coEvery { modelRepo.options() } returns emptyList()
@@ -1718,6 +1722,56 @@ class ChatViewModelTest {
             // Stop the app-scoped process poller here so the test can finish.
             runtimeJobs.forEach(Job::cancel)
             file.delete()
+        }
+    }
+
+    // HG-249: opening a file this phone sent must not depend on the file still existing on the
+    // Mac. The staged upload copy is adopted into the download cache and recorded on the message.
+    @Test fun sent_file_message_carries_the_adopted_local_copy_after_send() = runUnsentComposerTest {
+        val staged = java.io.File.createTempFile("hg249", ".pending").apply { writeText("%PDF-1.4") }
+        try {
+            coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+            coEvery { chatRepo.attachFilePath("s1-live", "/tmp/uploaded", "report.pdf") } returns
+                com.hermes.client.data.repository.AttachedFile(
+                    name = "report.pdf", path = "/tmp/uploaded", refText = "@file:/tmp/uploaded",
+                )
+            coEvery { fileRepo.adoptSent(staged, "/tmp/uploaded", "report.pdf", any()) } returns "/cache/chat-files/slot-report.pdf"
+            val vm = buildVm()
+            vm.open("s1")
+            runCurrent()
+            vm.stageAttachment(staged, "application/pdf", "report.pdf")
+            vm.send("分析下")
+            runCurrent()
+
+            val sent = vm.state.value.messages.last { it.role == Role.USER }
+            assertEquals("/tmp/uploaded", sent.files.single().remotePath)
+            assertEquals("/cache/chat-files/slot-report.pdf", sent.files.single().localPath)
+            events.emit(event("message.complete", "s1-live", "done"))
+            runCurrent()
+        } finally {
+            runtimeJobs.forEach(Job::cancel)
+            staged.delete()
+        }
+    }
+
+    // HG-249: after the conversation is rebuilt from server history the message has no localPath,
+    // but the deterministic cache slot still holds the copy this phone sent or downloaded.
+    @Test fun fetch_file_opens_the_cached_slot_copy_without_touching_the_mac() = runUnsentComposerTest {
+        val cached = java.io.File.createTempFile("hg249-slot", ".pdf").apply { writeText("%PDF-1.4") }
+        try {
+            coEvery { fileRepo.cachedCopy(any(), any()) } returns cached
+            val vm = buildVm()
+            var delivered: Result<java.io.File>? = null
+            vm.fetchFile(com.hermes.client.domain.ChatFile("f1", "report.pdf", remotePath = "/tmp/uploaded")) {
+                delivered = it
+            }
+            runCurrent()
+            assertEquals(cached, delivered!!.getOrThrow())
+            coVerify(exactly = 0) { fileRepo.metadata(any(), any()) }
+            coVerify(exactly = 0) { fileRepo.download(any(), any()) }
+        } finally {
+            runtimeJobs.forEach(Job::cancel)
+            cached.delete()
         }
     }
 

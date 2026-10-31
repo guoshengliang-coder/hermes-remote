@@ -32,8 +32,7 @@ class ChatFileRepository @Inject constructor(
         }
         file.localPath?.let(::File)?.takeIf { it.isFile && it.length() > 0 }?.let { return@withContext it }
         val remote = file.remotePath ?: error("This file has no downloadable reference")
-        val safeName = file.name.replace(Regex("[^A-Za-z0-9._-]"), "_").take(100).ifBlank { "attachment" }
-        val target = File(directory, "${sha256("${deviceId.orEmpty()}\n$remote").take(20)}-$safeName")
+        val target = cacheTarget(remote, file.name, deviceId)
         if (target.isFile && target.length() > 0) return@withContext target
         val partial = File(directory, "${target.name}.part")
         runCatching { partial.delete() }
@@ -54,6 +53,38 @@ class ChatFileRepository @Inject constructor(
 
     suspend fun uploadStagedFile(file: File, name: String, mimeType: String) =
         rest.uploadArtifact(file, name, mimeType)
+
+    /**
+     * A local copy already in the deterministic download-cache slot — found by name, not by the
+     * message's `localPath`, which is lost when the conversation is rebuilt from server history.
+     */
+    suspend fun cachedCopy(file: ChatFile, deviceId: String? = null): File? = withContext(Dispatchers.IO) {
+        val remote = file.remotePath ?: return@withContext null
+        cacheTarget(remote, file.name, deviceId).takeIf { it.isFile && it.length() > 0 }
+    }
+
+    /**
+     * Keep the staged upload copy on this phone instead of deleting it after the send succeeds.
+     * It lands in the deterministic slot `download` would use, so the same eviction rules apply
+     * and a rebuilt conversation can still find it via [cachedCopy]. Returns null (and leaves the
+     * caller's cleanup untouched) when no staged file exists or the move fails.
+     */
+    suspend fun adoptSent(staged: File?, remotePath: String, name: String, deviceId: String? = null): String? =
+        withContext(Dispatchers.IO) {
+            val source = staged?.takeIf { it.isFile && it.length() > 0 } ?: return@withContext null
+            val target = cacheTarget(remotePath, name, deviceId)
+            when {
+                target.isFile && target.length() > 0L -> { source.delete(); trimCache() }
+                source.renameTo(target) -> trimCache()
+                else -> return@withContext null
+            }
+            target.absolutePath
+        }
+
+    private fun cacheTarget(remote: String, name: String, deviceId: String?): File {
+        val safeName = name.replace(Regex("[^A-Za-z0-9._-]"), "_").take(100).ifBlank { "attachment" }
+        return File(directory, "${sha256("${deviceId.orEmpty()}\n$remote").take(20)}-$safeName")
+    }
 
     private fun trimCache() {
         val files = directory.listFiles()?.filter { it.isFile && !it.name.endsWith(".part") }
