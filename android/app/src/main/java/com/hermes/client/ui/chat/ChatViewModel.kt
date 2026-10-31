@@ -534,6 +534,9 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             val result = runCatching {
                 file.localPath?.let { java.io.File(it) }?.takeIf { it.isFile }?.let { return@runCatching it }
+                // A conversation rebuilt from server history has no `localPath`, but the copy this
+                // phone sent (or downloaded earlier) still sits in its deterministic cache slot.
+                fileRepository.cachedCopy(file, device)?.let { return@runCatching it }
                 val downloads = artifactDownloads
                 if (downloads != null && file.remotePath != null) {
                     downloads.owner(device)?.let { owner ->
@@ -595,6 +598,7 @@ class ChatViewModel @Inject constructor(
         val downloads = artifactDownloads ?: throw HermesApiException(501, "channel unavailable", errorCode = "HR-FILE-012")
         val owner = downloads.owner(device) ?: throw HermesApiException(401, "video owner unavailable")
         file.localPath?.let { java.io.File(it) }?.takeIf { it.isFile }?.let { return local(it, owner) }
+        fileRepository.cachedCopy(file, device)?.let { return local(it, owner) }
         if (file.remotePath != null) {
             downloads.awaitTask(com.hermes.client.data.downloads.ArtifactDownloadManager.taskId(owner, file.remotePath))
                 ?.let(downloads::completedFile)?.let { return local(it, owner) }
@@ -2428,10 +2432,17 @@ class ChatViewModel @Inject constructor(
                     AttachmentKind.PDF, AttachmentKind.FILE -> {
                         val attached = chat.attachFilePath(handle, uploaded.path, attachment.name)
                         fileRefs += attached.refText
+                        // The phone already holds this file — it uploaded it. Keep the staged copy
+                        // in the download cache and point the message at it, so opening it never
+                        // depends on the file still existing on the Mac (HG-249).
+                        val localPath = fileRepository.adoptSent(
+                            attachment.stagedFile, attached.path ?: uploaded.path, attached.name ?: attachment.name, currentDeviceId,
+                        )
                         updateSentFile(messageId, attachment.id) {
                             it.copy(
                                 name = attached.name,
                                 remotePath = attached.path,
+                                localPath = localPath ?: it.localPath,
                                 state = com.hermes.client.domain.FileTransferState.READY,
                             )
                         }
