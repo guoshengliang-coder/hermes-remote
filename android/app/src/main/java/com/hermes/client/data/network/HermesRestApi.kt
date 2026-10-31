@@ -999,6 +999,12 @@ class HermesRestApi(
             writeCall("POST", path, builder(path).post(payload).build())
         }
 
+    /**
+     * PUT /api/cron/jobs/{id} takes the fields nested under one required `updates` key
+     * (`CronJobUpdate`); the flat body this method used to send answers 422
+     * `Field required: body.updates` and the edit silently never saved (found in the 0.22.5
+     * contract audit, right after HG-250). Create (`POST`) is a different model and stays flat.
+     */
     suspend fun updateCron(
         jobId: String,
         prompt: String,
@@ -1009,8 +1015,10 @@ class HermesRestApi(
     ) =
         withContext(Dispatchers.IO) {
             val obj = buildJsonObject {
-                put("prompt", prompt); put("schedule", schedule); put("name", name)
-                if (!deliver.isNullOrBlank()) put("deliver", deliver)
+                put("updates", buildJsonObject {
+                    put("prompt", prompt); put("schedule", schedule); put("name", name)
+                    if (!deliver.isNullOrBlank()) put("deliver", deliver)
+                })
             }
             val payload = json.encodeToString(JsonObject.serializer(), obj)
                 .toRequestBody("application/json".toMediaType())
