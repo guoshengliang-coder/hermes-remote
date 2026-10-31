@@ -121,6 +121,10 @@ enum class AppErrorCode(val value: String) {
     // Another client is running this conversation, so upstream refused the prompt. Retryable, but
     // only once the other side lets go — so it must say that instead of the generic send failure.
     SESSION_OWNED_ELSEWHERE("HR-SESS-013"),
+    // The sessions list's rename/delete row actions (HG-250): unlike the archive path these had no
+    // failure surface at all, so a refused write read as a no-op.
+    SESSION_RENAME_FAILED("HR-SESS-023"),
+    SESSION_DELETE_FAILED("HR-SESS-024"),
     // Fetching ANOTHER conversation's transcript failed while turning it into a Markdown
     // attachment (HG-38). Not HR-SYNC-001: nothing is out of sync and the open conversation is
     // untouched — one conversation the user asked to reference could not be read.

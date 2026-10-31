@@ -243,6 +243,10 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "无法读取所选会话的内容，请重试。", "Couldn't read the selected conversation. Retry.")
         AppErrorCode.SESSION_ARCHIVE_FAILED ->
             localized(language, "无法归档会话，请重试。", "Couldn't archive the conversation. Retry.")
+        AppErrorCode.SESSION_RENAME_FAILED ->
+            localized(language, "无法重命名会话，请重试。", "Couldn't rename the conversation. Retry.")
+        AppErrorCode.SESSION_DELETE_FAILED ->
+            localized(language, "无法删除会话，请重试。", "Couldn't delete the conversation. Retry.")
         AppErrorCode.PROJECT_NOT_FOUND ->
             localized(language, "项目已不存在，请重新加载。", "That project no longer exists. Reload the list.")
         AppErrorCode.PROJECT_NAME_INVALID ->

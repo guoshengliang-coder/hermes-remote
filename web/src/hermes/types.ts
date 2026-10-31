@@ -23,6 +23,8 @@ export interface SessionListItem {
   git_repo_root?: string | null;
   display_name?: string | null;
   chat_type?: string | null;
+  /** Upstream's mutation fence (Hermes ≥ 0.22.5): echo it as expected_revision on write. */
+  runtime_revision?: number | null;
 }
 
 export interface SessionListResponse {

@@ -73,6 +73,10 @@ export function SessionActionSheet({
   const canMove = features.has("workspace-move") && !archived && !isBotSession(session);
   const pinned = app.isPinned(session);
 
+  // Hermes ≥ 0.22.5 fences every write (HG-250): the row's runtime_revision rides along and a
+  // concurrent edit is retried once inside the client with a re-read fence.
+  const revision = session.runtime_revision ?? 0;
+
   async function refresh() {
     if (!deviceId) return;
     try {
@@ -124,7 +128,7 @@ export function SessionActionSheet({
             enterkeyhint="done"
             onInput={(e) => setTitle((e.target as HTMLInputElement).value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && clean && !working) void run(() => client.updateSession(deviceId, session.id, { title: clean }, profile), "renamed", null);
+              if (e.key === "Enter" && clean && !working) void run(() => client.updateSession(deviceId, session.id, { title: clean }, profile, revision), "renamed", null);
             }}
           />
           {error ? <ErrorNotice error={error} language={language} variant="inline" /> : null}
@@ -137,7 +141,7 @@ export function SessionActionSheet({
             type="button"
             class="primary-button inline"
             disabled={!clean || working}
-            onClick={() => void run(() => client.updateSession(deviceId, session.id, { title: clean }, profile), "renamed", null)}
+            onClick={() => void run(() => client.updateSession(deviceId, session.id, { title: clean }, profile, revision), "renamed", null)}
           >
             {t("保存", "Save")}
           </button>
@@ -166,8 +170,8 @@ export function SessionActionSheet({
             disabled={working}
             onClick={() =>
               void (del
-                ? run(() => client.deleteSession(deviceId, session.id, profile), "deleted", t("已删除", "Deleted"))
-                : run(() => client.updateSession(deviceId, session.id, { archived: true }, profile), "archived", t("已归档", "Archived")))
+                ? run(() => client.deleteSession(deviceId, session.id, profile, revision), "deleted", t("已删除", "Deleted"))
+                : run(() => client.updateSession(deviceId, session.id, { archived: true }, profile, revision), "archived", t("已归档", "Archived")))
             }
           >
             {del ? t("删除", "Delete") : t("归档", "Archive")}
@@ -229,7 +233,7 @@ export function SessionActionSheet({
             <SheetAction
               label={t("取消归档", "Unarchive")}
               disabled={working}
-              onClick={() => void run(() => client.updateSession(deviceId, session.id, { archived: false }, profile), "unarchived", t("已恢复", "Restored"))}
+              onClick={() => void run(() => client.updateSession(deviceId, session.id, { archived: false }, profile, revision), "unarchived", t("已恢复", "Restored"))}
             />
           ) : null}
         </>

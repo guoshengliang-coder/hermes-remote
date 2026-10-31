@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -304,11 +305,105 @@ class SessionRepositoryTest {
             accountSessions = manager,
             conversationDevices = affinity,
         )
-        coEvery { rest.deleteSession("session-2", "personal", "mac-history") } returns Unit
+        coEvery {
+            rest.deleteSession("session-2", "personal", "mac-history", any(), any())
+        } returns Unit
 
         accountRepo.delete("session-2", "personal", "mac-history")
 
-        coVerify { rest.deleteSession("session-2", "personal", "mac-history") }
+        coVerify { rest.deleteSession("session-2", "personal", "mac-history", any(), any()) }
         verify { affinity.remove("account-1", "personal", "session-2") }
+    }
+
+    // ── HG-250: the mutation fence Hermes ≥ 0.22.5 (2026-10-16) requires on every write ─────
+
+    private fun revisionDto(id: String, revision: Int?) = SessionDto(
+        sessionId = id, source = "tui", messageCount = 2, profile = "personal",
+        runtimeRevision = revision,
+    )
+
+    @Test fun archive_sends_the_row_revision_and_a_fresh_request_id() = runTest {
+        coEvery { rest.profileSessions(any(), false) } returns
+            ProfileSessionsDto(sessions = listOf(revisionDto("s1", 5)))
+        repo.listAllProfiles() // warm the cache the fence is read from
+        coEvery {
+            rest.patchSession("s1", archived = true, profile = "personal", deviceId = null,
+                requestId = any(), expectedRevision = any())
+        } returns Unit
+
+        repo.archive("s1", archived = true, "personal")
+
+        coVerify {
+            rest.patchSession("s1", archived = true, profile = "personal", deviceId = null,
+                requestId = any(), expectedRevision = 5)
+        }
+    }
+
+    @Test fun missing_revision_falls_back_to_zero_for_older_hermes() = runTest {
+        coEvery { rest.profileSessions(any(), false) } returns
+            ProfileSessionsDto(sessions = listOf(revisionDto("s1", null)))
+        repo.listAllProfiles()
+        coEvery {
+            rest.patchSession("s1", title = "new title", profile = "personal", deviceId = null,
+                requestId = any(), expectedRevision = any())
+        } returns Unit
+
+        repo.rename("s1", "new title", "personal")
+
+        coVerify {
+            rest.patchSession("s1", title = "new title", profile = "personal", deviceId = null,
+                requestId = any(), expectedRevision = 0)
+        }
+    }
+
+    @Test fun revision_conflict_retries_once_with_the_re_read_revision() = runTest {
+        coEvery { rest.profileSessions(any(), false) } returns
+            ProfileSessionsDto(sessions = listOf(revisionDto("s1", 3)))
+        repo.listAllProfiles()
+
+        // The other client's write lands between our read and our PATCH; the re-read sees it.
+        var calls = 0
+        coEvery {
+            rest.patchSession("s1", archived = true, profile = "personal", deviceId = null,
+                requestId = any(), expectedRevision = any())
+        } answers {
+            calls += 1
+            if (calls == 1) throw com.hermes.client.data.network.HermesApiException(409, "revision_conflict")
+        }
+        coEvery { rest.profileSessions(any(), false) } returns
+            ProfileSessionsDto(sessions = listOf(revisionDto("s1", 4)))
+
+        repo.archive("s1", archived = true, "personal")
+
+        coVerify(exactly = 2) {
+            rest.patchSession("s1", archived = true, profile = "personal", deviceId = null,
+                requestId = any(), expectedRevision = any())
+        }
+        coVerify(atLeast = 1) {
+            rest.patchSession("s1", archived = true, profile = "personal", deviceId = null,
+                requestId = any(), expectedRevision = 4)
+        }
+    }
+
+    @Test fun non_conflict_failures_are_not_retried() = runTest {
+        coEvery { rest.profileSessions(any(), false) } returns
+            ProfileSessionsDto(sessions = listOf(revisionDto("s1", 1)))
+        repo.listAllProfiles()
+
+        coEvery {
+            rest.patchSession("s1", archived = true, profile = "personal", deviceId = null,
+                requestId = any(), expectedRevision = any())
+        } throws com.hermes.client.data.network.HermesApiException(404, "not_found")
+
+        var caught: Throwable? = null
+        try {
+            repo.archive("s1", archived = true, "personal")
+        } catch (expected: com.hermes.client.data.network.HermesApiException) {
+            caught = expected
+        }
+        assertNotNull("the 404 must surface to the caller", caught)
+        coVerify(exactly = 1) {
+            rest.patchSession(any(), any(), any(), any(), any(), any(), any())
+        }
     }
 }

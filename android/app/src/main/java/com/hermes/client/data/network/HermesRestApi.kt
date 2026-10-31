@@ -816,6 +816,12 @@ class HermesRestApi(
      * session's profile (sent in the body): the gateway resolves the session against a per-profile
      * DB, and without it a session in a non-default profile returns 404 — so the archive/rename
      * silently no-ops and the session never leaves the list.
+     *
+     * Hermes ≥ 0.22.5 (upstream change 2026-10-16) also fences the write: [requestId] +
+     * [expectedRevision] must ride along or the call is refused with 409 `client_upgrade_required`
+     * and nothing changes — the silent archive no-op of HG-250. A concurrent edit answers 409
+     * `revision_conflict` instead; the fresh fence is NOT in the response body, so the caller
+     * re-reads the list row and retries once.
      */
     suspend fun patchSession(
         sessionId: String,
@@ -823,29 +829,49 @@ class HermesRestApi(
         archived: Boolean? = null,
         profile: String? = null,
         deviceId: String? = null,
+        requestId: String,
+        expectedRevision: Int,
     ) = withContext(Dispatchers.IO) {
         val obj: JsonObject = buildJsonObject {
             if (title != null) put("title", title)
             if (archived != null) put("archived", archived)
             if (!profile.isNullOrBlank()) put("profile", profile)
+            put("request_id", requestId)
+            put("expected_revision", expectedRevision)
         }
         val payload = json.encodeToString(JsonObject.serializer(), obj)
             .toRequestBody("application/json".toMediaType())
         restCall(builder("/api/sessions/$sessionId", deviceId).patch(payload).build()).execute().use { resp ->
-            if (!resp.isSuccessful) throw HermesApiException(resp.code, "update session failed")
+            if (!resp.isSuccessful) throw sessionMutationException(resp, "update session failed")
         }
     }
 
-    /** Delete a session. [profile] (query param) scopes it to the right per-profile DB. */
+    /** Delete a session. [profile] (query param) scopes it to the right per-profile DB; the fence
+     *  parameters ride as query params (upstream's DELETE takes them there, not in a body). */
     suspend fun deleteSession(
         sessionId: String,
         profile: String? = null,
         deviceId: String? = null,
+        requestId: String,
+        expectedRevision: Int,
     ) = withContext(Dispatchers.IO) {
-        val path = "/api/sessions/$sessionId${profileParam(profile, first = true)}"
+        val path = "/api/sessions/$sessionId${profileParam(profile, first = true)}" +
+            "&request_id=${java.net.URLEncoder.encode(requestId, "UTF-8")}&expected_revision=$expectedRevision"
         restCall(builder(path, deviceId).delete().build()).execute().use { resp ->
-            if (!resp.isSuccessful) throw HermesApiException(resp.code, "delete session failed")
+            if (!resp.isSuccessful) throw sessionMutationException(resp, "delete session failed")
         }
+    }
+
+    /**
+     * Upstream answers a refused session write with `{"detail": "<reason>"}`; the reason is what
+     * separates a retryable fence conflict from a permanent refusal, so it becomes the message.
+     */
+    private fun sessionMutationException(resp: okhttp3.Response, fallback: String): HermesApiException {
+        val detail = resp.body?.string()?.let { body ->
+            runCatching { json.parseToJsonElement(body).jsonObject["detail"]?.jsonPrimitive?.content }
+                .getOrNull()
+        }
+        return HermesApiException(resp.code, detail ?: fallback)
     }
 
     suspend fun sessionStats(profile: String? = null): SessionStatsDto =

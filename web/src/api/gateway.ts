@@ -283,6 +283,18 @@ export class GatewayNetworkError extends Error {
   }
 }
 
+/** A fresh mutation-fence request id (Hermes ≥ 0.22.5 replays by this id, HG-250). */
+function newFenceRequestId(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `web-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+/** Upstream answers a lost fence race with HTTP 409 body `{"detail": "revision_conflict"}`. */
+function revisionConflict(body: unknown): boolean {
+  return (body as { detail?: unknown } | null)?.detail === "revision_conflict";
+}
+
 export interface RequestOptions {
   body?: unknown;
   headers?: Record<string, string>;
@@ -631,15 +643,57 @@ export class GatewayClient {
 
   // ---- Session management (Web batch 4) ----
 
-  /** Rename (title), archive / unarchive (archived). `profile` rides in the body, as on Android. */
-  updateSession(deviceId: string, sessionId: string, change: { title?: string; archived?: boolean }, profile?: string | null): Promise<unknown> {
-    return this.deviceApi(deviceId, "PATCH", `sessions/${encodePathSegment(sessionId)}`, {
-      body: { ...change, ...(profile ? { profile } : {}) },
-    });
+  /**
+   * Rename (title), archive / unarchive (archived). `profile` rides in the body, as on Android.
+   * Hermes ≥ 0.22.5 (2026-10-16) fences every write (HG-250): without request_id +
+   * expected_revision the answer is 409 client_upgrade_required and nothing changes. Pass the
+   * row's runtime_revision; a 409 revision_conflict re-reads the row and retries once.
+   */
+  async updateSession(
+    deviceId: string,
+    sessionId: string,
+    change: { title?: string; archived?: boolean },
+    profile?: string | null,
+    expectedRevision?: number,
+  ): Promise<unknown> {
+    return this.mutateSessionFenced(deviceId, sessionId, (fence) =>
+      this.deviceApi(deviceId, "PATCH", `sessions/${encodePathSegment(sessionId)}`, {
+        body: { ...change, ...(profile ? { profile } : {}), request_id: fence.requestId, expected_revision: fence.expectedRevision },
+      }), expectedRevision,
+    );
   }
 
-  deleteSession(deviceId: string, sessionId: string, profile?: string | null): Promise<unknown> {
-    return this.deviceApi(deviceId, "DELETE", `sessions/${encodePathSegment(sessionId)}${profile ? `?profile=${encodeURIComponent(profile)}` : ""}`);
+  /** Same fence as [updateSession]; upstream takes a DELETE's fence as query params. */
+  async deleteSession(deviceId: string, sessionId: string, profile?: string | null, expectedRevision?: number): Promise<unknown> {
+    return this.mutateSessionFenced(deviceId, sessionId, (fence) => {
+      const query = [
+        ...(profile ? [`profile=${encodeURIComponent(profile)}`] : []),
+        `request_id=${encodeURIComponent(fence.requestId)}`,
+        `expected_revision=${fence.expectedRevision}`,
+      ].join("&");
+      return this.deviceApi(deviceId, "DELETE", `sessions/${encodePathSegment(sessionId)}?${query}`);
+    }, expectedRevision);
+  }
+
+  /** One write with the caller's fence, then once more on a revision conflict with a re-read one. */
+  private async mutateSessionFenced<T>(deviceId: string, sessionId: string, call: (fence: { requestId: string; expectedRevision: number }) => Promise<T>, expectedRevision?: number): Promise<T> {
+    const currentRevision = async (): Promise<number> => {
+      try {
+        const rows = await this.profileSessions(deviceId);
+        return rows.sessions.find((s) => s.id === sessionId)?.runtime_revision ?? 0;
+      } catch {
+        return 0;
+      }
+    };
+    const initial = expectedRevision ?? await currentRevision();
+    try {
+      return await call({ requestId: newFenceRequestId(), expectedRevision: initial });
+    } catch (error) {
+      if (!(error instanceof GatewayHttpError) || error.status !== 409 || !revisionConflict(error.body)) {
+        throw error;
+      }
+      return call({ requestId: newFenceRequestId(), expectedRevision: await currentRevision() });
+    }
   }
 
   modelOptions(deviceId: string, profile?: string | null): Promise<ModelOptionsResponse> {

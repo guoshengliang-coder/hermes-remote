@@ -79,7 +79,16 @@ Connector route; their existing model and configuration behavior is unchanged.
 ### 1. Session wire fields (`GET /api/sessions`, `/api/profiles/sessions`)
 
 `id` (**not** `session_id`), `title`, `model`, `provider`, `last_active`, `message_count`,
-`profile`, `is_default_profile`, `archived`, `cwd`, `source`, `git_branch`, `git_repo_root`.
+`profile`, `is_default_profile`, `archived`, `cwd`, `source`, `git_branch`, `git_repo_root`,
+`display_name`, `chat_type`, `runtime_revision`.
+
+`runtime_revision` is the mutation fence Hermes ≥ 0.22.5 added (upstream change 2026-10-16,
+`3cdcd412d47`): every `PATCH`/`DELETE /api/sessions/{id}` must carry `request_id` (a fresh client
+id per write) plus `expected_revision` — in the PATCH body, or as query params on DELETE — or the
+write is refused `409 client_upgrade_required` and nothing changes. A concurrent edit answers
+`409 revision_conflict` instead; the fresh fence is NOT in that response, so the client re-reads
+the list row and retries once. Found as HG-250: the phone's archive sent no fence and swallowed
+the 409, so confirming 归档 did nothing.
 
 Pinned by `HermesContractTest.session_wire_field_names_match_upstream` via the kotlinx-serialization
 descriptor, so a renamed `@SerialName` fails the build rather than silently deserializing to null.

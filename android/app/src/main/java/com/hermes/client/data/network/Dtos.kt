@@ -47,6 +47,12 @@ import kotlinx.serialization.json.contentOrNull
     @SerialName("display_name") val displayName: String? = null,
     /** `dm` or `group` on a messaging-platform session; absent on local ones. */
     @SerialName("chat_type") val chatType: String? = null,
+    /**
+     * Upstream's mutation fence (Hermes ≥ 0.22.5, enforced 2026-10-16): PATCH/DELETE must echo it
+     * as `expected_revision` or the write is refused with 409 `client_upgrade_required` — the
+     * silent no-op behind HG-250. Null when an older Hermes omits it; callers then send 0.
+     */
+    @SerialName("runtime_revision") val runtimeRevision: Int? = null,
 )
 @Serializable data class SessionListDto(val sessions: List<SessionDto> = emptyList())
 

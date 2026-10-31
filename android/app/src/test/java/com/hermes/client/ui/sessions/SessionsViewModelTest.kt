@@ -484,6 +484,43 @@ class SessionsViewModelTest {
         io.mockk.coVerify { sessionRepo.archive("s1", archived = true, "personal") }
     }
 
+    // HG-250: a refused row action must be named, not swallowed. Before this, runCatching had no
+    // onFailure at all, so upstream's 409 client_upgrade_required (every write refused once
+    // Hermes ≥ 0.22.5 fences mutations) read on the phone as "confirm did nothing".
+    @Test fun archive_failure_surfaces_row_mutation_error() = runTest {
+        coEvery { sessionRepo.listAllProfiles() } returns emptyList()
+        coEvery { sessionRepo.archive("s1", archived = true, "personal") } throws
+            com.hermes.client.data.network.HermesApiException(409, "client_upgrade_required")
+        val vm = buildVm()
+        advanceUntilIdle()
+
+        vm.archive(session("s1", "mine", profile = "personal"))
+        advanceUntilIdle()
+
+        val failure = vm.rowMutationFailed.value
+        assertEquals("HR-SESS-008", failure?.code?.value)
+        vm.clearRowMutationFailed()
+        assertNull(vm.rowMutationFailed.value)
+    }
+
+    @Test fun rename_and_delete_failures_surface_their_own_codes() = runTest {
+        coEvery { sessionRepo.listAllProfiles() } returns emptyList()
+        coEvery { sessionRepo.rename("s1", "new", "personal") } throws
+            com.hermes.client.data.network.HermesApiException(409, "revision_conflict")
+        coEvery { sessionRepo.delete("s1", "personal") } throws java.io.IOException("offline")
+        val vm = buildVm()
+        advanceUntilIdle()
+
+        vm.rename(session("s1", "mine", profile = "personal"), "new")
+        advanceUntilIdle()
+        assertEquals("HR-SESS-023", vm.rowMutationFailed.value?.code?.value)
+
+        vm.clearRowMutationFailed()
+        vm.delete(session("s1", "mine", profile = "personal"))
+        advanceUntilIdle()
+        assertEquals("HR-SESS-024", vm.rowMutationFailed.value?.code?.value)
+    }
+
     // T3: opening a session from another profile must switch the active profile first, so the
     // chat resumes against the correct per-profile DB.
     @Test fun prepareOpen_switches_to_session_profile_when_different() = runTest {

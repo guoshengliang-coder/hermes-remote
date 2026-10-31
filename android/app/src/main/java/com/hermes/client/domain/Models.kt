@@ -33,6 +33,8 @@ data class Session(
     val displayName: String? = null,
     /** `dm` or `group` on a messaging-platform session. */
     val chatType: String? = null,
+    /** Upstream's mutation fence; echo it as `expected_revision` on archive/rename/delete. */
+    val runtimeRevision: Int? = null,
 )
 
 data class ToolCall(
