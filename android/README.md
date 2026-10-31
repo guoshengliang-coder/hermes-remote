@@ -468,6 +468,10 @@ remain in `docs/ANDROID_SMOKE.md`; Web scope is being clarified against the appr
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.191 HG-249: files sent from this phone now open from the kept local copy
+  (deterministic download-cache slot) instead of re-fetching from the Mac, so a missing upstream
+  upload no longer fails with HR-FILE-005; previously downloaded files also open locally. Absorbs
+  the orphaned 0.1.97 release notes.
 - Version 0.1.190 fixes HG-248 connection recheck progress/results and stopped recovery while
   preserving account/device repair gates; includes HG-246/HG-247 unified video-note actions,
   saved-note markers and simplified cache/buffer status, plus decimal file-size presentation.
@@ -1231,7 +1235,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.190-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.191-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
