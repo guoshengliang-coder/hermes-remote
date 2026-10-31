@@ -4,6 +4,7 @@ import com.hermes.client.data.network.testAccountConnection
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import mockwebserver3.junit4.MockWebServerRule
@@ -88,5 +89,30 @@ class HermesRestApiContractTest {
 
         assertNotEquals(macA, macB)
         assertFalse(macA, macA.contains("bearer-secret"))
+    }
+
+    /**
+     * Hermes ≥ 0.22.5 takes PUT /api/cron/jobs/{id} as `CronJobUpdate` — one required `updates`
+     * object holding the fields. A flat body answers 422 `Field required: body.updates` and the
+     * edit never saves (the 0.22.5 audit's second silent break, after HG-250's fence). Create
+     * (`POST`) is a different, flat model and must stay untouched.
+     */
+    @Test fun cron_update_nests_its_fields_under_updates_while_create_stays_flat() = runTest {
+        val server = serverRule.server
+        server.enqueue(MockResponse.Builder().code(200).body("""{"ok":true}""").build())
+        server.enqueue(MockResponse.Builder().code(200).body("""{"ok":true}""").build())
+
+        val rest = api(server)
+        rest.updateCron("job-1", "p", "0 8 * * *", "daily", "local")
+        rest.createCron("p", "0 9 * * *", "morning", "local")
+
+        val put = Json.parseToJsonElement(server.takeRequest().body!!.utf8()).jsonObject
+        val post = Json.parseToJsonElement(server.takeRequest().body!!.utf8()).jsonObject
+        assertEquals(setOf("updates"), put.keys)
+        assertEquals(
+            setOf("prompt", "schedule", "name", "deliver"),
+            put["updates"]!!.jsonObject.keys,
+        )
+        assertEquals(setOf("prompt", "schedule", "name", "deliver"), post.keys)
     }
 }
