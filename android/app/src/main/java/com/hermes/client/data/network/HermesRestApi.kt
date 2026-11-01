@@ -365,17 +365,26 @@ class HermesRestApi(
     /**
      * Cross-profile session list — every session tagged with its true `profile`, plus
      * `profile_totals` for group headers. The active list excludes archived by default;
-     * pass [archivedOnly] to fetch only archived sessions (`?archived=only`). One page of
-     * [limit] covers current volume (no offset paging in MVP).
+     * pass [archivedOnly] to fetch only archived sessions (`?archived=only`). Filters are
+     * applied upstream BEFORE its cross-profile LIMIT/OFFSET (HG-251).
      */
     suspend fun profileSessions(
         limit: Int = 500,
         archivedOnly: Boolean = false,
         deviceId: String? = null,
-    ): ProfileSessionsDto = get(
-        "/api/profiles/sessions?limit=$limit&order=recent${if (archivedOnly) "&archived=only" else ""}",
-        deviceId,
-    )
+        offset: Int = 0,
+        excludeSources: Set<String> = emptySet(),
+        minMessages: Int = 0,
+    ): ProfileSessionsDto {
+        require(limit in 1..500 && offset >= 0 && minMessages >= 0)
+        val exclude = java.net.URLEncoder.encode(excludeSources.sorted().joinToString(","), "UTF-8")
+        return get(buildString {
+            append("/api/profiles/sessions?limit=$limit&offset=$offset&order=recent")
+            if (archivedOnly) append("&archived=only")
+            if (exclude.isNotEmpty()) append("&exclude_sources=$exclude")
+            if (minMessages > 0) append("&min_messages=$minMessages")
+        }, deviceId)
+    }
 
     suspend fun messages(
         sessionId: String,

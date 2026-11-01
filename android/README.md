@@ -1,3 +1,9 @@
+HG-251 filters internal and empty sessions before the upstream list window and reads all pages
+before replacing the complete Chats/Bots cache. Older phone-local pins are included without a
+pin migration. Archive keeps its own source filters; profile errors and interrupted/stale-route
+loads cannot publish partial lists. See `../docs/HG_251_SESSION_LIST.md` for the reproduced
+10-chat incident, regression coverage and physical-device acceptance. No APK is published here.
+
 HG-249 rework keeps the selected filename on sent-file cards and external open/share handoffs.
 Phone-local records bind absolute file paths to Hermes history-reference aliases within their
 account/Mac/profile/conversation, so refresh and cold history loads retain the local copy. Existing

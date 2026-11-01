@@ -54,9 +54,9 @@ class SessionRepository(
     private val files: ChatFileRepository? = null,
 ) {
     /**
-     * Every non-archived, non-empty session on the current route, WITHOUT [isInteractive].
-     * Both [listAllProfiles] and [botSessions] write it — they are the same endpoint read through
-     * two different filters — so a bot session is resolvable by id no matter which one ran.
+     * Every non-archived, non-empty, non-internal session on the current route, WITHOUT the
+     * messaging-source part of [isInteractive]. Both list readers fetch the same complete set,
+     * so a bot session is resolvable by id no matter which surface loaded first.
      * [cachedAllProfiles] applies the interactive filter on the way out, so the Chats list is
      * unchanged; without this split [cachedSession] returned null for every messaging session,
      * which is why a bot conversation opened with no title and the profile's default model.
@@ -179,7 +179,7 @@ class SessionRepository(
         val route = routeKey(context)
         return coalesced("$LIST_ALL_KEY:$route") {
             val all = bindToRoute(
-                rest.profileSessions(deviceId = context?.deviceId).sessions.map { it.toDomain() },
+                loadSessionPages(context, INTERNAL_SESSION_SOURCES),
                 context,
             ).filter { !it.archived && it.messageCount > 0 }
             allSessionsCache = all
@@ -193,7 +193,7 @@ class SessionRepository(
     }
 
     /**
-     * Every non-archived, non-empty session across profiles, WITHOUT the interactive-source
+     * Every non-archived, non-empty, non-internal session across profiles, WITHOUT the messaging
      * filter. [listAllProfiles] drops messaging sources on purpose — they would flood the Chats
      * list — so the Bots segment needs its own read of the same endpoint.
      */
@@ -202,7 +202,7 @@ class SessionRepository(
         val route = routeKey(context)
         return coalesced("$BOT_LIST_KEY:$route") {
             val all = bindToRoute(
-                rest.profileSessions(deviceId = context?.deviceId).sessions.map { it.toDomain() },
+                loadSessionPages(context, INTERNAL_SESSION_SOURCES),
                 context,
             ).filter { !it.archived && it.messageCount > 0 }
             allSessionsCache = all
@@ -254,7 +254,7 @@ class SessionRepository(
         mapTo(HashSet()) { SessionReadStore.token(it.profile, it.id, it.deviceId) }
 
     fun cachedSession(sessionId: String, profile: String? = null, deviceId: String? = null): Session? =
-        allSessionsCache.firstOrNull {
+        allSessionsCache.takeIf { allProfilesCacheRoute == routeKey(accountSessions?.routingContext()) }?.firstOrNull {
             it.id == sessionId &&
                 (profile.isNullOrBlank() || it.profile == profile) &&
                 (deviceId.isNullOrBlank() || it.deviceId == deviceId)
@@ -279,13 +279,61 @@ class SessionRepository(
         val context = accountSessions?.routingContext()
         return coalesced("$ARCHIVED_ALL_KEY:${routeKey(context)}") {
             bindToRoute(
-                rest.profileSessions(
-                    archivedOnly = true,
-                    deviceId = context?.deviceId,
-                ).sessions.map { it.toDomain() },
+                loadSessionPages(context, EXCLUDED_SOURCES, archivedOnly = true),
                 context,
             ).filter { it.archived && it.isInteractive() }
         }
+    }
+
+    /**
+     * Read the complete filtered list before publishing it. This also brings back phone-local
+     * pins beyond page one without rewriting their stored identity. Messaging rows are retained
+     * in the shared live cache; the Chats/Bots surfaces keep their own final filters.
+     *
+     * Hermes can append server-pinned rows outside the requested window. Advance by the server
+     * page width, never by the returned/deduplicated count, and dedupe by (profile, id).
+     * A partial/error response never replaces the last complete cache. The finite guard fails
+     * through the existing retryable list error instead of silently truncating a huge list.
+     */
+    private suspend fun loadSessionPages(
+        context: AccountRoutingContext?,
+        excludeSources: Set<String>,
+        archivedOnly: Boolean = false,
+    ): List<Session> {
+        val rows = LinkedHashMap<Pair<String?, String>, Session>()
+        var offset = 0
+        var previousPage: List<Pair<String?, String>>? = null
+        fun requireSameRoute() {
+            if (routeKey(context) != routeKey(accountSessions?.routingContext())) {
+                throw kotlinx.coroutines.CancellationException("Session list route changed")
+            }
+        }
+        repeat(200) {
+            requireSameRoute()
+            val page = rest.profileSessions(
+                limit = 500, archivedOnly = archivedOnly, deviceId = context?.deviceId,
+                offset = offset, excludeSources = excludeSources, minMessages = 1,
+            )
+            requireSameRoute()
+            if (page.errors.isNotEmpty() || (page.offset != null && page.offset != offset)) {
+                throw java.io.IOException("Incomplete session list or unsupported cursor")
+            }
+            val width = page.limit ?: 500
+            if (width !in 1..500) throw java.io.IOException("Invalid session list page width")
+            val mapped = page.sessions.map { it.toDomain() }
+            val keys = mapped.map { it.profile to it.id }
+            if (keys.isNotEmpty() && keys == previousPage) {
+                throw java.io.IOException("Session list cursor did not advance")
+            }
+            mapped.forEach { rows[it.profile to it.id] = it }
+            // Totals can include hidden/compression rows, so a short actual page is terminal too.
+            if (mapped.size < width || (page.total > 0 && offset + width >= page.total)) {
+                return rows.values.toList()
+            }
+            previousPage = keys
+            offset += width
+        }
+        throw java.io.IOException("Session list pagination exceeded its safety budget")
     }
     suspend fun stats(profile: String? = null): SessionStatsDto = rest.sessionStats(profile)
     /** Message-content search over the same interactive sources the list shows. */
