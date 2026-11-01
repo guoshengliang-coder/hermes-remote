@@ -387,6 +387,7 @@ object AppModule {
         accountSessions: AccountSessionManager,
         conversationDevices: ConversationDeviceStore,
         transcripts: com.hermes.client.data.repository.TranscriptStore,
+        files: com.hermes.client.data.repository.ChatFileRepository,
     ): SessionRepository =
         SessionRepository(
             rest = rest,
@@ -394,6 +395,7 @@ object AppModule {
             accountSessions = accountSessions,
             conversationDevices = conversationDevices,
             transcripts = transcripts,
+            files = files,
         )
 
     @Provides

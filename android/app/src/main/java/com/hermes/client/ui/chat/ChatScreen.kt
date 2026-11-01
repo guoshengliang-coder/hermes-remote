@@ -798,11 +798,7 @@ fun ChatScreen(
             if (!fileLifecycle.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) ||
                 requestedWorkspace != vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)) return@fileResult
             result.onSuccess { local ->
-                val contentUri = FileProvider.getUriForFile(
-                    context,
-                    "${context.packageName}.fileprovider",
-                    local,
-                )
+                val contentUri = attachmentFileUri(context, local, file.name)
                 val intent = if (share) {
                     android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                         type = fileMimeType

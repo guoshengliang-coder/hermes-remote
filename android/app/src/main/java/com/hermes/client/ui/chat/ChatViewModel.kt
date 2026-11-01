@@ -2436,16 +2436,14 @@ class ChatViewModel @Inject constructor(
                         // in the download cache and point the message at it, so opening it never
                         // depends on the file still existing on the Mac (HG-249).
                         val localPath = fileRepository.adoptSent(
-                            attachment.stagedFile, attached.path ?: uploaded.path, attached.name ?: attachment.name, currentDeviceId,
+                            attachment.stagedFile, attached.path ?: uploaded.path, attachment.name, currentDeviceId,
                         )
-                        updateSentFile(messageId, attachment.id) {
-                            it.copy(
-                                name = attached.name,
-                                remotePath = attached.path,
-                                localPath = localPath ?: it.localPath,
-                                state = com.hermes.client.domain.FileTransferState.READY,
-                            )
-                        }
+                        val sent = fileRepository.rememberSent(
+                            com.hermes.client.domain.ChatFile(attachment.id, attachment.name, attachment.mimeType,
+                                attachment.sizeBytes, remotePath = attached.path ?: uploaded.path, localPath = localPath),
+                            attached.refText, storedId, profile, currentDeviceId,
+                        )
+                        updateSentFile(messageId, attachment.id) { sent }
                     }
                 }
             }
