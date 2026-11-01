@@ -1,8 +1,12 @@
 package com.hermes.client.data.repository
 
 import android.content.Context
+import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.data.network.HermesRestApi
 import com.hermes.client.domain.ChatFile
+import com.hermes.client.domain.ChatMessage
+import com.hermes.client.domain.Role
+import com.hermes.client.domain.parseMessageContent
 import com.hermes.client.domain.ArtifactMetadata
 import com.hermes.client.domain.ARTIFACT_DOWNLOAD_LIMIT_BYTES
 import com.hermes.client.data.network.HermesApiException
@@ -18,8 +22,10 @@ import javax.inject.Singleton
 class ChatFileRepository @Inject constructor(
     @ApplicationContext context: Context,
     private val rest: HermesRestApi,
+    private val accounts: AccountSessionManager,
 ) {
     private val directory = File(context.cacheDir, "chat-files").apply { mkdirs() }
+    private val sentFiles by lazy { SentFileStore(File(context.filesDir, "sent-file-index")) }
 
     suspend fun metadata(file: ChatFile, deviceId: String? = null): ArtifactMetadata? = withContext(Dispatchers.IO) {
         file.localPath?.let(::File)?.takeIf { it.isFile }?.let { return@withContext ArtifactMetadata(it.length()) }
@@ -55,12 +61,85 @@ class ChatFileRepository @Inject constructor(
         rest.uploadArtifact(file, name, mimeType)
 
     /**
-     * A local copy already in the deterministic download-cache slot — found by name, not by the
-     * message's `localPath`, which is lost when the conversation is rebuilt from server history.
+     * Compatibility lookup for an existing download-cache copy, using the full reference hash
+     * even when the visible name changed. New sent files restore their scoped localPath first.
      */
     suspend fun cachedCopy(file: ChatFile, deviceId: String? = null): File? = withContext(Dispatchers.IO) {
-        val remote = file.remotePath ?: return@withContext null
-        cacheTarget(remote, file.name, deviceId).takeIf { it.isFile && it.length() > 0 }
+        cachedReference(file, deviceId)?.second
+    }
+
+    /** file.attach's absolute path and its possibly relative/quoted @file reference are aliases. */
+    suspend fun rememberSent(file: ChatFile, refText: String, sessionId: String, profile: String?, deviceId: String?): ChatFile {
+        val owner = localOwner(deviceId) ?: return file
+        val remote = file.remotePath ?: return file
+        val references = (listOf(remote) + parseMessageContent(refText).files.mapNotNull { it.remotePath }).distinct()
+        return withContext(Dispatchers.IO) {
+            val scope = sentScope(owner, sessionId, profile)
+            val source = file.localPath?.let(::File)?.takeIf { it.parentFile == directory && it.isFile }
+            val target = cacheTarget(remote, file.name, scope)
+            val local = source?.let {
+                if (it == target || it.renameTo(target)) target else null
+            }
+            sentFiles.put(scope, SentFileRecord(
+                references, remote, file.name, file.mimeType,
+                local?.name,
+            ))
+            file.copy(localPath = local?.path ?: file.localPath)
+        }
+    }
+
+    /** Restore before history reaches any consumer, including reconciliation and cold disk reads. */
+    suspend fun restoreSentFiles(messages: List<ChatMessage>, sessionId: String, profile: String?, deviceId: String?): List<ChatMessage> {
+        if (messages.none { it.role == Role.USER && it.files.isNotEmpty() }) return messages
+        val owner = localOwner(deviceId) ?: return messages
+        return withContext(Dispatchers.IO) {
+            val records = sentFiles.read(sentScope(owner, sessionId, profile))
+            messages.map { message ->
+                if (message.role != Role.USER) message else message.copy(files = message.files.map { file ->
+                    val record = records.lastOrNull { file.remotePath in it.references }
+                    if (record != null) {
+                        val local = record.cacheName?.takeIf { File(it).name == it }
+                            ?.let { File(directory, it) }?.takeIf { it.isFile && it.length() > 0 }
+                        file.copy(name = record.name, mimeType = record.mimeType ?: file.mimeType,
+                            remotePath = record.remotePath, localPath = local?.path,
+                            sizeBytes = local?.length() ?: file.sizeBytes)
+                    } else {
+                        // Upgrade compatibility: only an existing device+full-path hash proves
+                        // the `/` workspace alias. Never prepend `/` to arbitrary remote requests.
+                        val cached = cachedReference(file, deviceId)
+                        if (cached == null) file else file.copy(remotePath = cached.first,
+                            localPath = cached.second.path, sizeBytes = cached.second.length(),
+                            name = cached.first.substringAfterLast('/').replace(UPLOAD_PREFIX, ""))
+                    }
+                })
+            }
+        }
+    }
+
+    private fun sentScope(owner: String, sessionId: String, profile: String?) =
+        listOf(owner, profile?.ifBlank { null } ?: "default", sessionId).joinToString("\u0000")
+
+    // lifecycleCursorScope reads local account state only. artifactOwnerKey would refresh bearer
+    // credentials and make an offline disk-history/local-file read depend on the network.
+    private fun localOwner(deviceId: String?): String? {
+        val account = accounts.lifecycleCursorScope() ?: return null
+        val device = deviceId ?: accounts.session.value?.selectedDeviceId ?: return null
+        return "$account\u0000$device"
+    }
+
+    private fun cachedReference(file: ChatFile, deviceId: String?): Pair<String, File>? {
+        val remote = file.remotePath ?: return null
+        val candidates = if (remote.startsWith('/')) listOf(remote) else listOf(remote, "/$remote")
+        for (candidate in candidates) {
+            val exact = cacheTarget(candidate, file.name, deviceId)
+            if (exact.isFile && exact.length() > 0) return candidate to exact
+            val prefix = "${sha256("${deviceId.orEmpty()}\n$candidate").take(20)}-"
+            val matches = directory.listFiles()?.filter {
+                it.name.startsWith(prefix) && !it.name.endsWith(".part") && it.isFile && it.length() > 0
+            }.orEmpty()
+            if (matches.size == 1) return candidate to matches.single()
+        }
+        return null
     }
 
     /**
@@ -99,4 +178,8 @@ class ChatFileRepository @Inject constructor(
     private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
         .digest(value.toByteArray())
         .joinToString("") { "%02x".format(it) }
+
+    private companion object {
+        val UPLOAD_PREFIX = Regex("^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}-")
+    }
 }

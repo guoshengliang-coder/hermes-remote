@@ -1,3 +1,9 @@
+HG-249 rework keeps the selected filename on sent-file cards and external open/share handoffs.
+Phone-local records bind absolute file paths to Hermes history-reference aliases within their
+account/Mac/profile/conversation, so refresh and cold history loads retain the local copy. Existing
+cache budgets still apply; missing local bytes are not presented as downloaded. Physical-device
+verification remains in `../docs/ANDROID_SMOKE.md`. This change does not allocate or publish an APK.
+
 HG-248 gives the connection sheet an immediate, coalesced Re-check cycle with bounded progress,
 explicit unchanged-failure/success results and preserved server error codes. Valid foreground
 health recovery can resume a stopped WebSocket cycle; account/device repair gates remain enforced,

@@ -22,8 +22,9 @@ class ChatFileRepositoryTest {
     @Test fun known_oversize_is_rejected_without_starting_a_network_request() = runTest {
         val context = mockk<Context>()
         every { context.cacheDir } returns temporary.root
+        every { context.filesDir } returns temporary.root
         val rest = mockk<HermesRestApi>()
-        val repository = ChatFileRepository(context, rest)
+        val repository = ChatFileRepository(context, rest, mockk(relaxed = true))
         try {
             repository.download(ChatFile("a", "large.mp4", sizeBytes = ARTIFACT_DOWNLOAD_LIMIT_BYTES + 1, remotePath = "/tmp/large.mp4"))
             fail("oversized files must be rejected before downloading")
@@ -35,7 +36,8 @@ class ChatFileRepositoryTest {
     private fun repositoryWith(rest: HermesRestApi): ChatFileRepository {
         val context = mockk<Context>()
         every { context.cacheDir } returns temporary.root
-        return ChatFileRepository(context, rest)
+        every { context.filesDir } returns temporary.root
+        return ChatFileRepository(context, rest, mockk(relaxed = true))
     }
 
     @Test fun sent_file_copy_lands_in_the_deterministic_slot_and_opens_without_the_mac() = runTest {
@@ -86,6 +88,19 @@ class ChatFileRepositoryTest {
         assertEquals(firstPath, secondPath)
         assertFalse(second.exists())
         assertTrue(java.io.File(firstPath!!).isFile)
+        confirmVerified(rest)
+    }
+
+    @Test fun root_workspace_history_reference_finds_the_existing_absolute_path_copy() = runTest {
+        val rest = mockk<HermesRestApi>()
+        val repository = repositoryWith(rest)
+        val original = "协议书 report(1).pdf"
+        val remote = "/Users/test/uploads/e2d30d85-6ca8-4399-acd4-46b8c55abcde-$original"
+        val staged = temporary.newFile("root.pending").apply { writeText("%PDF-1.4") }
+        val adopted = repository.adoptSent(staged, remote, remote.substringAfterLast('/'), "mac")
+        // Hermes returns absolute `path`, but @file is workspace-relative when cwd is `/`.
+        val rebuilt = com.hermes.client.domain.parseMessageContent("@file:`${remote.drop(1)}`").files.single()
+        assertEquals(java.io.File(adopted!!), repository.cachedCopy(rebuilt, "mac"))
         confirmVerified(rest)
     }
 }

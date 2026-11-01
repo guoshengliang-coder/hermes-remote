@@ -114,6 +114,7 @@ class ChatViewModelTest {
         // "no cached copy" and "nothing adopted" explicitly. HG-249 tests override them.
         coEvery { fileRepo.cachedCopy(any(), any()) } returns null
         coEvery { fileRepo.adoptSent(any(), any(), any(), any()) } returns null
+        coEvery { fileRepo.rememberSent(any(), any(), any(), any(), any()) } answers { firstArg() }
         coEvery { fileRepo.uploadStagedFile(any(), any(), any()) } returns
             com.hermes.client.data.network.UploadedArtifact("/tmp/uploaded", "attachment", 3)
         coEvery { modelRepo.options() } returns emptyList()
@@ -1733,9 +1734,9 @@ class ChatViewModelTest {
             coEvery { chatRepo.resume("s1", null) } returns "s1-live"
             coEvery { chatRepo.attachFilePath("s1-live", "/tmp/uploaded", "report.pdf") } returns
                 com.hermes.client.data.repository.AttachedFile(
-                    name = "report.pdf", path = "/tmp/uploaded", refText = "@file:/tmp/uploaded",
+                    name = "e2d30d85-6ca8-4399-acd4-46b8c55abcde-report.pdf", path = "/tmp/uploaded", refText = "@file:tmp/uploaded",
                 )
-            coEvery { fileRepo.adoptSent(staged, "/tmp/uploaded", "report.pdf", any()) } returns "/cache/chat-files/slot-report.pdf"
+            coEvery { fileRepo.adoptSent(staged, "/tmp/uploaded", any(), any()) } returns "/cache/chat-files/slot-report.pdf"
             val vm = buildVm()
             vm.open("s1")
             runCurrent()
@@ -1744,8 +1745,13 @@ class ChatViewModelTest {
             runCurrent()
 
             val sent = vm.state.value.messages.last { it.role == Role.USER }
+            assertEquals("report.pdf", sent.files.single().name)
             assertEquals("/tmp/uploaded", sent.files.single().remotePath)
             assertEquals("/cache/chat-files/slot-report.pdf", sent.files.single().localPath)
+            coVerify(exactly = 1) {
+                fileRepo.rememberSent(match { it.name == "report.pdf" && it.remotePath == "/tmp/uploaded" },
+                    "@file:tmp/uploaded", "s1", null, any())
+            }
             events.emit(event("message.complete", "s1-live", "done"))
             runCurrent()
         } finally {

@@ -51,6 +51,7 @@ class SessionRepository(
     private val transcripts: TranscriptStore? = null,
     private val accountSessions: AccountSessionManager? = null,
     private val conversationDevices: ConversationDeviceStore? = null,
+    private val files: ChatFileRepository? = null,
 ) {
     /**
      * Every non-archived, non-empty session on the current route, WITHOUT [isInteractive].
@@ -322,7 +323,7 @@ class SessionRepository(
             )
             val tail = TranscriptWindow.rowsOf(raw)
             windowLock.withLock {
-                commitWindow(key, TranscriptWindow.mergeTail(knownWindow(key), tail, TranscriptWindow.HISTORY_PAGE_SIZE))
+                commitWindow(key, TranscriptWindow.mergeTail(knownWindow(key), tail, TranscriptWindow.HISTORY_PAGE_SIZE), sessionId, profile, deviceId)
             }.messages
         }
 
@@ -341,7 +342,7 @@ class SessionRepository(
             val key = historyKey(sessionId, profile, deviceId)
             val before = windowLock.withLock { knownWindow(key) }
             if (before != null && before.reachedStart) {
-                return@coalesced OlderHistoryPage(mapWindow(before), reachedStart = true, added = 0)
+                return@coalesced OlderHistoryPage(mapWindow(before, sessionId, profile, deviceId), reachedStart = true, added = 0)
             }
             // A full page that adds nothing lies inside rows already held (the conversation grew
             // by more than a page since the window loaded): skip one page further and ask again,
@@ -370,17 +371,17 @@ class SessionRepository(
                     // current window; do not revive removed/rewound rows from the stale page.
                     if (current.reachedStart || (before != null && before.rows.isNotEmpty() &&
                             current.rows.none { it["id"] == before.rows.first()["id"] })) {
-                        return@withLock OlderHistoryPage(mapWindow(current), current.reachedStart, added = 0)
+                        return@withLock OlderHistoryPage(mapWindow(current, sessionId, profile, deviceId), current.reachedStart, added = 0)
                     }
                     val boundary = current.rows.firstOrNull()?.get("id")
                     if (boundary != null && page.none { it["id"] == boundary }) {
                         if (page.size < TranscriptWindow.HISTORY_PAGE_SIZE + 1 || attempt == OLDER_PAGE_MAX_ATTEMPTS) {
                             throw com.hermes.client.data.error.HistoryPageChangedException()
                         }
-                        return@withLock OlderHistoryPage(mapWindow(current), reachedStart = false, added = 0)
+                        return@withLock OlderHistoryPage(mapWindow(current, sessionId, profile, deviceId), reachedStart = false, added = 0)
                     }
                     val merge = TranscriptWindow.mergeOlder(current, page, TranscriptWindow.HISTORY_PAGE_SIZE + 1)
-                    val committed = commitWindow(key, merge.window)
+                    val committed = commitWindow(key, merge.window, sessionId, profile, deviceId)
                     OlderHistoryPage(committed.messages, merge.window.reachedStart, merge.added)
                 }
             } while (result.added == 0 && !result.reachedStart && attempt < OLDER_PAGE_MAX_ATTEMPTS)
@@ -408,10 +409,10 @@ class SessionRepository(
                 sessionId, profile, deviceId, limit = 500, offset = offset, order = MessageOrder.OLDEST,
             ))
             page.forEach { row -> if (row.id == null || seen.add(row.id)) rows.add(row) }
-            if (page.size < 500) return mapHistory(rows)
+            if (page.size < 500) return restoreFiles(mapHistory(rows), sessionId, profile, deviceId)
             offset += page.size
         }
-        return mapHistory(rows)
+        return restoreFiles(mapHistory(rows), sessionId, profile, deviceId)
     }
 
     suspend fun fullHistoryRow(locator: HistoryLocator, deviceId: String?): MessageDto? =
@@ -443,7 +444,7 @@ class SessionRepository(
         val key = historyKey(sessionId, profile, deviceId)
         val raw = transcripts?.read(key) ?: return null
         val window = TranscriptWindow.fromStored(raw) ?: return null
-        val loaded = runCatching { mapWindow(window) }.getOrNull()
+        val loaded = runCatching { mapWindow(window, sessionId, profile, deviceId) }.getOrNull()
         if (loaded.isNullOrEmpty()) return null
         // The network may have answered first; a stored copy never replaces a fresher one.
         synchronized(windowCache) { if (!windowCache.containsKey(key)) windowCache[key] = window }
@@ -461,9 +462,9 @@ class SessionRepository(
     private class Committed(val messages: List<ChatMessage>)
 
     /** Map [window], cache both forms, and persist it. Call under [windowLock]. */
-    private fun commitWindow(key: String, window: TranscriptWindow): Committed {
+    private suspend fun commitWindow(key: String, window: TranscriptWindow, sessionId: String, profile: String?, deviceId: String?): Committed {
         val payload = window.payload()
-        val loaded = mapHistory(rest.parseMessages(payload))
+        val loaded = restoreFiles(mapHistory(rest.parseMessages(payload)), sessionId, profile, deviceId)
         synchronized(windowCache) { windowCache[key] = window }
         synchronized(historyCache) { historyCache[key] = loaded }
         // Persisting must not sit between the caller and its transcript: gzip plus a file
@@ -473,8 +474,11 @@ class SessionRepository(
         return Committed(loaded)
     }
 
-    private fun mapWindow(window: TranscriptWindow): List<ChatMessage> =
-        mapHistory(rest.parseMessages(window.payload()))
+    private suspend fun mapWindow(window: TranscriptWindow, sessionId: String, profile: String?, deviceId: String?): List<ChatMessage> =
+        restoreFiles(mapHistory(rest.parseMessages(window.payload())), sessionId, profile, deviceId)
+
+    private suspend fun restoreFiles(messages: List<ChatMessage>, sessionId: String, profile: String?, deviceId: String?): List<ChatMessage> =
+        files?.restoreSentFiles(messages, sessionId, profile, deviceId) ?: messages
 
     // Tool-result rows never become turns of their own, but they are the only place the
     // persisted outcome of a call lives: join them back onto the assistant turn's cards
