@@ -237,6 +237,17 @@ is **rejected with `422`, not clamped**. The clients' fallback read of this endp
 the cross-profile `/api/profiles/sessions`) therefore now asks for `limit=100`. `/api/profiles/sessions` allows up
 to 500 (`le=500`) and is unchanged.
 
+HG-251 consumes `/api/profiles/sessions`' existing `offset`, `exclude_sources` (CSV) and
+`min_messages` parameters. Verified against the owner's running `bf0203a794a` on 2026-11-01:
+source/message filters run before the per-profile window; `limit + offset` is fetched per
+profile, then merged/sorted/windowed. `total` may count hidden rows not returned in the window.
+Server pins can be appended beyond `limit`; advance by the requested/echoed width, never by
+the returned row count. Optional `offset`/`limit` echoes are validated when present. Per-profile
+`errors` may be objects or legacy strings; either means the list is incomplete. Android reads
+all filtered pages atomically, preserving existing local pins and the previous complete cache
+on failure; its safety guard fails visibly rather than publishing a truncated success. The
+independent activity feed remains cron-inclusive. No new route or server behavior is required.
+
 Neither change adds or removes a route, so `HERMES_REST_CONTRACT` and the §2 table are unchanged;
 the parameters are not part of that contract (see §2) and are covered by checklist item 8m instead.
 

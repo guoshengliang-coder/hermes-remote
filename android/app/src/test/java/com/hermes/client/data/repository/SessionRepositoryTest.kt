@@ -41,7 +41,7 @@ class SessionRepositoryTest {
     // app's own hermes-dispatch sessions, and unknown/null sources are kept.
     @Test fun listAllProfiles_hides_excluded_sources_and_empty_sessions() = runTest {
         assertFalse(repo.hasLoadedAllProfiles())
-        coEvery { rest.profileSessions(any(), false) } returns ProfileSessionsDto(
+        coEvery { rest.profileSessions(any(), false, null, any(), any(), 1) } returns ProfileSessionsDto(
             sessions = listOf(
                 dto("keep-tui", "tui", 5),
                 dto("hide-cron", "cron", 12),           // cron → hidden
@@ -69,7 +69,7 @@ class SessionRepositoryTest {
      */
     @Test fun a_list_load_publishes_the_read_tokens_of_every_listed_session() = runTest {
         assertNull(repo.loadedSessionTokens.value)
-        coEvery { rest.profileSessions(any(), false) } returns ProfileSessionsDto(
+        coEvery { rest.profileSessions(any(), false, null, any(), any(), 1) } returns ProfileSessionsDto(
             sessions = listOf(dto("chat", "tui", 3), dto("bot", "telegram", 2), dto("empty", "tui", 0)),
         )
         repo.botSessions()
@@ -90,7 +90,7 @@ class SessionRepositoryTest {
      * into the session as though it were the model that had answered on the other app.
      */
     @Test fun a_bot_session_is_resolvable_by_id_after_the_bots_list_was_read() = runTest {
-        coEvery { rest.profileSessions(any(), false) } returns ProfileSessionsDto(
+        coEvery { rest.profileSessions(any(), false, null, any(), any(), 1) } returns ProfileSessionsDto(
             listOf(dto("local-1", "cli", 3), dto("bot-1", "dingtalk", 5)),
         )
         repo.botSessions()
@@ -101,7 +101,7 @@ class SessionRepositoryTest {
 
     /** …and the Chats list must NOT gain those rows as a side effect of that cache being shared. */
     @Test fun the_chats_list_still_excludes_messaging_sources_after_the_bots_list_was_read() = runTest {
-        coEvery { rest.profileSessions(any(), false) } returns ProfileSessionsDto(
+        coEvery { rest.profileSessions(any(), false, null, any(), any(), 1) } returns ProfileSessionsDto(
             listOf(dto("local-1", "cli", 3), dto("bot-1", "dingtalk", 5)),
         )
         repo.botSessions()
@@ -115,7 +115,7 @@ class SessionRepositoryTest {
      * satisfy that gate — otherwise a Bots-first launch shows an empty Chats list as final.
      */
     @Test fun reading_only_the_bots_list_does_not_count_as_having_loaded_the_chats_list() = runTest {
-        coEvery { rest.profileSessions(any(), false) } returns ProfileSessionsDto(
+        coEvery { rest.profileSessions(any(), false, null, any(), any(), 1) } returns ProfileSessionsDto(
             listOf(dto("bot-1", "dingtalk", 5)),
         )
         repo.botSessions()
@@ -126,17 +126,17 @@ class SessionRepositoryTest {
     }
 
     @Test fun sessionMeta_answers_from_cache_without_a_second_round_trip() = runTest {
-        coEvery { rest.profileSessions(any(), false) } returns ProfileSessionsDto(
+        coEvery { rest.profileSessions(any(), false, null, any(), any(), 1) } returns ProfileSessionsDto(
             listOf(dto("bot-1", "dingtalk", 5)),
         )
         repo.botSessions()
 
         assertEquals("dingtalk", repo.sessionMeta("bot-1")?.source)
-        coVerify(exactly = 1) { rest.profileSessions(any(), false) }
+        coVerify(exactly = 1) { rest.profileSessions(any(), false, null, any(), any(), 1) }
     }
 
     @Test fun sessionMeta_fetches_when_the_cache_is_cold_and_returns_null_for_an_unknown_id() = runTest {
-        coEvery { rest.profileSessions(any(), false) } returns ProfileSessionsDto(
+        coEvery { rest.profileSessions(any(), false, null, any(), any(), 1) } returns ProfileSessionsDto(
             listOf(dto("bot-1", "dingtalk", 5)),
         )
 
@@ -145,7 +145,7 @@ class SessionRepositoryTest {
     }
 
     @Test fun archivedAllProfiles_also_hides_internal_sources_and_empty() = runTest {
-        coEvery { rest.profileSessions(any(), true) } returns ProfileSessionsDto(
+        coEvery { rest.profileSessions(any(), true, null, any(), any(), 1) } returns ProfileSessionsDto(
             sessions = listOf(
                 dto("a-keep", "cli", 3, archived = true),
                 dto("a-cron", "cron", 9, archived = true),
@@ -220,7 +220,7 @@ class SessionRepositoryTest {
     @Test fun concurrent_session_list_fetches_share_one_round_trip() = runTest {
         val release = CompletableDeferred<Unit>()
         var calls = 0
-        coEvery { rest.profileSessions(any(), false) } coAnswers {
+        coEvery { rest.profileSessions(any(), false, null, any(), any(), 1) } coAnswers {
             calls += 1
             if (calls == 1) release.await()
             ProfileSessionsDto(sessions = listOf(dto("keep-tui", "tui", 5)))
@@ -246,10 +246,10 @@ class SessionRepositoryTest {
             accountSessions = manager,
             conversationDevices = affinity,
         )
-        coEvery { rest.profileSessions(any(), false, "mac-1") } returns ProfileSessionsDto(
+        coEvery { rest.profileSessions(any(), false, "mac-1", any(), any(), 1) } returns ProfileSessionsDto(
             sessions = listOf(dto("session-1", "tui", 2)),
         )
-        coEvery { rest.profileSessions(any(), false, "mac-2") } returns ProfileSessionsDto(
+        coEvery { rest.profileSessions(any(), false, "mac-2", any(), any(), 1) } returns ProfileSessionsDto(
             sessions = listOf(dto("session-1", "tui", 2)),
         )
 
@@ -285,6 +285,7 @@ class SessionRepositoryTest {
 
     @Test fun delete_routes_to_the_row_mac_and_removes_its_persisted_affinity() = runTest {
         val manager = mockk<AccountSessionManager>()
+        every { manager.routingContext() } returns AccountRoutingContext("account-1", "mac-default")
         val affinity = mockk<ConversationDeviceStore>(relaxed = true)
         every { manager.session } returns MutableStateFlow(
             com.hermes.client.data.auth.AccountSession(
@@ -315,6 +316,29 @@ class SessionRepositoryTest {
         verify { affinity.remove("account-1", "personal", "session-2") }
     }
 
+    @Test fun a_route_change_during_paging_never_publishes_or_binds_old_rows() = runTest {
+        for (newRoute in listOf(AccountRoutingContext("account-1", "mac-2"),
+            AccountRoutingContext("account-2", "mac-1"), null)) {
+            val manager = mockk<AccountSessionManager>()
+            val affinity = mockk<ConversationDeviceStore>(relaxed = true)
+            var route: AccountRoutingContext? = AccountRoutingContext("account-1", "mac-1")
+            every { manager.routingContext() } answers { route }
+            val api = mockk<HermesRestApi>()
+            val repo = SessionRepository(api, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+                accountSessions = manager, conversationDevices = affinity)
+            coEvery { api.profileSessions(500, false, "mac-1", 0, any(), 1) } answers {
+                route = newRoute
+                ProfileSessionsDto((0 until 500).map { dto("old$it", "desktop", 2) }, total = 501)
+            }
+            assertTrue(runCatching { repo.listAllProfiles() }.exceptionOrNull() is kotlinx.coroutines.CancellationException)
+            assertFalse(repo.hasLoadedAllProfiles())
+            assertTrue(repo.cachedAllProfiles().isEmpty())
+            assertNull(repo.cachedSession("old0"))
+            verify(exactly = 0) { affinity.bind(any(), any(), any(), any()) }
+            coVerify(exactly = 1) { api.profileSessions(any(), any(), any(), any(), any(), any()) }
+        }
+    }
+
     // ── HG-250: the mutation fence Hermes ≥ 0.22.5 (2026-10-16) requires on every write ─────
 
     private fun revisionDto(id: String, revision: Int?) = SessionDto(
@@ -323,7 +347,7 @@ class SessionRepositoryTest {
     )
 
     @Test fun archive_sends_the_row_revision_and_a_fresh_request_id() = runTest {
-        coEvery { rest.profileSessions(any(), false) } returns
+        coEvery { rest.profileSessions(any(), false, null, any(), any(), 1) } returns
             ProfileSessionsDto(sessions = listOf(revisionDto("s1", 5)))
         repo.listAllProfiles() // warm the cache the fence is read from
         coEvery {
@@ -340,7 +364,7 @@ class SessionRepositoryTest {
     }
 
     @Test fun missing_revision_falls_back_to_zero_for_older_hermes() = runTest {
-        coEvery { rest.profileSessions(any(), false) } returns
+        coEvery { rest.profileSessions(any(), false, null, any(), any(), 1) } returns
             ProfileSessionsDto(sessions = listOf(revisionDto("s1", null)))
         repo.listAllProfiles()
         coEvery {
@@ -357,7 +381,7 @@ class SessionRepositoryTest {
     }
 
     @Test fun revision_conflict_retries_once_with_the_re_read_revision() = runTest {
-        coEvery { rest.profileSessions(any(), false) } returns
+        coEvery { rest.profileSessions(any(), false, null, any(), any(), 1) } returns
             ProfileSessionsDto(sessions = listOf(revisionDto("s1", 3)))
         repo.listAllProfiles()
 
@@ -370,7 +394,7 @@ class SessionRepositoryTest {
             calls += 1
             if (calls == 1) throw com.hermes.client.data.network.HermesApiException(409, "revision_conflict")
         }
-        coEvery { rest.profileSessions(any(), false) } returns
+        coEvery { rest.profileSessions(any(), false, null, any(), any(), 1) } returns
             ProfileSessionsDto(sessions = listOf(revisionDto("s1", 4)))
 
         repo.archive("s1", archived = true, "personal")
@@ -386,7 +410,7 @@ class SessionRepositoryTest {
     }
 
     @Test fun non_conflict_failures_are_not_retried() = runTest {
-        coEvery { rest.profileSessions(any(), false) } returns
+        coEvery { rest.profileSessions(any(), false, null, any(), any(), 1) } returns
             ProfileSessionsDto(sessions = listOf(revisionDto("s1", 1)))
         repo.listAllProfiles()
 

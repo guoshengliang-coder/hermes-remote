@@ -66,7 +66,10 @@ import kotlinx.serialization.json.contentOrNull
     val sessions: List<SessionDto> = emptyList(),
     val total: Int = 0,
     @SerialName("profile_totals") val profileTotals: Map<String, Int> = emptyMap(),
-    val errors: List<String> = emptyList(),
+    // Older Hermes omits the cursor echo; modern Hermes also reports structured profile errors.
+    val errors: List<JsonElement> = emptyList(),
+    val offset: Int? = null,
+    val limit: Int? = null,
 )
 
 @Serializable data class MessageDto(
