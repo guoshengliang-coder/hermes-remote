@@ -5,6 +5,24 @@ the latest 100 Actions runs (2026-10-29 through 2026-11-02), 40 recently updated
 and selected job logs. This is a bounded recent sample, not a long-term performance benchmark.
 No deployment or secret-value inspection was performed.
 
+## Integration status · 2026-11-05
+
+The owner authorized completing this PR and the subsequent Desktop CI parallelization. This branch
+now includes main `2415ee37385d847d4c14443ad59557a0dad7acd9` without rewriting its history.
+[PR #730](https://github.com/guoshengliang-coder/hermes-remote/pull/730) has already isolated the
+Gateway voice-test mock clock from socket teardown; see `docs/GATEWAY_TESTING.md`.
+[PR #731](https://github.com/guoshengliang-coder/hermes-remote/pull/731) has already enabled the
+owner-approved, BASE-validated version-only Android PR exception; see
+`docs/ANDROID_RELEASE_METADATA_PLAN.md`. Its trusted-first bootstrap, main checks and release gates
+remain intact here. The original benchmark below used an earlier exact source and is historical
+evidence for command deduplication, not a speed guarantee for the integrated source.
+
+Integrated validation: 119 focused tests passed; the network-enabled local Node baseline passed
+1029 tests with 21 conditional skips (20 PostgreSQL unavailable locally, one platform skip) and
+zero failures. Actionlint 1.7.7 accepted the five affected/integrated workflows; `git diff --check`
+passed. No protected candidate/release run, native UI change, version allocation or publication was
+needed for this integration. GitHub PR and main checks remain the final merge gate.
+
 ## Measured bottlenecks
 
 | Evidence | Observation |
@@ -45,15 +63,14 @@ document's factual snapshot, not its authorization rules. The merge script remai
 
 `HR-RELEASE-008` is an operator-only workflow error. Android/Desktop/Web runtime models and wire
 contracts do not consume it and need no code changes. No version allocation, key provisioning,
-branch-protection change or production publication is included. No actual speedup on GitHub is
-claimed until these changes run there.
+branch-protection change or production publication is included. The GitHub command benchmark below
+measures the build-command change; no protected release end-to-end speedup is claimed.
 
 ## Follow-up proposals requiring separate scope/decisions
 
-1. **Version-only validation.** Preparation, PR CI, main CI and distribution all run Android checks.
-   A restricted metadata-only path could avoid some repeated full checks, but must prove the exact
-   source diff, validate release metadata and retain trusted packaging. Update AGENTS/INTEGRATION
-   and test classifications together before changing required coverage. No bypass is added here.
+1. **Version-only validation — completed separately in #731.** The approved exact metadata PR
+   exception retains full preparation, main and distribution gates. This PR adds no further coverage
+   exception; the authoritative scope is in `docs/ANDROID_RELEASE_METADATA_PLAN.md`.
 2. **Immutable release source.** Pin reviewed release identity so unrelated main changes need not
    invalidate a long build. This changes the current-main admission policy; define ancestry,
    component/contract impacts and concurrent-publication rules before implementation.
@@ -167,9 +184,10 @@ PostgreSQL/network gate. The report artifact is `node-gate-benchmark-46345973aae
 There is substantial total-time variation: the fifth (old) sample's Gateway test suite took 4.707s,
 where the other five were about 32s. Its passing/skipped counts did not change; the sum of its
 individually reported top-level test durations was 3.663s, versus 2.844s in old sample 1, whose suite
-lasted 32.241s. This suggests roughly 30 seconds of process/suite completion waiting in most runs;
-the exact cause is not established. A timer, resource or process-exit investigation is separate
-follow-up work, not a change made by this PR.
+lasted 32.241s. At benchmark time this suggested roughly 30 seconds of process/suite completion
+waiting with the exact cause unestablished. Follow-up #730 subsequently reproduced and fixed mock
+clock/socket-timer interference without removing assertions. That fix is now included from main;
+the six benchmark samples themselves have not been rewritten or rerun on the newer source.
 
 As an auxiliary decomposition, subtracting each sample's five reported TAP suite wall times from
 its command wall time leaves **25.293s old vs 12.825s new** at the median. That remainder includes
