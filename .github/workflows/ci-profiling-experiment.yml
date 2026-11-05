@@ -1,0 +1,116 @@
+name: CI profiling experiment
+
+on:
+  push:
+    branches: [codex/ci-cache-profiling]
+    paths:
+      - .github/workflows/ci-profiling-experiment.yml
+      - scripts/ci/benchmark-swift-cache.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: profiling-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  seed:
+    runs-on: macos-15
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [unit, app]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Measure cold seed with full validation
+        env:
+          MODE: ${{ matrix.mode }}
+        run: |
+          python3 -B scripts/ci/benchmark-swift-cache.py start "$RUNNER_TEMP/measurement"
+          python3 -B scripts/ci/benchmark-swift-cache.py run "$MODE" seed "$RUNNER_TEMP/measurement" false
+      - name: Save only unsigned compilation state
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          key: swift-measurement-${{ github.run_id }}-${{ matrix.mode }}
+          path: |
+            desktop/.build
+            desktop/build/swift
+            desktop/build/module-cache
+            desktop/build/swiftpm-module-cache
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: swift-seed-${{ matrix.mode }}
+          path: ${{ runner.temp }}/measurement
+          if-no-files-found: error
+          retention-days: 7
+
+  compare:
+    needs: seed
+    runs-on: macos-15
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [unit, app]
+        variant: [cold, cached]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Start end-to-end measurement before restore
+        run: python3 -B scripts/ci/benchmark-swift-cache.py start "$RUNNER_TEMP/measurement"
+      - name: Restore the exact seed on a fresh runner
+        id: cache
+        if: matrix.variant == 'cached'
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          key: swift-measurement-${{ github.run_id }}-${{ matrix.mode }}
+          fail-on-cache-miss: true
+          path: |
+            desktop/.build
+            desktop/build/swift
+            desktop/build/module-cache
+            desktop/build/swiftpm-module-cache
+      - name: Run the complete command and validate evidence
+        env:
+          MODE: ${{ matrix.mode }}
+          VARIANT: ${{ matrix.variant }}
+          CACHE_HIT: ${{ steps.cache.outputs.cache-hit || 'false' }}
+        run: python3 -B scripts/ci/benchmark-swift-cache.py run "$MODE" "$VARIANT" "$RUNNER_TEMP/measurement" "$CACHE_HIT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: swift-${{ matrix.mode }}-${{ matrix.variant }}
+          path: ${{ runner.temp }}/measurement
+          if-no-files-found: error
+          retention-days: 7
+
+  android-profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
+        with:
+          cache-read-only: true
+          build-scan-publish: false
+      - name: Profile full credential-free tests with task output cache disabled
+        working-directory: android
+        run: ./gradlew :app:testDebugUnitTest --profile --no-build-cache --no-configuration-cache --no-daemon --console=plain
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: android-credential-free-profile
+          path: android/build/reports/profile
+          if-no-files-found: error
+          retention-days: 7
