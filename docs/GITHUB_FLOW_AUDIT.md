@@ -146,3 +146,39 @@ source identity. Ordinary PR CI for the measured commit passed with 973 passing 
 including disposable PostgreSQL and opt-in Gateway network coverage; SAST and Website also passed.
 
 Post-cleanup validation: 42 focused tests passed; full local Node baseline 934 passed / 33 conditional skips / zero failures.
+
+## GitHub measured results
+
+[Benchmark run 41949093584](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/41949093584)
+succeeded. It used source `46345973aae39cac9ff6872610422de40f0bee1b`, Node v22.23.2, Darwin arm64,
+macOS 15.8.2 on `macos-15`. The six-sample step lasted 8m42s; all samples ran on that same job.
+
+| Command | Three elapsed times (s) | Median (s) | Workspace compile calls per sample |
+|---|---|---:|---:|
+| Old | 94.723, 102.771, 67.545 | 94.723 | 8 |
+| New | 82.434, 87.516, 84.700 | 84.700 | 3 |
+
+The observed median difference is **10.023s (10.58%)**.
+All six returned zero, with identical per-suite counts: 935 passing / 33 conditional skips / zero
+failures. These are the macOS candidate gate's opt-in conditions, not the separate Ubuntu PR
+PostgreSQL/network gate. The report artifact is `node-gate-benchmark-46345973aae39cac9ff6872610422de40f0bee1b`
+(ID 13380288825; seven-day retention), containing results, summary and six raw logs.
+
+There is substantial total-time variation: the fifth (old) sample's Gateway test suite took 4.707s,
+where the other five were about 32s. Its passing/skipped counts did not change; the sum of its
+individually reported top-level test durations was 3.663s, versus 2.844s in old sample 1, whose suite
+lasted 32.241s. This suggests roughly 30 seconds of process/suite completion waiting in most runs;
+the exact cause is not established. A timer, resource or process-exit investigation is separate
+follow-up work, not a change made by this PR.
+
+As an auxiliary decomposition, subtracting each sample's five reported TAP suite wall times from
+its command wall time leaves **25.293s old vs 12.825s new** at the median. That remainder includes
+compilation, npm/process startup and other gaps; it is not a precise compiler-only measurement.
+Together with eight-to-three compilation calls, it supports reduced repeated-build work even though
+three total-time samples per group are too few to establish a stable percentage.
+
+This is a modest improvement to Connector/component candidate build gates. Android already used
+`test:ci`; its successful release was not benchmarked here and its 24m30s end-to-end example is not
+reduced by this percentage. Larger Android gains require the separate validation-round/source-policy
+work described above. All ordinary PR checks passed for the cleanup commit as well. No main merge,
+version bump, signature operation, protected release run or production publication occurred.
