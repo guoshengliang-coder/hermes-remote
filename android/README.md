@@ -1300,6 +1300,14 @@ without Gradle/Android using `python3 android/test-watchdog/test_watchdog.py -v`
 (JDK 17+ and Python 3 required). Fix the hanging test before retrying; do not increase heap or
 terminate processes by name. See `docs/DEVICE_TESTING.md` §8 for the incident and reading limits.
 
+Gradle runs this complete safety suite through `test-watchdog/run_tests.py`. It discovers every
+case in the original module, runs independent cases in fresh processes with at most three workers
+(bounded by available CPUs), and requires complete, successful, non-skipped unittest results.
+One available CPU uses the original serial suite. Each parallel case compiles its own fixture;
+that cost is included in the measured comparison. The original serial CLI above stays available.
+The worker timeout, actual tests, test-JVM fork count and heap are unchanged. Evidence and limits:
+`../docs/CI_WATCHDOG_PERFORMANCE.md`.
+
 Ordinary Android CI opts into stall evidence with `HERMES_TEST_DIAGNOSTICS_DIR` pointing to a
 fresh runner-temporary directory. Gradle's built-in STARTED/PASSED/FAILED/SKIPPED logging identifies
 unfinished tests in the job log and remains compatible with configuration-cache reuse. The external

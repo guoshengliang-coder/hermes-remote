@@ -1,0 +1,136 @@
+{
+  "watchdog": {
+    "runId": 42009376228,
+    "sourceCommit": "6ad8a08c381da4414d56e3a8d11182bd273b4799",
+    "cpus": 4,
+    "cases": [
+      "WatchdogTest.test_blocked_collector_does_not_postpone_hard_timeout_or_survive_watcher",
+      "WatchdogTest.test_hard_timeout_overcomes_stuck_shutdown_and_leaves_other_jvm_alive",
+      "WatchdogTest.test_mismatched_start_time_does_not_kill_a_reused_pid",
+      "WatchdogTest.test_normal_exit_is_success_and_watcher_releases_pipes",
+      "WatchdogTest.test_snapshot_export_whitelists_frames_and_bounds_output",
+      "WatchdogTest.test_stalled_worker_has_sanitized_stack_evidence_before_hard_stop"
+    ],
+    "samples": [
+      {
+        "variant": "serial",
+        "elapsedSeconds": 17.75235609500001,
+        "cases": 6,
+        "returncode": 0
+      },
+      {
+        "variant": "parallel",
+        "elapsedSeconds": 8.110770875000014,
+        "cases": 6,
+        "returncode": 0
+      },
+      {
+        "variant": "parallel",
+        "elapsedSeconds": 8.099564732000005,
+        "cases": 6,
+        "returncode": 0
+      },
+      {
+        "variant": "serial",
+        "elapsedSeconds": 14.649103593000007,
+        "cases": 6,
+        "returncode": 0
+      },
+      {
+        "variant": "serial",
+        "elapsedSeconds": 14.746694041000012,
+        "cases": 6,
+        "returncode": 0
+      },
+      {
+        "variant": "parallel",
+        "elapsedSeconds": 8.104899607000021,
+        "cases": 6,
+        "returncode": 0
+      }
+    ],
+    "serialMedianSeconds": 14.746694041000012,
+    "parallelMedianSeconds": 8.104899607000021,
+    "secondsSaved": 6.641794433999991,
+    "fractionSaved": 0.45039209571541317
+  },
+  "sdkCache": {
+    "runId": 42008033094,
+    "mode": "dry-run only; no tasks or tests executed",
+    "samples": [
+      {
+        "sourceCommit": "fea0c681d341084c57fdcb49c92b4d3e56560e26",
+        "initialSdkCacheExists": false,
+        "phases": [
+          {
+            "phase": "fresh",
+            "elapsedSeconds": 10.759416476000006,
+            "configurationCacheReused": true,
+            "sdkCacheExistsAfter": false,
+            "sdkDirectoryInvalidation": false,
+            "dryRunTasks": 49
+          },
+          {
+            "phase": "sdk-initialized",
+            "elapsedSeconds": 15.398276069999994,
+            "configurationCacheReused": false,
+            "sdkCacheExistsAfter": true,
+            "sdkDirectoryInvalidation": true,
+            "dryRunTasks": 49
+          },
+          {
+            "phase": "same-runner",
+            "elapsedSeconds": 6.998122350000003,
+            "configurationCacheReused": true,
+            "sdkCacheExistsAfter": true,
+            "sdkDirectoryInvalidation": false,
+            "dryRunTasks": 49
+          }
+        ]
+      },
+      {
+        "sourceCommit": "fea0c681d341084c57fdcb49c92b4d3e56560e26",
+        "initialSdkCacheExists": false,
+        "phases": [
+          {
+            "phase": "fresh",
+            "elapsedSeconds": 9.105670732999997,
+            "configurationCacheReused": true,
+            "sdkCacheExistsAfter": false,
+            "sdkDirectoryInvalidation": false,
+            "dryRunTasks": 49
+          },
+          {
+            "phase": "sdk-initialized",
+            "elapsedSeconds": 14.736385390999999,
+            "configurationCacheReused": false,
+            "sdkCacheExistsAfter": true,
+            "sdkDirectoryInvalidation": true,
+            "dryRunTasks": 49
+          },
+          {
+            "phase": "same-runner",
+            "elapsedSeconds": 6.393436039000008,
+            "configurationCacheReused": true,
+            "sdkCacheExistsAfter": true,
+            "sdkDirectoryInvalidation": false,
+            "dryRunTasks": 49
+          }
+        ]
+      }
+    ]
+  },
+  "local": {
+    "androidTests": 2934,
+    "failures": 0,
+    "skipped": 0,
+    "identityHash": "ae45cfc1055b048e2baa694e444eb18be5c7dffc4cd38e129c6e013caf4195f1",
+    "watchdogTaskSeconds": 7.397,
+    "testTaskSeconds": 65.0,
+    "serialFallbackCases": 6,
+    "serialFallbackPassed": 6,
+    "nodePassed": 1040,
+    "nodeConditionalSkip": 21,
+    "focusedPassed": 16
+  }
+}
