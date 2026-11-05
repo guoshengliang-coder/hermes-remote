@@ -534,6 +534,10 @@ cards load as they scroll into view and a toast per card would be a storm.
 Diagnostics carry the code, stage and a short cause (`renderer crashed`, `load timed out`,
 `document error -6`); never the page's contents or its path.
 
+Only Android produces these codes today. The Desktop menu-bar app renders no conversation, so it has
+no card to fail. The Web app still shows the directive as text; when it renders §5.23 cards it reuses
+both codes for the same conditions rather than registering its own.
+
 
 HG-224 uses the existing retryable `HR-SYNC-001` when an older-history page cannot be joined to
 its held boundary after bounded reads. The shown transcript remains; retry resynchronizes the
