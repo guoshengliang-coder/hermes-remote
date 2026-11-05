@@ -1,4 +1,4 @@
-// Observation only. This module never authorizes skipping a test, allocating a version or publishing.
+// Pure content classifier. Only the BASE-loaded gate can authorize skipping PR Android jobs.
 import {execFileSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 import {applyGradleVersions, applyReadme, nextVersion, parseGradleVersions, validateNotes} from '../bump-android-release.mjs';
@@ -108,11 +108,11 @@ export function classifyAndroidReleaseMetadata({repoDir = process.cwd(), baseSha
 export function formatObservation(result) {
   // Reasons and version strings are generated internally, never copied from release-note bodies.
   return [
-    '### Android 纯升版候选（仅观察 / observation only）', '',
+    '### Android 纯升版候选（仅内容检查 / content only）', '',
     `- 候选匹配 / Candidate: **${result.candidate ? '是 / yes' : '否 / no'}**`,
     `- 分类原因 / Reason: \`${result.reason}\``,
-    '- Android 完整检查继续执行；本结果不授权跳过测试或发布。',
-    '- Full Android checks remain enabled; this observation does not authorize skipping tests or publishing.', '',
+    '- 本命令只判断内容；是否省去 PR 检查由可信 BASE 门禁决定，发布仍需单独授权。',
+    '- This candidate inspection does not authorize skipping tests or publishing.', '',
   ].join('\n');
 }
 

@@ -68,6 +68,11 @@ HG-200 的 `website/**` 是独立官网服务，**不是** `web/**` 的 Web App�
 
 ## 表 3 · 三个闸
 
+2026-11-05 用户批准的唯一纯升版 CI 例外：严格三文件元数据 PR 可由 BASE 提交中的校验器与
+该 BASE 的成功 main CI 共同决定，省去该 PR 的 Android 单测与 lint。不确定时仍完整检查；
+main、本地 `prepare` 和正式 package gate 不变。纯升版仍是红灯，版本确认与发布授权仍分别执行。
+具体条件见 [ANDROID_RELEASE_METADATA_PLAN.md](ANDROID_RELEASE_METADATA_PLAN.md)。
+
 "合并""升版""发布"是三件独立的事。**不要用一条指令同时触发它们** —— 绝大多数改动只需要过第一个闸。
 
 | 闸 | 回答的问题 | 谁决定 | 前置条件 |

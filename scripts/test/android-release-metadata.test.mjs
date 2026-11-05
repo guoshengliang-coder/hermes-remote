@@ -42,7 +42,7 @@ test('the producer exact three-file patch is a candidate, without changing any g
   const f = fixture(t);
   const result = f.classify();
   assert.deepEqual(result, {candidate: true, reason: 'producer_exact_release_metadata', fromVersion: '0.1.194', toVersion: '0.1.195'});
-  assert.match(formatObservation(result), /Full Android checks remain enabled/);
+  assert.match(formatObservation(result), /does not authorize skipping tests or publishing/);
 });
 
 test('the normal wrapped README entry is reconstructed with the producer', t => {
@@ -144,19 +144,18 @@ test('CLI JSON and summaries expose no notes or low-level failure bodies', t => 
     assert.equal(result.status, 0);
     assert.doesNotMatch(result.stdout + result.stderr, /synthetic-private-description|bad-input-secret|fatal:/);
     if (args.at(-1) === '--json') assert.equal(typeof JSON.parse(result.stdout).candidate, 'boolean');
-    else assert.match(result.stdout, /Full Android checks remain enabled/);
+    else assert.match(result.stdout, /does not authorize skipping tests or publishing/);
   }
 });
 
-test('observation step cannot change the existing Android job gates or classifier outputs', () => {
+test('only the trusted metadata output supplements Android path selection', () => {
   const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
   const currentClassifier = readFileSync('scripts/ci/changed-components.mjs', 'utf8');
-  assert.match(workflow, /Observe Android release metadata candidates \(no gate changes\)/);
-  assert.match(workflow, /android-release-metadata\.mjs "\$BASE_SHA" "\$HEAD_SHA" >> "\$GITHUB_STEP_SUMMARY"/);
+  assert.match(workflow, /Validate Android release metadata with trusted base/);
+  assert.match(workflow, /skip_android: \$\{\{ steps\.release_metadata\.outputs\.skip_android \}\}/);
   for (const name of ['android', 'android-lint']) {
     const job = workflow.split(`\n  ${name}:\n`)[1]?.split(/\n  [a-z][\w-]*:\n/)[0];
-    assert.match(job, /^    if: needs\.changes\.outputs\.android == 'true'$/m);
-    assert.doesNotMatch(job, /metadata|candidate/);
+    assert.match(job, /^    if: needs\.changes\.outputs\.android == 'true' && needs\.changes\.outputs\.skip_android != 'true'$/m);
   }
   assert.doesNotMatch(currentClassifier, /classifyAndroidReleaseMetadata|metadata|candidate/);
 });
