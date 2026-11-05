@@ -1,6 +1,8 @@
 import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.api.tasks.bundling.Jar
 import org.gradle.api.tasks.testing.Test
+import org.gradle.api.tasks.testing.logging.TestLogEvent
+import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 
 // Build-only, dependency-free watchdog. It is never on the app's runtime classpath.
 val compileTestWatchdog = tasks.register<JavaCompile>("compileTestWatchdog") {
@@ -26,10 +28,17 @@ val verifyTestWatchdog = tasks.register<Exec>("verifyTestWatchdog") {
 val workerTimeout = providers.gradleProperty("hermesTestWorkerTimeoutSeconds").orElse("600").get()
 require(workerTimeout.toLong() > 0) { "hermesTestWorkerTimeoutSeconds must be positive" }
 val agentFile = testWatchdogJar.flatMap { it.archiveFile }
+// Tracked configuration input; ordinary CI opts in without disabling configuration-cache reuse.
+val diagnosticsDirectory = providers.environmentVariable("HERMES_TEST_DIAGNOSTICS_DIR").orNull
 subprojects {
     tasks.withType<Test>().configureEach {
         dependsOn(testWatchdogJar, verifyTestWatchdog)
         inputs.file(agentFile)
         jvmArgs("-javaagent:${agentFile.get().asFile.absolutePath}=$workerTimeout")
+        if (!diagnosticsDirectory.isNullOrBlank()) {
+            systemProperty("hermes.test.diagnostics.dir", diagnosticsDirectory)
+            testLogging.events(TestLogEvent.STARTED, TestLogEvent.PASSED, TestLogEvent.FAILED, TestLogEvent.SKIPPED)
+            testLogging.exceptionFormat = TestExceptionFormat.FULL
+        }
     }
 }

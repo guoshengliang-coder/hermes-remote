@@ -57,6 +57,10 @@ not an official release speedup or a coverage exception.
 from 132.35s to 153.62s. The existing policy stays. A separate baseline attempt hit the 600s
 watchdog; the successful repeat does not establish its cause or a fix.
 
+[Ordinary Android stall diagnostics](ANDROID_CI_DIAGNOSTICS.md) preserve built-in test progress and
+sanitized pre-timeout worker snapshots on failed CI. They retain the 600-second stop and configuration
+cache; the extra real-JVM safety regressions add a small fixed gate cost, not a claimed speedup.
+
 | Evidence | Observation |
 |---|---|
 | [0.1.194 PR CI](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/41320736013) | 6m20s, followed by a separate main run |

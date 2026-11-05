@@ -1,9 +1,9 @@
 package com.hermes.client.ui.chat.imageedit
 
 import android.graphics.Bitmap
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
-import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onRoot
@@ -14,10 +14,20 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import androidx.compose.ui.geometry.Offset
 import com.hermes.client.ui.InChinese
+import com.hermes.client.ui.createHermesComposeRule
 import com.hermes.client.ui.theme.HermesTheme
 import java.io.ByteArrayOutputStream
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -41,7 +51,34 @@ class ImageEditorGestureTest {
         const val SOURCE_HEIGHT = 300f
     }
 
-    @get:Rule val compose = createComposeRule()
+    @get:Rule val compose = createHermesComposeRule()
+
+    /** Decoder/pixelation completion must queue UI continuations, not resume them on its worker. */
+    @Test fun ioCompletionWaitsForUiSchedulerBeforeResumingAnEffect() {
+        lateinit var scope: CoroutineScope
+        lateinit var uiThread: Thread
+        val gate = CompletableDeferred<Unit>()
+        val awaiting = AtomicBoolean()
+        val resumed = AtomicReference<Thread>()
+        compose.setContent { scope = rememberCoroutineScope() }
+        compose.runOnIdle {
+            uiThread = Thread.currentThread()
+            scope.launch { awaiting.set(true); gate.await(); resumed.set(Thread.currentThread()) }
+        }
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        assertTrue("the effect must be suspended before IO completion", awaiting.get())
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            executor.submit { gate.complete(Unit) }.get(5, TimeUnit.SECONDS)
+            assertNull("IO completion must wait for the UI scheduler", resumed.get())
+            compose.mainClock.advanceTimeByFrame()
+            compose.waitForIdle()
+            assertSame(uiThread, resumed.get())
+        } finally {
+            executor.shutdownNow()
+        }
+    }
 
     private fun pngBytes(width: Int = SOURCE_WIDTH.toInt(), height: Int = SOURCE_HEIGHT.toInt()): ByteArray {
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)

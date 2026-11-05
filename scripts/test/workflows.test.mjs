@@ -111,6 +111,26 @@ test('every Gradle job is given the key that makes the configuration cache survi
   }
 });
 
+test('Android CI preserves sanitized stall evidence only on failure without changing the test gate', async () => {
+  const ci = await read('ci.yml');
+  const unit = ci.split('\n  android:\n')[1].split('\n  android-lint:\n')[0];
+  const lint = ci.split('\n  android-lint:\n')[1].split('\n  desktop:\n')[0];
+  const release = await read('android-release.yml');
+  assert.match(unit, /HERMES_TEST_DIAGNOSTICS_DIR: \$\{\{ runner\.temp \}\}\/android-test-diagnostics/);
+  assert.match(unit, /run: \.\/gradlew :app:testDebugUnitTest --no-daemon --console=plain/);
+  assert.match(unit, /if: failure\(\)\n        uses: actions\/upload-artifact@/);
+  assert.match(unit, /path: \$\{\{ runner\.temp \}\}\/android-test-diagnostics\/\*\.txt/);
+  assert.match(unit, /if-no-files-found: ignore\n          retention-days: 7/);
+  assert.doesNotMatch(unit, /continue-on-error|--no-configuration-cache|--tests|hermesTestWorkerTimeoutSeconds|ignoreFailures/);
+  assert.doesNotMatch(lint + release, /HERMES_TEST_DIAGNOSTICS_DIR|android-test-diagnostics/);
+  const wiring = await readRoot('android/test-watchdog.gradle.kts');
+  assert.match(wiring, /providers\.environmentVariable\("HERMES_TEST_DIAGNOSTICS_DIR"\)/);
+  assert.match(wiring, /systemProperty\("hermes\.test\.diagnostics\.dir", diagnosticsDirectory\)/);
+  assert.match(wiring, /testLogging.events\(TestLogEvent.STARTED, TestLogEvent.PASSED/);
+  assert.match(wiring, /testLogging.exceptionFormat = TestExceptionFormat.FULL/);
+  assert.doesNotMatch(wiring, /addTestListener|beforeTest\s*\{|afterTest\s*\{/);
+});
+
 test('routine workflows cancel stale PR runs and bound every job', async () => {
   for (const file of ['ci.yml', 'sast.yml', 'gateway-oci.yml', 'gateway-r5e-recovery.yml']) {
     const workflow = await read(file);
