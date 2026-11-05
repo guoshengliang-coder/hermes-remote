@@ -569,6 +569,10 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /** The current HTML behind an inline `::preview` card (docs/DESIGN.md §5.23). */
+    suspend fun previewDocument(path: String): String =
+        fileRepository.previewDocument(path, currentDeviceId, INLINE_PREVIEW_MAX_BYTES)
+
     val fileDownloads get() = artifactDownloads?.tasks ?: kotlinx.coroutines.flow.MutableStateFlow(emptyList<com.hermes.client.data.downloads.ArtifactDownloadTask>())
     suspend fun fileDownloadOwner() = artifactDownloads?.owner(currentDeviceId)
     fun completedDownload(task: com.hermes.client.data.downloads.ArtifactDownloadTask) = artifactDownloads?.completedFile(task)

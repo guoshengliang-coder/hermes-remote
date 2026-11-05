@@ -104,6 +104,11 @@ enum class AppErrorCode(val value: String) {
     CHART_RENDER_FAILED("HR-CHART-001"),
     CHART_SETTINGS_FAILED("HR-CHART-002"),
     CHART_RANGE_EXCEEDED("HR-CHART-003"),
+    // An inline `::preview{file="…"}` card (docs/DESIGN.md §5.23). Fetching the file keeps the
+    // HR-FILE-* download codes; these two are the frame itself: it failed to render, or the file
+    // is too large to load into a frame at all.
+    PREVIEW_RENDER_FAILED("HR-PREVIEW-001"),
+    PREVIEW_TOO_LARGE("HR-PREVIEW-002"),
     OUTPUT_HAPTICS_SETTINGS_FAILED("HR-STORE-002"),
     UNKNOWN_NOTICE_REMOVE_FAILED("HR-STORE-003"),
     OUTPUT_HAPTIC_PREVIEW_FAILED("HR-HAPTIC-001"),

@@ -60,14 +60,16 @@ internal data class OutputHapticPresentation(
 /** The receiving-tool placeholder is presentation chrome, not assistant prose. */
 internal fun outputHapticPresentation(message: ChatMessage?, placeholder: String): OutputHapticPresentation {
     if (message == null || message.isError) return OutputHapticPresentation("", null)
-    val blocks = markdownRenderBlocks(message.text)
-    val last = blocks.indexOfLast { it.trim() != "*$placeholder*" && it.isNotBlank() }
-    val prose = message.text.removeSuffix("*$placeholder*").trimEnd()
+    // Indexed exactly as AssistantTurn renders (a preview card is a block of its own and is not
+    // prose), or the keys below would name the wrong blocks once an answer carries a preview.
+    val blocks = assistantDisplayBlocks(message.text).map { (it as? AssistantDisplayBlock.Prose)?.content }
+    fun isProse(index: Int) = blocks[index]?.let { it.trim() != "*$placeholder*" && it.isNotBlank() } == true
+    val last = blocks.indices.lastOrNull(::isProse) ?: -1
+    val prose = com.hermes.client.domain.withoutPreviewDirectives(message.text.removeSuffix("*$placeholder*").trimEnd())
     return OutputHapticPresentation(
         readableText(prose),
         last.takeIf { it >= 0 }?.let { "${message.id}:markdown:$it" },
-        blocks.indices.filter { blocks[it].trim() != "*$placeholder*" && blocks[it].isNotBlank() }
-            .map { "${message.id}:markdown:$it" },
+        blocks.indices.filter(::isProse).map { "${message.id}:markdown:$it" },
     )
 }
 
@@ -119,9 +121,10 @@ internal class OutputHapticRun {
 /** Build final parser inputs once at completion, never on each growing display snapshot. */
 internal fun finalOutputHapticBlocks(message: ChatMessage?, placeholder: String): List<Pair<String, String>> {
     if (message == null) return emptyList()
-    return markdownRenderBlocks(message.text).mapIndexedNotNull { index, block ->
-        if (block.trim() == "*$placeholder*" || block.isBlank()) null
-        else "${message.id}:markdown:$index" to withCjkEmphasisRepaired(block)
+    return assistantDisplayBlocks(message.text).mapIndexedNotNull { index, block ->
+        val content = (block as? AssistantDisplayBlock.Prose)?.content ?: return@mapIndexedNotNull null
+        if (content.trim() == "*$placeholder*" || content.isBlank()) null
+        else "${message.id}:markdown:$index" to withCjkEmphasisRepaired(content)
     }
 }
 

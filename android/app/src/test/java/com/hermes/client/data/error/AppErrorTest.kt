@@ -82,6 +82,27 @@ class AppErrorTest {
         }
     }
 
+    @Test fun inlinePreviewFailuresHaveStableBilingualRedactedContracts() {
+        val render = AppError(AppErrorCode.PREVIEW_RENDER_FAILED, retryable = true,
+            technicalCause = "renderer crashed token=secret", stage = "inline_preview_render")
+        val tooLarge = AppError(AppErrorCode.PREVIEW_TOO_LARGE, retryable = false,
+            technicalCause = "Authorization: Bearer private", stage = "inline_preview")
+        assertEquals("HR-PREVIEW-001", render.code.value)
+        assertEquals("网页预览暂时无法显示，请重试，或分享文件后用其他应用打开。", render.localizedSummary(AppLanguage.ZH))
+        assertEquals("The preview couldn't be displayed. Retry, or share the file to open it in another app.", render.localizedSummary(AppLanguage.EN))
+        assertTrue(render.retryable)
+        assertEquals("HR-PREVIEW-002", tooLarge.code.value)
+        assertEquals("网页文件超过 16 MB，无法在聊天中预览。可以分享文件后用其他应用打开。", tooLarge.localizedSummary(AppLanguage.ZH))
+        assertEquals("The page is larger than 16 MB, so it can't be previewed in the chat. Share the file to open it in another app.", tooLarge.localizedSummary(AppLanguage.EN))
+        assertFalse(tooLarge.retryable)
+        for (error in listOf(render, tooLarge)) {
+            assertEquals(error.code, AppErrorCode.fromValue(error.code.value))
+            for (language in AppLanguage.entries) assertTrue(error.localizedMessage(language).contains(error.code.value))
+            assertFalse(error.sanitizedDiagnostic().contains("secret"))
+            assertFalse(error.sanitizedDiagnostic().contains("private"))
+        }
+    }
+
     @Test fun hapticPreviewFailureHasStableLocalizedRecoverableRedactedContract() {
         val error = AppError(AppErrorCode.OUTPUT_HAPTIC_PREVIEW_FAILED, true, "token=secret password=hidden", "output_haptic_preview")
         assertEquals(error.code, AppErrorCode.fromValue("HR-HAPTIC-001"))
