@@ -52,6 +52,11 @@ and the uncached credential-free Android task profile. The largest measured task
 (158.2s), main/test Kotlin compilation (95.8s / 44.7s), then KSP (26.2s). These are profiling results,
 not an official release speedup or a coverage exception.
 
+[Android full-suite follow-up](ANDROID_TEST_RESEARCH_2026_11_05.md) measured four identical
+2,933-test samples on one runner: raising forks from two to four increased median test-task time
+from 132.35s to 153.62s. The existing policy stays. A separate baseline attempt hit the 600s
+watchdog; the successful repeat does not establish its cause or a fix.
+
 | Evidence | Observation |
 |---|---|
 | [0.1.194 PR CI](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/41320736013) | 6m20s, followed by a separate main run |
