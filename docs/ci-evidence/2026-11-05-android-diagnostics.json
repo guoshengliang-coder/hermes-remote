@@ -1,0 +1,153 @@
+{
+  "syntheticProof": {
+    "code": "HR-TEST-001",
+    "fixture": "synthetic",
+    "expectedOutcome": "failure",
+    "workerStopped": true,
+    "snapshots": 2,
+    "sanitized": true,
+    "frames": 60,
+    "timeoutSeconds": 6,
+    "runId": 42000945608,
+    "artifacts": [
+      {
+        "kind": "threadSnapshot",
+        "bytes": 2925,
+        "sha256": "0f6d670b7f52f6566038853d7f07a1cb2d3821c7d69f6ffe553d351b5caa0050"
+      },
+      {
+        "kind": "threadSnapshot",
+        "bytes": 2925,
+        "sha256": "acda09202d6a566bef3dc542f432ad57222cf1b2da195bdfda63c1cbe2998bab"
+      }
+    ]
+  },
+  "earlierAttempts": [
+    {
+      "runId": 41997322403,
+      "outcome": "experiment_failed",
+      "reason": "SDK cache directory created; both full Gradle commands succeeded; second-round cache assertion failed"
+    },
+    {
+      "runId": 41998575416,
+      "outcome": "test_failed",
+      "round": 2,
+      "testsCompleted": 2933,
+      "failures": 1,
+      "testClass": "ImageEditorGestureTest",
+      "method": "eachToolShowsItsOwnOptionRow",
+      "exceptions": [
+        "CalledFromWrongThreadException",
+        "ArrayIndexOutOfBoundsException"
+      ]
+    }
+  ],
+  "localFinal": {
+    "sourceCommit": "e2d85beaa95b0e978eeb33a7fecf0d0dd3ed84ba",
+    "osVersion": "26.6.2",
+    "architecture": "arm64",
+    "gradleReportedSeconds": 77,
+    "counts": {
+      "tests": 2934,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "identityHash": "ae45cfc1055b048e2baa694e444eb18be5c7dffc4cd38e129c6e013caf4195f1",
+    "imageEditor": {
+      "class": "com.hermes.client.ui.chat.imageedit.ImageEditorGestureTest",
+      "tests": 12,
+      "suiteSeconds": 0.988,
+      "caseSeconds": 0.986
+    }
+  },
+  "regression": {
+    "oldRuleRanContinuationOnIoThread": true,
+    "fixedRuleQueuesForUiScheduler": true,
+    "originalImageEditorCasesRetained": 11,
+    "newBoundaryCases": 1
+  },
+  "verification": {
+    "watchdogRealJvmTests": 6,
+    "focusedTests": 19,
+    "nodeBaselinePass": 1037,
+    "nodeBaselineConditionalSkip": 21
+  },
+  "completeRepeats": {
+    "runId": 42000945714,
+    "sourceCommit": "e2d85beaa95b0e978eeb33a7fecf0d0dd3ed84ba",
+    "cpus": 4,
+    "os": "Ubuntu 26.04",
+    "java": "Temurin 21.0.13+9",
+    "gradle": "9.6.1",
+    "samples": [
+      {
+        "round": 1,
+        "elapsedSeconds": 261.302710181,
+        "testTaskSeconds": 153.53,
+        "watchdogGateSeconds": 18.29,
+        "configurationCacheReused": false,
+        "sdkBootstrapCacheCreated": false,
+        "workerCount": 2,
+        "startedEvents": 2934,
+        "passedEvents": 2934,
+        "junit": {
+          "counts": {
+            "tests": 2934,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0
+          },
+          "identityHash": "ae45cfc1055b048e2baa694e444eb18be5c7dffc4cd38e129c6e013caf4195f1",
+          "sumSuiteSeconds": 290.089,
+          "sumCaseSeconds": 283.798
+        }
+      },
+      {
+        "round": 2,
+        "elapsedSeconds": 187.66695275300003,
+        "testTaskSeconds": 156.23,
+        "watchdogGateSeconds": 16.841,
+        "configurationCacheReused": false,
+        "sdkBootstrapCacheCreated": true,
+        "workerCount": 2,
+        "startedEvents": 2934,
+        "passedEvents": 2934,
+        "junit": {
+          "counts": {
+            "tests": 2934,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0
+          },
+          "identityHash": "ae45cfc1055b048e2baa694e444eb18be5c7dffc4cd38e129c6e013caf4195f1",
+          "sumSuiteSeconds": 295.389,
+          "sumCaseSeconds": 291.325
+        }
+      },
+      {
+        "round": 3,
+        "elapsedSeconds": 179.9278521,
+        "testTaskSeconds": 156.71,
+        "watchdogGateSeconds": 16.691,
+        "configurationCacheReused": true,
+        "sdkBootstrapCacheCreated": false,
+        "workerCount": 2,
+        "startedEvents": 2934,
+        "passedEvents": 2934,
+        "junit": {
+          "counts": {
+            "tests": 2934,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0
+          },
+          "identityHash": "ae45cfc1055b048e2baa694e444eb18be5c7dffc4cd38e129c6e013caf4195f1",
+          "sumSuiteSeconds": 296.432,
+          "sumCaseSeconds": 292.481
+        }
+      }
+    ],
+    "healthyWorkerSnapshots": 0
+  }
+}

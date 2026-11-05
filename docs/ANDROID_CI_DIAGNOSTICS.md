@@ -49,7 +49,11 @@ Java 栈帧；不保留线程名、锁对象详情、任意 JVM 输出或原始�
 
 另外在只读权限、无凭据的临时分支工作流中连续执行三轮原配置完整测试，强制测试任务重跑，
 保留正常 configuration cache，核对用例身份/数量、实际 worker 数、进度事件、编译 UP-TO-DATE
-及第二、三轮的配置缓存复用。临时工作流在最终分支移除，不进入常规 main 调度。
+及各轮配置缓存状态，最终轮必须证明实际复用。首次复核的
+[run 41997322403](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/41997322403)
+两次 Gradle 都成功，但第二轮因 SDK 创建 `.config/.android/cache` 被配置缓存断言拦住，
+不是单测失败。后续明确记录这一次冷启动失效，第二轮仅允许这个已确认原因，第三轮仍须复用。
+临时工作流在最终分支移除，不进入常规 main 调度。
 若任一轮失败，优先读取最后未完成用例和取栈，不将失败轮计作性能样本。
 
 ## 复核中找到的测试调度回归
@@ -65,3 +69,47 @@ Java 栈帧；不保留线程名、锁对象详情、任意 JVM 输出或原始�
 调度器，再验证恢复线程必须等于 UI 线程。旧规则确定失败，实际恢复在 `pool-4-thread-1`；
 改用既有 StandardTestDispatcher 规则，不删除原 11 项手势/撤销/完成/取消断言，不改生产 UI。
 这是已捕获的测试调度问题；没有证据证明它就是前一轮 600 秒卡顿的原因。
+
+## 合成取证链路
+
+[run 42000945608](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/42000945608)
+成功。在无凭据 Ubuntu/JDK 21 job 中独立编译 agent 和固定 `Probe`，对这一个合成 worker 设置
+六秒预算。其 JVM 的预期非零退出必须同时有 `HR-TEST-001` 和真实快照，否则验证失败。
+只在这个临时夹具中消费预期失败，不对普通 CI 使用 `continue-on-error`。
+
+GitHub 实际上传并回读两份快照，共 60 条 JDK/Probe 栈帧。显式核对线程名
+`synthetic-private-thread-token` 和本地目录没有进入快照。首个合成 run 41999157992 已验证终止/
+上传，但发现 JDK 模块标记位于括号内的栈帧被漏掉；修正过滤器并增加模块格式回归后，以上
+最终 run 验证了真实 JDK 帧保留。完整快照仍只用于诊断，不据此宣称真实偶发卡顿已修复。
+
+## 修正后的完整三轮结果
+
+[run 42000945714](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/42000945714)
+成功，固定源码 `e2d85bea`、Ubuntu 26.04、4 CPU、Temurin 21.0.13+9、Gradle 9.6.1。
+全部保留原配置的 2 worker / 每个 1 GB 堆与 600 秒预算。每轮测试任务都强制执行，
+后两轮主 Kotlin、测试 Kotlin、KSP 均 UP-TO-DATE。
+
+| 轮次 | 完整用例 | 测试任务 | Gradle 命令总耗时 | 配置缓存 |
+|---|---:|---:|---:|---|
+| 1 | 2,934 全通过 | 153.530s | 261.303s | 首次配置 |
+| 2 | 2,934 全通过 | 156.230s | 187.667s | SDK 缓存目录创建导致失效 |
+| 3 | 2,934 全通过 | 156.710s | 179.928s | **实际复用** |
+
+三轮 0 失败、0 错误、0 跳过，用例身份哈希完全相同，也与本机最终完整运行一致。
+每轮观察到 2 个真实 worker，以及各 2,934 条 STARTED/PASSED 事件。健康 worker 未触发取栈。
+watchdog 前置安全回归在此 runner 上约 16.7–18.3s，计入命令总耗时。
+首轮还包含编译/恢复等工作，不能与后两轮或以前实验直接计算提速率。
+
+这是有限重复与配置缓存兼容性证明，不是消除所有偶发错误的统计保证。新增一个确定性回归，
+因此修正后比修正前的 2,933 项多一项；没有删除或跳过任何用例。原 600 秒卡顿仍未重现定位。
+汇总永久保存在 [ci-evidence/2026-11-05-android-diagnostics.json](ci-evidence/2026-11-05-android-diagnostics.json)，
+不含完整业务 stdout、环境、配置或原始 dump；GitHub 原始实验 artifact 保留七天。
+
+## 本次验证范围
+
+六项真实 JVM watchdog 回归、图像编辑器 12 项定向测试、最终本机完整 2,934 项 JVM 测试通过。
+19 项聚焦工作流/证据回归通过；网络启用 Node 基线 1,037 通过 / 21 条件跳过；最终脚本基线
+545 通过 / 1 平台跳过。actionlint 与 `git diff --check` 通过。
+仅执行 L1 JVM/渲染验证；未运行 L2 真机、L3 模拟器或 assemble/package gate。
+生产 UI、Golden 图、Android 版本与发布工作流不变，不生成分发 APK、不签名、不发布。
+PR 和合并后 main 继续按完整检查门禁验证，普通 CI 不消费预期失败或放宽断言。
