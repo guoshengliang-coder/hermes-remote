@@ -31,6 +31,20 @@ jobs:
         with: { fetch-depth: 0 }
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: { node-version: 22, cache: npm }
+      # Presence flags only: release credentials remain confined to their consuming steps.
+      - name: Check release prerequisites before building
+        env:
+          HAS_SIGNING_P12_BASE64: ${{ secrets.DESKTOP_APP_SIGNING_P12_BASE64 != '' }}
+          HAS_SIGNING_P12_PASSWORD: ${{ secrets.DESKTOP_APP_SIGNING_P12_PASSWORD != '' }}
+          HAS_SIGNING_IDENTITY: ${{ secrets.DESKTOP_APP_SIGNING_IDENTITY != '' }}
+          HAS_SIGNING_TEAM_ID: ${{ secrets.DESKTOP_APP_SIGNING_TEAM_ID != '' }}
+          HAS_NOTARY_KEY_BASE64: ${{ secrets.DESKTOP_APP_NOTARY_KEY_BASE64 != '' }}
+          HAS_NOTARY_KEY_ID: ${{ secrets.DESKTOP_APP_NOTARY_KEY_ID != '' }}
+          HAS_NOTARY_ISSUER_ID: ${{ secrets.DESKTOP_APP_NOTARY_ISSUER_ID != '' }}
+          HAS_RELEASE_SIGNING_KEY_ID: ${{ vars.DESKTOP_RELEASE_SIGNING_KEY_ID != '' }}
+          HAS_RELEASE_SIGNING_PUBLIC_KEY: ${{ vars.DESKTOP_RELEASE_SIGNING_PUBLIC_KEY != '' }}
+        run: node scripts/release-preflight.mjs desktop-app
+
       - name: Require current main and exact release version
         env:
           DESKTOP_VERSION: ${{ inputs.desktop_version }}

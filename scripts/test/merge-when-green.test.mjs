@@ -134,6 +134,22 @@ test('pending past the timeout reports timeout', async () => {
   assert.equal((await waitFor(clock(Array(20).fill('pending')).options)).state, 'timeout');
 });
 
+test('gate timings include confirmation waits and retain failure and timeout verdicts', async () => {
+  for (const [states, expected, elapsedMs] of [
+    [['pending', 'success', 'success'], 'success', 20],
+    [['pending', 'failure'], 'failure', 10],
+    [Array(20).fill('pending'), 'timeout', 100],
+    [Array(5).fill('none'), 'none', 30],
+  ]) {
+    const c = clock(states);
+    const result = await waitFor({...c.options, phase: 'pr_checks'});
+    assert.equal(result.state, expected);
+    const timings = c.seen.filter(line => line.startsWith('GATE_TIMING '));
+    assert.equal(timings.length, 1);
+    assert.deepEqual(JSON.parse(timings[0].slice('GATE_TIMING '.length)), {phase: 'pr_checks', elapsedMs, state: expected});
+  }
+});
+
 test('the CLI rejects a missing PR number without calling gh', () => {
   assert.throws(() => execFileSync('node', [SCRIPT], {stdio: 'pipe'}), (error) => error.status === 4 && /usage:/.test(error.stderr));
   assert.throws(() => execFileSync('node', [SCRIPT, '12', '--bogus'], {stdio: 'pipe'}), (error) => error.status === 4 && /unknown argument/.test(error.stderr));

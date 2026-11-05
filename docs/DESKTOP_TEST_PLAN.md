@@ -1,5 +1,17 @@
 # Hermes Go Desktop test plan
 
+## Release workflow prerequisites (2026-11-05)
+
+Run `node --test scripts/test/release-preflight.test.mjs scripts/test/workflows.test.mjs
+scripts/test/desktop-official-release.test.mjs` (on one shell line). Fixtures verify every required
+candidate-input flag, early rejection before dependencies/tests, boolean-only exposure of presence,
+registered bilingual/retryable errors and diagnostic redaction. The existing candidate signing,
+verification and protected-environment gates remain in place. No Swift/UI behavior changes.
+A protected GitHub candidate run with owner-provided configuration is still required to measure the
+real improvement and verify production environment resolution; local fixtures do not prove that a
+certificate/private key exists or that signing/notarization succeeds. Do not trigger publication as
+a test. See `GITHUB_FLOW_AUDIT.md` for the current historical evidence.
+
 ## 2026-10-30：退出后的连接恢复与可见入口
 
 测试影响：原故障是启动项 loaded 而 Connector 进程 stopped；安装检测不能替代进程检查。回归覆盖实际 launchctl 顶层状态/进程证据（包括资源 coalition 的嵌套状态）、运行/未知/未加载均不触发自动 kickstart、停止任务在两种安装布局下只启动原 Connector、凭据/账号/启动参数不匹配和本机认证失败时零变更、失败的启动和旧健康记录不报成功、进程在检查期间启动时不重复干预，以及 60 秒冷却/三次上限。

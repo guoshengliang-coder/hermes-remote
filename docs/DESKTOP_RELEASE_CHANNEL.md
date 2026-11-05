@@ -1,5 +1,16 @@
 # Desktop release channel
 
+## Candidate prerequisite checks
+
+The official app and signed component candidate workflows run `scripts/release-preflight.mjs`
+(`desktop-app` / `desktop-components`) before dependencies, tests or packaging. Only boolean
+presence flags reach the preflight; signing keys, certificates and notary credentials stay on their
+existing consuming steps. Missing inputs fail with bilingual `HR-RELEASE-008` and safe input names.
+Presence does not prove validity: the existing signing, key-continuity, notarization and artifact
+verification gates remain mandatory. Connector and signed-component candidates use `npm run test:ci`
+to build the Node workspaces once before the same complete test suite, replacing nested repeated
+workspace builds. Protected-environment review and publication authorization are unchanged.
+
 ## Internal test release: 0.2.52 / build 55
 
 The owner requested publication on 2026-10-30 after the stopped-Connector incident. PR #717

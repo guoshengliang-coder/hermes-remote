@@ -98,8 +98,12 @@ export function refusal(pr) {
 // Polls `probe` until `classify` settles. `none` (nothing reported yet) is tolerated for `grace` ms,
 // since checks take a few seconds to register after a push or merge. Success must be seen on two
 // consecutive polls so a workflow that registers late is not missed.
-export async function waitFor({probe, classify, interval, timeout, grace, sleep, now, log}) {
+export async function waitFor({probe, classify, interval, timeout, grace, sleep, now, log, phase}) {
   const start = now();
+  const settled = (result) => {
+    if (phase) log(`GATE_TIMING ${JSON.stringify({phase, elapsedMs: now() - start, state: result.state})}`);
+    return result;
+  };
   let lastSummary = '';
   let confirmed = false;
   for (;;) {
@@ -107,16 +111,16 @@ export async function waitFor({probe, classify, interval, timeout, grace, sleep,
     const summary = result.state === 'pending' ? `pending: ${result.pending.join(', ')}` : result.state;
     if (summary !== lastSummary) log(`  ${summary}`);
     lastSummary = summary;
-    if (result.state === 'failure') return result;
+    if (result.state === 'failure') return settled(result);
     if (result.state === 'success') {
-      if (confirmed) return result;
+      if (confirmed) return settled(result);
       confirmed = true;
     } else {
       confirmed = false;
     }
     const elapsed = now() - start;
-    if (result.state === 'none' && elapsed >= grace) return result;
-    if (elapsed >= timeout) return {...result, state: 'timeout'};
+    if (result.state === 'none' && elapsed >= grace) return settled(result);
+    if (elapsed >= timeout) return settled({...result, state: 'timeout'});
     await sleep(interval);
   }
 }
@@ -164,7 +168,7 @@ async function main(argv) {
   const head = initial.headRefOid;
   console.log(`#${pr} ${initial.title}\n  head ${head.slice(0, 8)} → ${initial.baseRefName}`);
 
-  const checks = await waitFor({...timing, probe: () => view('headRefOid,statusCheckRollup'), classify: (data) => {
+  const checks = await waitFor({...timing, phase: 'pr_checks', probe: () => view('headRefOid,statusCheckRollup'), classify: (data) => {
     if (data.headRefOid !== head) return {state: 'failure', pending: [], failed: [`head moved to ${data.headRefOid.slice(0, 8)} while waiting — rerun`]};
     return classifyChecks(data.statusCheckRollup);
   }});
@@ -180,7 +184,7 @@ async function main(argv) {
   const sha = merged.mergeCommit.oid;
   console.log(`  merged as ${sha.slice(0, 8)}; waiting for ${initial.baseRefName} checks`);
 
-  const runs = await waitFor({...timing, probe: () => JSON.parse(gh(['run', 'list', '--commit', sha, '--json', 'name,event,status,conclusion'])), classify: classifyRuns});
+  const runs = await waitFor({...timing, phase: 'main_checks', probe: () => JSON.parse(gh(['run', 'list', '--commit', sha, '--json', 'name,event,status,conclusion'])), classify: classifyRuns});
   if (runs.state === 'failure') return finish(2, `MAIN_FAILED ${sha.slice(0, 8)} after #${pr}: ${runs.failed.join('; ')}`);
   if (runs.state === 'none') return finish(2, `MAIN_FAILED ${sha.slice(0, 8)} after #${pr}: no push checks appeared`);
   if (runs.state === 'timeout') return finish(3, `TIMEOUT ${sha.slice(0, 8)} after #${pr}: main still pending: ${runs.pending.join(', ')}`);
