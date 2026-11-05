@@ -138,6 +138,10 @@ its tag was pushed after the same version had already been uploaded another way.
 
 ## Automatic publishing from GitHub
 
+Pure version changes currently retain the same Android PR checks. The observation-only classifier
+and proposed future exception are documented in [ANDROID_RELEASE_METADATA_PLAN.md](ANDROID_RELEASE_METADATA_PLAN.md);
+its candidate summary does not authorize skipping checks or publishing.
+
 The repository includes `.github/workflows/android-release.yml`. Normal pushes and pull requests run
 unit tests, lint, and source compilation without any signing or deployment secret; they deliberately do
 not package an APK. Publishing runs when a tag named `android-v<appVersionName>` is pushed, or when the workflow
