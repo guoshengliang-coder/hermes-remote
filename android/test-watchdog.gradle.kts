@@ -2,6 +2,7 @@ import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.api.tasks.bundling.Jar
 import org.gradle.api.tasks.testing.Test
 import org.gradle.api.tasks.testing.logging.TestLogEvent
+import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 
 // Build-only, dependency-free watchdog. It is never on the app's runtime classpath.
 val compileTestWatchdog = tasks.register<JavaCompile>("compileTestWatchdog") {
@@ -37,6 +38,7 @@ subprojects {
         if (!diagnosticsDirectory.isNullOrBlank()) {
             systemProperty("hermes.test.diagnostics.dir", diagnosticsDirectory)
             testLogging.events(TestLogEvent.STARTED, TestLogEvent.PASSED, TestLogEvent.FAILED, TestLogEvent.SKIPPED)
+            testLogging.exceptionFormat = TestExceptionFormat.FULL
         }
     }
 }

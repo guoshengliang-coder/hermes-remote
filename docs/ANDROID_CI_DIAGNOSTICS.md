@@ -9,6 +9,7 @@
 仅 `ci.yml` 的 `android` job 设置 `HERMES_TEST_DIAGNOSTICS_DIR`，目录在 runner temp 内。
 命令仍是完整 `:app:testDebugUnitTest --no-daemon`，增加 `--console=plain` 以便阅读进度。
 使用 Gradle 内置 TestLogging，不安装会破坏 configuration cache 的测试监听器。
+测试失败时保留完整异常栈，便于区分测试调度、渲染或清理阶段的错误。
 未匹配的 STARTED/PASSED 记录是诊断线索，最终成败仍以原 Gradle/JUnit 结果为准。
 
 每个 worker 原有的独立 watchdog 保留 PID + startInstant 检查。它在预算 50%/80% 时异步请求
@@ -50,3 +51,17 @@ Java 栈帧；不保留线程名、锁对象详情、任意 JVM 输出或原始�
 保留正常 configuration cache，核对用例身份/数量、实际 worker 数、进度事件、编译 UP-TO-DATE
 及第二、三轮的配置缓存复用。临时工作流在最终分支移除，不进入常规 main 调度。
 若任一轮失败，优先读取最后未完成用例和取栈，不将失败轮计作性能样本。
+
+## 复核中找到的测试调度回归
+
+[run 41998575416](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/41998575416)
+第二轮执行全部 2,933 项，其中 `ImageEditorGestureTest.eachToolShowsItsOwnOptionRow` 失败，
+报告 `CalledFromWrongThreadException` 和 Compose `SlotTable` 越界。这是一次真实测试失败，
+不是 configuration cache 校验误报；失败轮不计为通过样本，也不绕过重试。
+
+该类遗漏了项目已有的 `createHermesComposeRule()` 迁移。编辑器在真实 IO 线程解码/像素化，
+旧 v1 Compose 测试规则的 unconfined 默认可能让 effect continuation 在 IO 完成线程上恢复。
+新增回归直接建立 UI scope、等待真实线程完成 Deferred，先验证 continuation 必须等待 UI
+调度器，再验证恢复线程必须等于 UI 线程。旧规则确定失败，实际恢复在 `pool-4-thread-1`；
+改用既有 StandardTestDispatcher 规则，不删除原 11 项手势/撤销/完成/取消断言，不改生产 UI。
+这是已捕获的测试调度问题；没有证据证明它就是前一轮 600 秒卡顿的原因。

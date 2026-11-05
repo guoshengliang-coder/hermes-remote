@@ -137,13 +137,18 @@ public class DiagnosticsHarness {
         raw = ('pid-secret\n"synthetic-private-thread-token" #9 prio=5\n'
                '   java.lang.Thread.State: TIMED_WAITING (private-cause)\n'
                '        at java.base@21/java.lang.Thread.sleep0(Native Method)\n'
+               '        at java.lang.Thread.sleep0(java.base@21.0.13/Native Method)\n'
+               '        at java.lang.Thread.run(java.base@21.0.13/Thread.java:1583)\n'
                '        at com.hermes.client.Test.case(Test.kt:12)\n'
+               '        at com.hermes.client.Test.case(/private/full/path/Test.kt:12)\n'
                '        - locked <0x123> (private object details)\nJNI global refs: private\n')
         result = subprocess.run([self.java, '-cp', str(self.classes), 'com.hermes.testing.DiagnosticsHarness', 'sanitize'],
                                 input=raw * 400, capture_output=True, text=True, check=True)
         self.assertIn('thread #9', result.stdout)
         self.assertIn('com.hermes.client.Test.case(Test.kt:12)', result.stdout)
         self.assertIn('java.base@21/java.lang.Thread.sleep0(Native Method)', result.stdout)
+        self.assertIn('java.lang.Thread.sleep0(java.base@21.0.13/Native Method)', result.stdout)
+        self.assertIn('java.lang.Thread.run(java.base@21.0.13/Thread.java:1583)', result.stdout)
         self.assertNotIn('private', result.stdout)
         self.assertNotIn('JNI', result.stdout)
         self.assertLessEqual(result.stdout.count('thread #9'), 256)

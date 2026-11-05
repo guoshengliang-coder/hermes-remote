@@ -18,7 +18,8 @@ final class WorkerDiagnostics implements AutoCloseable {
     private static final Pattern STATE = Pattern.compile(
             "^\\s+java\\.lang\\.Thread\\.State: (NEW|RUNNABLE|BLOCKED|WAITING|TIMED_WAITING|TERMINATED).*");
     private static final Pattern FRAME = Pattern.compile(
-            "^\\s+at ([A-Za-z0-9_.$/@<>-]+\\([A-Za-z0-9_.$ -]+(?::\\d+)?\\))\\s*$");
+            "^\\s+at ([A-Za-z0-9_.$/@<>-]+\\((?:[A-Za-z0-9_.-]+(?:@[A-Za-z0-9_.+-]+)?/)?"
+                    + "[A-Za-z0-9_.$ -]+(?::\\d+)?\\))\\s*$");
     private final ProcessHandle worker;
     private final Instant started;
     private final Path command;

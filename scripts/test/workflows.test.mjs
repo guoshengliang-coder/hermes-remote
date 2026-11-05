@@ -127,6 +127,7 @@ test('Android CI preserves sanitized stall evidence only on failure without chan
   assert.match(wiring, /providers\.environmentVariable\("HERMES_TEST_DIAGNOSTICS_DIR"\)/);
   assert.match(wiring, /systemProperty\("hermes\.test\.diagnostics\.dir", diagnosticsDirectory\)/);
   assert.match(wiring, /testLogging.events\(TestLogEvent.STARTED, TestLogEvent.PASSED/);
+  assert.match(wiring, /testLogging.exceptionFormat = TestExceptionFormat.FULL/);
   assert.doesNotMatch(wiring, /addTestListener|beforeTest\s*\{|afterTest\s*\{/);
 });
 

@@ -49,10 +49,12 @@ jobs:
           files=list(output.glob('*.threads.txt'));assert files
           text='\n'.join(file.read_text() for file in files)
           assert 'Probe.main(Probe.java:' in text and 'java.lang.Thread.State:' in text
+          frames=sum(line.startswith('at ') for line in text.splitlines())
+          assert frames>10 and 'java.lang.Thread.sleep0(java.base@' in text
           assert 'synthetic-private-thread-token' not in text and str(root) not in text
           (output/'summary.json').write_text(json.dumps({'code':'HR-TEST-001','fixture':'synthetic',
             'expectedOutcome':'failure','workerStopped':True,'snapshots':len(files),
-            'sanitized':True,'timeoutSeconds':6},indent=2)+'\n')
+            'sanitized':True,'frames':frames,'timeoutSeconds':6},indent=2)+'\n')
           PY
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()

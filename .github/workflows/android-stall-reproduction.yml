@@ -29,7 +29,7 @@ jobs:
         with:
           cache-read-only: true
           build-scan-publish: false
-      - name: Repeat three complete suites and verify cache reuse
+      - name: Repeat three complete suites after UI scheduler regression fix
         env:
           EVIDENCE_DIR: ${{ runner.temp }}/android-stall-reproduction
           HERMES_TEST_DIAGNOSTICS_DIR: ${{ runner.temp }}/android-test-diagnostics
@@ -54,10 +54,10 @@ jobs:
                                      '--console=plain','--profile'],cwd=android,stdout=log,
                                     stderr=subprocess.STDOUT,timeout=1200)
               elapsed=time.monotonic()-start
-              if proc.returncode:raise ValueError('full_suite_failed')
               fresh=set((android/'build/reports/profile').glob('*.html'))-before
               if len(fresh)!=1:raise ValueError('missing_profile')
               profile=fresh.pop();shutil.copyfile(profile,output/f'round-{index}.html')
+              if proc.returncode:raise ValueError('full_suite_failed')
               tasks=module.profile_tasks(profile.read_text())
               junit=module.junit_summary(android/'app/build/test-results/testDebugUnitTest')
               text=(output/f'round-{index}.log').read_text()

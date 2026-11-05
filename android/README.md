@@ -1274,6 +1274,9 @@ use `waitForIdle()` / `runOnIdle()` to synchronize. The v1 unconfined default co
 on a real image-decoder or Markdown-parser worker and intermittently fail thread/layout checks.
 The shared rule retains real asynchronous work, UI assertions, and thread checks. This follows
 the [Compose 1.10 testing guidance](https://android-developers.googleblog.com/2025/12/whats-new-in-jetpack-compose-december.html).
+The image-editor gesture suite also uses this rule: real IO completion must queue effect
+continuations on the UI scheduler. Its Deferred/real-worker regression fails under the old rule
+before migration; all original tool, crop, undo/redo and completion assertions remain.
 
 Every Gradle JVM test task loads the build-only `test-watchdog.jar`; it is never packaged in the
 APK. A separate, small JVM watches each test worker's PID and start time and forcibly stops that
