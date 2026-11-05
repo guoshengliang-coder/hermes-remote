@@ -33,12 +33,6 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - id: filter
-        name: Select affected component jobs
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: node scripts/ci/changed-components.mjs "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
       - id: release_metadata
         name: Validate Android release metadata with trusted base
         env:
@@ -73,6 +67,12 @@ jobs:
           if ! node "$trusted_dir/scripts/ci/android-release-metadata-gate.mjs"; then
             fallback
           fi
+      - id: filter
+        name: Select affected component jobs
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node scripts/ci/changed-components.mjs "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
       - name: Verify shared app icon
         if: steps.filter.outputs.assets == 'true'
         run: cmp android/app/src/main/ic_launcher-playstore.png desktop/Packaging/AppIcon.png

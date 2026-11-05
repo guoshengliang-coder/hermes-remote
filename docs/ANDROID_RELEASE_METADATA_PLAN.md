@@ -40,7 +40,7 @@ Git 对象缺失、分支分叉、解析失败也返回非候选。每条 Git �
 | 版本与发布决策 | 保留用户确认，纯升版仍是 `INTEGRATION.md` 表 2 的红灯变更 |
 | 正式发布 | 保留完整 package gate、签名、反馈配置、版本一致性、干净树与公网 size/hash/index 校验 |
 
-工作流固定先写入 `skip_android=false`，并遵守以下条件：
+工作流在 checkout 后、任何 PR 脚本执行前运行可信门禁，固定先写入 `skip_android=false`，并遵守以下条件：
 
 1. 只适用于 PR 事件，以该 PR 的精确 BASE/HEAD 为准，BASE 必须是 HEAD 的祖先。
    基础提交必须已有成功的 main CI，检查信息无法确认时走完整路径；HEAD 改动后重新分类。
@@ -97,7 +97,8 @@ node --test scripts/test/android-release-metadata.test.mjs \
   scripts/test/bump-android-release.test.mjs scripts/test/workflows.test.mjs
 ```
 
-启用阶段聚焦检查 111 项通过；本机 `RUN_NETWORK_TESTS=1 npm run test:ci` 为 1017 项通过、
-21 项跳过、0 失败（20 项需要 PostgreSQL，1 项平台跳过）。非法 UTF-8 回归在观察阶段先于旧实现
+启用阶段聚焦检查 112 项通过；首轮本机 `RUN_NETWORK_TESTS=1 npm run test:ci` 为 1017 项通过、
+21 项跳过、0 失败（20 项需要 PostgreSQL，1 项平台跳过）；最终脚本基线为 526 项通过、
+1 项平台跳过、0 失败。执行顺序回归先在旧顺序上失败，前移可信门禁后通过。非法 UTF-8 回归在观察阶段先于旧实现
 复现失败，再在修正后通过。本次只改检查工具与说明，没有 Android UI、
 协议或用户可见错误行为变化，不新增错误码；未做 L2 真机或 L3 模拟器验证，也未生成分发 APK。

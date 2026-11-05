@@ -94,7 +94,7 @@ const MODULES = ['scripts/ci/android-release-metadata-gate.mjs', 'scripts/ci/and
   'scripts/bump-android-release.mjs', 'release-server/src/schema.mjs'];
 const untrustedModule = "import {appendFileSync,writeFileSync} from 'node:fs'; writeFileSync('untrusted-executed', 'yes'); appendFileSync(process.env.GITHUB_OUTPUT, 'skip_android=true\\n');";
 const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
-const shellBlock = /      - id: release_metadata\n[\s\S]*?        run: \|\n([\s\S]*?)(?=      - name: Verify shared app icon)/.exec(workflow)?.[1];
+const shellBlock = /      - id: release_metadata\n[\s\S]*?        run: \|\n([\s\S]*?)(?=      - (?:id: filter|name: Verify shared app icon))/.exec(workflow)?.[1];
 const bootstrap = shellBlock?.split('\n').map(line => line.slice(10)).join('\n');
 
 function fixture(t, {missingBaseModule = false} = {}) {
@@ -165,4 +165,11 @@ test('only the changes job receives read-only Actions access and only Android jo
   assert.match(changes, /GH_TOKEN: \$\{\{ github\.token \}\}/);
   assert.doesNotMatch(changes, /contents: write|actions: write|secrets\./);
   assert.equal((workflow.match(/needs\.changes\.outputs\.skip_android != 'true'/g) ?? []).length, 2);
+});
+
+test('trusted validation runs before any PR-controlled script can alter the environment', () => {
+  const changes = workflow.split('\n  changes:\n')[1].split('\n  node:\n')[0];
+  const beforeGate = changes.slice(0, changes.indexOf('      - id: release_metadata'));
+  assert.doesNotMatch(beforeGate, /^\s+run:/m, 'no PR script may execute before the trusted gate');
+  assert.ok(changes.indexOf('      - id: release_metadata') < changes.indexOf('      - id: filter'));
 });
