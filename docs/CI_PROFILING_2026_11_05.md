@@ -3,6 +3,10 @@
 结论：本轮不向常规 CI 加入全目录 Swift 编译缓存；Android 下一步优先研究单测和 Kotlin 编译。
 所有常规检查、签名和发布门禁保留。没有升版、生成分发 APK、修改 Swift/Kotlin 运行代码或生产发布。
 
+后续 [Android 单测研究](ANDROID_TEST_RESEARCH_2026_11_05.md) 已完成同一 runner 的四轮完整对比：
+4 worker 比当前 2 worker 的测试任务中位数慢约 16.1%，因此没有提高并行度。
+四轮均为 2,933 项全通过；另一轮原配置曾触发 600 秒 watchdog，根因尚未复现确认。
+
 ## 数据与实验边界
 
 [实验 run 41973488828](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/41973488828)
