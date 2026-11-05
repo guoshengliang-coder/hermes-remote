@@ -46,6 +46,12 @@ as established. Node or other jobs may become the overall critical path once Des
 
 ## Measured bottlenecks
 
+Further measured follow-up: [CI_PROFILING_2026_11_05.md](CI_PROFILING_2026_11_05.md) records the
+fresh-runner Swift cache experiment (no net benefit in either sampled mode, so no cache adopted)
+and the uncached credential-free Android task profile. The largest measured tasks are unit tests
+(158.2s), main/test Kotlin compilation (95.8s / 44.7s), then KSP (26.2s). These are profiling results,
+not an official release speedup or a coverage exception.
+
 | Evidence | Observation |
 |---|---|
 | [0.1.194 PR CI](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/41320736013) | 6m20s, followed by a separate main run |

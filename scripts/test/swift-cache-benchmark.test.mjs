@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
-import {readFileSync} from 'node:fs';
 import test from 'node:test';
 
 test('Swift cache comparison requires complete identical evidence and preserves regressions', () => {
@@ -44,14 +43,4 @@ test('Swift measurement CLI redacts invalid arguments and requires actual cache 
   assert.equal(proc.status, 1);
   assert.match(proc.stderr, /HR-CI-001/);
   assert.doesNotMatch(proc.stdout + proc.stderr, /synthetic-secret|Traceback/);
-});
-
-test('temporary experiment is branch-only, pinned, bounded and receives no release credentials', () => {
-  const workflow = readFileSync('.github/workflows/ci-profiling-experiment.yml', 'utf8');
-  assert.match(workflow, /branches: \[codex\/ci-cache-profiling\]/);
-  assert.doesNotMatch(workflow, /secrets\.|environment:|pull_request:|workflow_dispatch:|assembleDebug|--scan|publish.*\.sh/);
-  assert.match(workflow, /--profile --no-build-cache --no-configuration-cache/);
-  assert.match(workflow, /name: Start end-to-end measurement before restore/);
-  assert.match(workflow, /fail-on-cache-miss: true/);
-  assert.equal((workflow.match(/persist-credentials: false/g) ?? []).length, 3);
 });

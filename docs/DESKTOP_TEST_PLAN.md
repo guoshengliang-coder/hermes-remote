@@ -2,6 +2,11 @@
 
 ## Parallel ordinary CI gates (2026-11-05)
 
+The subsequent fresh-runner cache trial retained all 740 tests and app identity/signature checks but
+showed no net benefit after restore overhead in either sampled mode. The parallel jobs below remain
+uncached. Evidence, limitations and repeatable comparison commands are in
+[CI_PROFILING_2026_11_05.md](CI_PROFILING_2026_11_05.md).
+
 `ci.yml` runs the unchanged `npm run desktop:test` in the existing `desktop` job and
 `npm run desktop:app` in an independent `desktop-build` job. Both depend only on `changes`, use
 the same `desktop` component flag, run on separate `macos-15` runners and have 15-minute limits.

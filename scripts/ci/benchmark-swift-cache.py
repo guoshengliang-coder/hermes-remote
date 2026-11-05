@@ -34,7 +34,7 @@ def test_counts(text):
 
 
 def compare(cold, cached):
-    if cold["variant"] != "cold" or cached["variant"] != "cached" or cached["cacheHit"] is not True:
+    if cold["mode"] not in COMMANDS or cold["variant"] != "cold" or cold["cacheHit"] is not False or cached["variant"] != "cached" or cached["cacheHit"] is not True:
         raise ValueError("invalid_pair")
     for key in (*IDENTITY, "mode", "evidence"):
         if cold[key] != cached[key]:
@@ -61,6 +61,9 @@ def capture(root, args):
 
 def main(args):
     root = Path(__file__).resolve().parents[2]
+    if len(args) == 3 and args[0] == "compare":
+        print(json.dumps(compare(json.loads(Path(args[1]).read_text()), json.loads(Path(args[2]).read_text()))))
+        return
     if args[0] == "start" and len(args) == 2:
         output = outside_checkout(root, Path(args[1]))
         output.mkdir(parents=True, exist_ok=True)
@@ -91,6 +94,7 @@ def main(args):
         result = subprocess.run(COMMANDS[mode], cwd=root, stdout=stream, stderr=subprocess.STDOUT, timeout=1200)
     row["commandSeconds"] = round(time.monotonic() - command_start, 3)
     row["returncode"] = result.returncode
+    (output / "result.json").write_text(json.dumps(row, indent=2) + "\n")
     if result.returncode:
         raise ValueError("command_failed")
     if mode == "unit":

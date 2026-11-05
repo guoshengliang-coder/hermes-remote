@@ -1,0 +1,134 @@
+{
+  "runId": 41973488828,
+  "runUrl": "https://github.com/guoshengliang-coder/hermes-remote/actions/runs/41973488828",
+  "identity": {
+    "sourceCommit": "f5b291150e2c8e195f6d50b0c332933b6e29b075",
+    "desktopTree": "4c40181d2c3b26117f618795e157645904b39d25",
+    "swift": "Apple Swift version 6.1.2 (swiftlang-6.1.2.1.2 clang-1700.0.13.5)\nTarget: arm64-apple-macosx15.0",
+    "xcode": "Xcode 16.4\nBuild version 16F6",
+    "osVersion": "15.8.2",
+    "architecture": "arm64",
+    "checkoutPathHash": "7dbe05c48a9a90d812946850ce1cb0a245dc3673fb9e53094c4d6c1335e5936a"
+  },
+  "cachePaths": [
+    "desktop/.build",
+    "desktop/build/swift",
+    "desktop/build/module-cache",
+    "desktop/build/swiftpm-module-cache"
+  ],
+  "swiftSamples": [
+    {
+      "mode": "unit",
+      "variant": "cold",
+      "cacheHit": false,
+      "commandSeconds": 78.959,
+      "returncode": 0,
+      "totalSeconds": 82.072,
+      "cacheBytes": 334269689,
+      "evidence": {
+        "tests": 740,
+        "failures": 0,
+        "unexpected": 0
+      }
+    },
+    {
+      "mode": "unit",
+      "variant": "cached",
+      "cacheHit": true,
+      "commandSeconds": 76.002,
+      "returncode": 0,
+      "totalSeconds": 86.684,
+      "cacheBytes": 342674630,
+      "evidence": {
+        "tests": 740,
+        "failures": 0,
+        "unexpected": 0
+      }
+    },
+    {
+      "mode": "app",
+      "variant": "cold",
+      "cacheHit": false,
+      "commandSeconds": 62.231,
+      "returncode": 0,
+      "totalSeconds": 64.653,
+      "cacheBytes": 141061605,
+      "evidence": {
+        "CFBundleIdentifier": "com.hermesgo.desktop",
+        "CFBundleShortVersionString": "0.2.52",
+        "CFBundleVersion": "55"
+      }
+    },
+    {
+      "mode": "app",
+      "variant": "cached",
+      "cacheHit": true,
+      "commandSeconds": 74.493,
+      "returncode": 0,
+      "totalSeconds": 79.234,
+      "cacheBytes": 141785056,
+      "evidence": {
+        "CFBundleIdentifier": "com.hermesgo.desktop",
+        "CFBundleShortVersionString": "0.2.52",
+        "CFBundleVersion": "55"
+      }
+    }
+  ],
+  "androidProfile": {
+    "gradleVersion": "9.6.1",
+    "command": "./gradlew :app:testDebugUnitTest --profile --no-build-cache --no-configuration-cache --no-daemon --console=plain",
+    "credentialFree": true,
+    "apkBuilt": false,
+    "totalBuildSeconds": 365.91,
+    "taskExecutionSeconds": 356.83,
+    "configurationSeconds": 3.206,
+    "dependencyResolutionSeconds": 0.731,
+    "tasks": [
+      {
+        "task": ":app:testDebugUnitTest",
+        "seconds": 158.2
+      },
+      {
+        "task": ":app:compileDebugKotlin",
+        "seconds": 95.77
+      },
+      {
+        "task": ":app:compileDebugUnitTestKotlin",
+        "seconds": 44.697
+      },
+      {
+        "task": ":app:kspDebugKotlin",
+        "seconds": 26.162
+      }
+    ]
+  },
+  "historicalReleaseStages": [
+    {
+      "version": "0.1.194",
+      "jobId": 124894175712,
+      "packageSeconds": 394,
+      "gradleWallSeconds": 372,
+      "nonGradleSeconds": 22,
+      "testLabelToFinalizeSeconds": 119.999,
+      "warning": "Log-label interval is not an exact task duration; parallel/repeated task labels are not additive."
+    },
+    {
+      "version": "0.1.193",
+      "jobId": 124833121634,
+      "packageSeconds": 323,
+      "gradleWallSeconds": 301,
+      "nonGradleSeconds": 22,
+      "testLabelToFinalizeSeconds": 103.296,
+      "warning": "Log-label interval is not an exact task duration; parallel/repeated task labels are not additive."
+    },
+    {
+      "version": "0.1.191",
+      "jobId": 124546295365,
+      "packageSeconds": 336,
+      "gradleWallSeconds": 311,
+      "nonGradleSeconds": 25,
+      "testLabelToFinalizeSeconds": 98.5,
+      "warning": "Log-label interval is not an exact task duration; parallel/repeated task labels are not additive."
+    }
+  ]
+}
