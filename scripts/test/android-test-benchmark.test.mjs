@@ -34,6 +34,13 @@ with tempfile.TemporaryDirectory() as d:
   try:m.junit_summary(root)
   except ValueError:pass
   else:raise AssertionError('incomplete/failing/nonfinite results accepted')
+ for encoding in ('utf-8','utf-16'):
+  for declaration in ('<!DOCTYPE testsuite [<!ENTITY a "expanded">]>', '<!DOCTYPE testsuite SYSTEM "file:///synthetic-no-read">'):
+   xml='<?xml version="1.0" encoding="'+encoding+'"?>'+declaration+'<testsuite name="com.example.Test" tests="1" time="1"><testcase classname="com.example.Test" name="a" time="1"/></testsuite>'
+   file.write_bytes(xml.encode(encoding))
+   try:m.junit_summary(root)
+   except ValueError as error:assert str(error)=='unsupported_xml'
+   else:raise AssertionError('DTD/entity-bearing XML accepted')
 print(json.dumps(m.ERROR,ensure_ascii=False))
 `], {encoding: 'utf8'});
   assert.equal(proc.status, 0, proc.stderr);

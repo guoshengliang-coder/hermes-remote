@@ -25,7 +25,7 @@ SAFE_CAUSES = {"invalid_duration", "duplicate_task", "missing_tasks", "missing_j
                "incomplete_junit", "invalid_junit_class", "invalid_testcase", "inconsistent_junit", "failing_tests",
                "unsafe_output", "runner_not_comparable", "checkout_not_clean", "gradle_failed", "missing_profile",
                "baseline_configuration_changed", "execution_configuration_changed", "test_task_not_executed",
-               "compiler_reran_between_samples", "test_coverage_changed"}
+               "compiler_reran_between_samples", "test_coverage_changed", "unsupported_xml"}
 
 
 def seconds(value):
@@ -74,6 +74,13 @@ def profile_tasks(text):
     return tasks
 
 
+class JunitTreeBuilder(ET.TreeBuilder):
+    def doctype(self, _name, _public_id, _system_id):
+        # Gradle JUnit has no DTD. Reject it before any entity can be expanded,
+        # including UTF-16 input where a byte-substring check would be insufficient.
+        raise ValueError("unsupported_xml")
+
+
 def junit_summary(directory):
     files = sorted(directory.glob("TEST-*.xml"))
     if not files:
@@ -83,7 +90,10 @@ def junit_summary(directory):
     for file in files:
         if file.stat().st_size > 16 * 1024 * 1024:
             raise ValueError("junit_too_large")
-        suite = ET.parse(file).getroot()
+        # Audited: local generated JUnit, bounded above, DTD/entities rejected by the
+        # parser target. No external resolver or third-party Python install required.
+        # nosemgrep: python.lang.security.use-defused-xml-parse.use-defused-xml-parse
+        suite = ET.parse(file, parser=ET.XMLParser(target=JunitTreeBuilder())).getroot()
         cases = suite.findall("testcase")
         if suite.tag != "testsuite" or int(suite.get("tests", "-1")) != len(cases):
             raise ValueError("incomplete_junit")
