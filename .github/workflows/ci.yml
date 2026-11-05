@@ -193,6 +193,8 @@ jobs:
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
       - run: ./gradlew :app:lintDebug --no-daemon
 
+  # Independent runners keep both complete gates without putting release compilation after tests.
+  # Keep the existing desktop check for tests; merge-when-green waits for desktop-build as well.
   desktop:
     needs: changes
     if: needs.changes.outputs.desktop == 'true'
@@ -201,6 +203,14 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: npm run desktop:test
+
+  desktop-build:
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: npm run desktop:app
 
   secrets:

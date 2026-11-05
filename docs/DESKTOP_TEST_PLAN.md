@@ -1,5 +1,23 @@
 # Hermes Go Desktop test plan
 
+## Parallel ordinary CI gates (2026-11-05)
+
+`ci.yml` runs the unchanged `npm run desktop:test` in the existing `desktop` job and
+`npm run desktop:app` in an independent `desktop-build` job. Both depend only on `changes`, use
+the same `desktop` component flag, run on separate `macos-15` runners and have 15-minute limits.
+The merge gate waits for both results; neither test coverage nor release compilation is omitted.
+Shared icon parity remains in `changes`. No signing secrets, artifact uploads, version bumps or
+publication are added; the ordinary app build remains ad-hoc, not a distributable release.
+
+The workflow regression first fails for the serial configuration, then passes for independent jobs.
+It checks equal selection, no cross-job dependency, retained commands, runner/timeout bounds and
+unprivileged execution. Run `node --test scripts/test/workflows.test.mjs
+scripts/test/changed-components.test.mjs` on one line and inspect both real macOS job results.
+Use job start/end times to confirm execution overlap and include queue time when comparing the
+Desktop completion span. `GITHUB_FLOW_AUDIT.md` records the serial baseline and comparison method.
+No Swift/runtime/UI behavior changes; physical interaction, signing and notarization acceptance
+remain separate release requirements.
+
 ## Release workflow prerequisites (2026-11-05)
 
 Run `node --test scripts/test/release-preflight.test.mjs scripts/test/workflows.test.mjs

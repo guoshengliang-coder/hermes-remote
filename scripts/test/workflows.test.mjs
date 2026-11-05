@@ -142,6 +142,25 @@ test('CI keeps secret scanning universal while component builds use tested path 
   assert.match(sast, /schedule:\n    - cron:/, 'weekly full SAST scan must remain enabled');
 });
 
+test('Desktop unit tests and app build run independently with equal component selection', async () => {
+  const ci = await read('ci.yml');
+  const bodies = Object.fromEntries(['desktop', 'desktop-build'].map(name =>
+    [name, ci.split(`\n  ${name}:\n`)[1]?.split(/\n  [a-z][\w-]*:\n/)[0]]));
+  for (const [name, command] of [['desktop', 'desktop:test'], ['desktop-build', 'desktop:app']]) {
+    const body = bodies[name];
+    assert.ok(body, `${name}: separate job required`);
+    assert.match(body, /^    needs: changes$/m, 'both jobs can start as soon as component selection completes');
+    assert.match(body, /^    if: needs\.changes\.outputs\.desktop == 'true'$/m);
+    assert.match(body, /^    runs-on: macos-15$/m);
+    assert.match(body, /^    timeout-minutes: 15$/m);
+    assert.equal((body.match(/      - run:/g) ?? []).length, 1);
+    assert.ok(body.includes(`      - run: npm run ${command}\n`));
+    assert.doesNotMatch(body, /environment:|secrets\.|upload-artifact|publish|notari/);
+  }
+  assert.doesNotMatch(bodies.desktop, /desktop:app/);
+  assert.doesNotMatch(bodies['desktop-build'], /desktop:test/);
+});
+
 test('CI and releases build Node workspaces once before running the full test gate', async () => {
   for (const file of ['ci.yml', 'android-release.yml', 'connector-release.yml', 'desktop-managed-release-package.yml']) {
     const workflow = await read(file);
