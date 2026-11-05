@@ -72,8 +72,11 @@ private fun collectSearchHits(
         val count = when {
             message.role == Role.USER -> searchHighlightRangesFor(renderUserUrlTokens(message.text, linkWord).text, terms).size
             message.isError -> searchHighlightRangesFor(message.text, terms).size
-            else -> markdownRenderBlocks(message.text).sumOf {
-                val content = withCjkEmphasisRepaired(it)
+            // A preview card shows a page, not its file path: it carries no marks, so it is not
+            // counted either — the counter must agree with the marks on screen.
+            else -> assistantDisplayBlocks(message.text).sumOf { block ->
+                if (block !is AssistantDisplayBlock.Prose) return@sumOf 0
+                val content = withCjkEmphasisRepaired(block.content)
                 val ranges = markdownRanges.getOrPut(content) { markdownSearchRangesFor(content, terms) }
                 ranges.size
             }

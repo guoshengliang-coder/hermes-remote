@@ -1068,3 +1068,23 @@ Connector/Hermes or alter its heartbeat settings for this test. Keep the Android
 Automated loopback/JVM coverage and synthetic screenshots do not establish HONOR radio handover,
 background survival, or the root cause of M4's transport delay. Record each physical-device result
 with model/ROM and preserve the original app process when investigating automatic recovery.
+
+## 内联网页预览 `::preview`（2026-11-05，docs/DESIGN.md §5.23）
+
+前提：在 Mac 的 Hermes 桌面端开一个会话，让它用内联图表回答（桌面端会写 HTML 文件并输出
+`::preview{file="…"}`），再在手机上打开同一会话。也可直接打开 2026-11-05 报告问题的那个会话，
+以及 2026-10-24 那个含 9 个预览（其中 7 个文件已被删除）的会话。
+
+1. 报告里那条回答：指令位置出现预览卡，标题是该 HTML 的文件名，折线图完整可见并按卡片宽度缩小；
+   卡片上下的段落与表格照常显示，不再出现 `::preview{…}` 原文。
+2. 浅色与深色各看一次：文字与线条颜色跟随 App 主题，背景透明、读得清；切换主题后卡片重建且颜色正确。
+3. 在卡片上上下滑动：聊天列表正常滚动，不被卡片截住；点一下进入全屏，可点选数据点、双指缩放、旋转横屏；
+   关闭后回到原阅读位置。
+4. 含 9 个预览的会话：现存文件正常显示；已删除的文件原位显示 `HR-FILE-005`，不弹 toast；来回滚动时
+   Mac 的 `connector.error.log` 不应对同一文件反复记 404。滚动不明显卡顿。
+5. 回答生成过程中：指令一出现就显示占位，回答结束后才加载页面。
+6. 分享按钮把 HTML 交给系统分享面板；朗读回答不读文件路径；会话内搜索文件名不计命中。
+7. 页面里若有外链：全屏中点按用浏览器打开，气泡内不响应；页面无法联网（含外链图片、脚本的页面只显示内联部分）。
+
+JVM 测试覆盖文法、分块、搜索/朗读/触感索引、文档注入、错误码与取数缓存；WebView 的实际渲染、缩放、
+高度测量和 CSP 沙箱是否生效只能在真机上确认，结果记录机型与系统 WebView 版本。

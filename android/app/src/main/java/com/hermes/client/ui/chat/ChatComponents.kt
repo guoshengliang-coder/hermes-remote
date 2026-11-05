@@ -2345,7 +2345,9 @@ internal fun AssistantTurn(
                         )
                     }
                 } else {
-                    val blocks = remember(renderedText) { markdownRenderBlocks(renderedText) }
+                    // `::preview` directives become blocks of their own (InlinePreview.kt); search
+                    // and output haptics index through the same function, so block numbers agree.
+                    val blocks = remember(renderedText) { assistantDisplayBlocks(renderedText) }
                     // Which mark is "the one" is answered by ordinal, not by position: prefix sums
                     // of the marks per block let each block name its own marks in turn coordinates.
                     val searchQuery = LocalChatSearch.current?.query
@@ -2358,8 +2360,10 @@ internal fun AssistantTurn(
                             var running = 0
                             blocks.forEachIndexed { i, block ->
                                 prefix[i] = running
-                                val content = withCjkEmphasisRepaired(block)
-                                running += (preparedRanges[content] ?: markdownSearchRangesFor(content, terms)).size
+                                if (block is AssistantDisplayBlock.Prose) {
+                                    val content = withCjkEmphasisRepaired(block.content)
+                                    running += (preparedRanges[content] ?: markdownSearchRangesFor(content, terms)).size
+                                }
                             }
                             prefix
                         }
@@ -2367,13 +2371,20 @@ internal fun AssistantTurn(
                     Column {
                         blocks.forEachIndexed { blockIndex, block ->
                             key(blockIndex) {
-                                AssistantMarkdownBlock(
-                                    content = block,
-                                    anchorKey = "${msg.id}:markdown:$blockIndex",
-                                    onOpenTableFullscreen = onOpenTableFullscreen,
-                                    modifier = Modifier.testTag("chat-block-${msg.id}-$blockIndex"),
-                                    searchRangeOffset = markPrefix.getOrElse(blockIndex) { 0 },
-                                )
+                                when (block) {
+                                    is AssistantDisplayBlock.Prose -> AssistantMarkdownBlock(
+                                        content = block.content,
+                                        anchorKey = "${msg.id}:markdown:$blockIndex",
+                                        onOpenTableFullscreen = onOpenTableFullscreen,
+                                        modifier = Modifier.testTag("chat-block-${msg.id}-$blockIndex"),
+                                        searchRangeOffset = markPrefix.getOrElse(blockIndex) { 0 },
+                                    )
+                                    is AssistantDisplayBlock.Preview -> InlinePreviewBlock(
+                                        directive = block.directive,
+                                        anchorKey = "${msg.id}:preview:$blockIndex",
+                                        streaming = msg.isStreaming,
+                                    )
+                                }
                             }
                         }
                     }

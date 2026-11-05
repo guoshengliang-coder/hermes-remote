@@ -26,6 +26,11 @@ class ChatFileRepository @Inject constructor(
 ) {
     private val directory = File(context.cacheDir, "chat-files").apply { mkdirs() }
     private val sentFiles by lazy { SentFileStore(File(context.filesDir, "sent-file-index")) }
+    // First touched on the IO dispatcher. A process killed between a preview's download and its
+    // delete leaves a partial file behind; nothing else ever reads this folder, so start it empty.
+    private val previewDirectory by lazy {
+        File(context.cacheDir, "inline-previews").apply { mkdirs(); listFiles()?.forEach { it.delete() } }
+    }
 
     suspend fun metadata(file: ChatFile, deviceId: String? = null): ArtifactMetadata? = withContext(Dispatchers.IO) {
         file.localPath?.let(::File)?.takeIf { it.isFile }?.let { return@withContext ArtifactMetadata(it.length()) }
@@ -51,6 +56,30 @@ class ChatFileRepository @Inject constructor(
         } catch (error: Throwable) {
             partial.delete()
             throw error
+        }
+    }
+
+    /**
+     * The current text of an HTML file an inline `::preview` card draws (docs/DESIGN.md §5.23).
+     *
+     * Read fresh rather than through [download]'s cache slot: upstream re-reads the file every
+     * time the card mounts, because the agent may rewrite it, and a cached copy would keep showing
+     * the old page for as long as the slot survives. Nothing is kept on disk; the caller holds the
+     * text for the life of the conversation screen.
+     *
+     * Any 413 — this card's own [maxBytes] or the Mac's transfer ceiling — means the same thing
+     * here: too large to load into a frame, so it becomes [InlinePreviewTooLargeException].
+     */
+    suspend fun previewDocument(path: String, deviceId: String?, maxBytes: Long): String = withContext(Dispatchers.IO) {
+        val temporary = File(previewDirectory, "${java.util.UUID.randomUUID()}.part")
+        try {
+            rest.downloadArtifact(path, temporary, maxBytes = maxBytes, deviceId = deviceId)
+            decodeHtml(temporary.readBytes())
+        } catch (error: HermesApiException) {
+            if (error.code == 413) throw InlinePreviewTooLargeException(maxBytes)
+            throw error
+        } finally {
+            temporary.delete()
         }
     }
 
@@ -182,4 +211,22 @@ class ChatFileRepository @Inject constructor(
     private companion object {
         val UPLOAD_PREFIX = Regex("^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}-")
     }
+}
+
+/** An inline preview's file is larger than a frame will load (HR-PREVIEW-002). */
+class InlinePreviewTooLargeException(val limitBytes: Long) :
+    Exception("inline preview file exceeds $limitBytes bytes")
+
+/**
+ * HTML bytes as text. Agents write UTF-8; a UTF-16 byte-order mark is honoured, and a UTF-8 one is
+ * dropped so the document still begins with its doctype.
+ */
+internal fun decodeHtml(bytes: ByteArray): String = when {
+    bytes.size >= 2 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte() ->
+        String(bytes, 2, bytes.size - 2, Charsets.UTF_16LE)
+    bytes.size >= 2 && bytes[0] == 0xFE.toByte() && bytes[1] == 0xFF.toByte() ->
+        String(bytes, 2, bytes.size - 2, Charsets.UTF_16BE)
+    bytes.size >= 3 && bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte() ->
+        String(bytes, 3, bytes.size - 3, Charsets.UTF_8)
+    else -> String(bytes, Charsets.UTF_8)
 }

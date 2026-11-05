@@ -248,6 +248,8 @@ fun ChatScreen(
     var fullscreenTableKey by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
     var fullscreenTableIdentity by rememberSaveable(sessionId) { mutableStateOf("") }
     var fullscreenTableRaw by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
+    // Mac path of the `::preview` page open full screen; hoisted and saveable for the same reason.
+    var fullscreenPreviewPath by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
     // Which image is open fullscreen, and in which message. Ids rather than indices: hydration
     // refreshes msg.images, and an index would then point at a different photo. Saveable, because
     // the old per-grid `remember` lived inside a LazyColumn item and a rotation or a history
@@ -395,7 +397,7 @@ fun ChatScreen(
         focusManager.clearFocus()
     }
     androidx.activity.compose.BackHandler(
-        enabled = !searchOpen && !composerFocused && fullscreenTableRaw == null && viewerOwner == null,
+        enabled = !searchOpen && !composerFocused && fullscreenTableRaw == null && fullscreenPreviewPath == null && viewerOwner == null,
     ) {
         onMenu()
     }
@@ -1168,8 +1170,26 @@ fun ChatScreen(
             },
         )
     }
+    // `::preview` cards (docs/DESIGN.md §5.23): one host per conversation and Mac, so pages are
+    // fetched once per screen and a different conversation never sees another's documents. The
+    // callbacks read through updated state: handleFile closes over this composition's downloads.
+    val previewScope = androidx.compose.runtime.rememberCoroutineScope()
+    val latestHandleFile by androidx.compose.runtime.rememberUpdatedState<(com.hermes.client.domain.ChatFile, Boolean) -> Unit>(::handleFile)
+    val previewUriHandler by androidx.compose.runtime.rememberUpdatedState(com.hermes.client.ui.components.rememberSafeUriHandler())
+    val previewHost = remember(vm, vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)) {
+        InlinePreviewHost(
+            scope = previewScope,
+            fetch = vm::previewDocument,
+            cwd = { workspace?.cwd },
+            open = { latestHandleFile(it, false) },
+            share = { latestHandleFile(it, true) },
+            openFullscreen = { fullscreenPreviewPath = it },
+            openLink = { previewUriHandler.openUri(it) },
+        )
+    }
     androidx.compose.runtime.CompositionLocalProvider(
         LocalTableChartScope provides chartScope,
+        LocalInlinePreviewHost provides previewHost,
         LocalBotOrigin provides botOrigin,
         LocalLocallySentIds provides locallySentIds,
         LocalChatFileMetadata provides fileMetadata,
@@ -1692,7 +1712,7 @@ fun ChatScreen(
                         outputHapticConfig = outputHaptics.config,
                         outputHapticsEnabled = outputHaptics.feedbackEnabled && !outputHapticsStopped &&
                             state.pendingApproval == null && state.pendingClarify == null &&
-                            !projectSheetOpen && !modelSheetOpen && fullscreenTableRaw == null &&
+                            !projectSheetOpen && !modelSheetOpen && fullscreenTableRaw == null && fullscreenPreviewPath == null &&
                             viewerOwner == null && editAttachmentId == null && !showPromptSheet &&
                             !showAttachSheet && !showPhotoGallery && !confirmArchive,
                         isNewSession = isNewSession,
@@ -2105,6 +2125,13 @@ fun ChatScreen(
             },
         )
         }
+    }
+
+    fullscreenPreviewPath?.let { path ->
+        InlinePreviewFullscreenDialog(path = path, host = previewHost, onDismiss = {
+            fullscreenPreviewPath = null
+            viewportController.requestHeldRestore()
+        })
     }
 
     if (modelSheetOpen) {

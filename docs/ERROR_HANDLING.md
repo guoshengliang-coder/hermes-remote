@@ -517,6 +517,27 @@ The website gate authorizes website downloads only; it does not authorize a clie
 
 Unsuitable data, ambiguous columns and duplicate dimensions are explanatory empty states, not renderer failures. They never replace the original table. Technical diagnostics contain codes/stages only; table contents and credentials are excluded.
 
+### Inline previews (`::preview{file="…"}`, docs/DESIGN.md §5.23)
+
+Fetching the page reuses the artifact download codes at the same boundary
+(`artifactDownloadError`, stage `inline_preview`): `HR-FILE-003` outside the Mac's allowed folders,
+`HR-FILE-005` gone from the Mac (seven of the thirteen files previewed in production had already
+been deleted when this shipped), `HR-FILE-006` transfer failure. Only the frame itself has codes of
+its own. Both are shown in the card's place with Retry where retryable — never as a toast, because
+cards load as they scroll into view and a toast per card would be a storm.
+
+| Code | Condition and recovery | Chinese | English | Retryable |
+|---|---|---|---|---|
+| `HR-PREVIEW-001` | The isolated preview WebView could not render the page: its document failed to load, `load` never arrived within 10 s, or the renderer process exited. Retry builds a fresh WebView from the page already fetched; Share hands the file to another app | 网页预览暂时无法显示，请重试，或分享文件后用其他应用打开。 | The preview couldn't be displayed. Retry, or share the file to open it in another app. | Yes |
+| `HR-PREVIEW-002` | The page is larger than the 16 MiB a frame loads (upstream's `REMOTE_HTML_PREVIEW_MAX_BYTES`), or the Mac answered 413 for it. Nothing is loaded; Share still offers the file | 网页文件超过 16 MB，无法在聊天中预览。可以分享文件后用其他应用打开。 | The page is larger than 16 MB, so it can't be previewed in the chat. Share the file to open it in another app. | No |
+
+Diagnostics carry the code, stage and a short cause (`renderer crashed`, `load timed out`,
+`document error -6`); never the page's contents or its path.
+
+Only Android produces these codes today. The Desktop menu-bar app renders no conversation, so it has
+no card to fail. The Web app still shows the directive as text; when it renders §5.23 cards it reuses
+both codes for the same conditions rather than registering its own.
+
 
 HG-224 uses the existing retryable `HR-SYNC-001` when an older-history page cannot be joined to
 its held boundary after bounded reads. The shown transcript remains; retry resynchronizes the

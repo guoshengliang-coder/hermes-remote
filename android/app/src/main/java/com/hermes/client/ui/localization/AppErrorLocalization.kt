@@ -207,6 +207,8 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
         AppErrorCode.CHART_RENDER_FAILED -> localized(language, "图表暂时无法显示，请重试或查看原始表格。", "The chart couldn't be displayed. Retry or view the original table.")
         AppErrorCode.CHART_SETTINGS_FAILED -> localized(language, "无法读取或保存图表设置，请重试；原始表格仍可查看。", "Couldn't read or save chart settings. Retry; the original table remains available.")
         AppErrorCode.CHART_RANGE_EXCEEDED -> localized(language, "所需范围超出原表，请准备重新取数提问并检查后发送。", "The requested range exceeds the table. Prepare a new-data question, review it, then send.")
+        AppErrorCode.PREVIEW_RENDER_FAILED -> localized(language, "网页预览暂时无法显示，请重试，或分享文件后用其他应用打开。", "The preview couldn't be displayed. Retry, or share the file to open it in another app.")
+        AppErrorCode.PREVIEW_TOO_LARGE -> localized(language, "网页文件超过 16 MB，无法在聊天中预览。可以分享文件后用其他应用打开。", "The page is larger than 16 MB, so it can't be previewed in the chat. Share the file to open it in another app.")
         AppErrorCode.OUTPUT_HAPTICS_SETTINGS_FAILED ->
             localized(language, "无法读取或保存输出触感设置，请重试。", "Couldn't read or save output haptics settings. Retry.")
         AppErrorCode.OUTPUT_HAPTIC_PREVIEW_FAILED ->

@@ -17,7 +17,8 @@ private val BLANK_LINES_REGEX = Regex("\\n{2,}")
  */
 fun speechText(raw: String): String {
     if (raw.isBlank()) return ""
-    var s = raw
+    // A `::preview{file="…"}` card is a picture on screen; reading out its file path is noise.
+    var s = com.hermes.client.domain.withoutPreviewDirectives(raw)
     // Fenced code blocks: drop entirely (```lang ... ```).
     s = FENCED_CODE_REGEX.replace(s, " ")
     // Links [text](url) -> text.
