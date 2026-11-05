@@ -55,15 +55,13 @@ integration agent passes `--allow-red`; `--no-merge` only waits and reports. Do 
 `until gh pr checks …; sleep` loops — measured over Sep 12–22, 2026 they cost 14 agent-hours in
 1,100+ polls, each a model round-trip.
 
-This is a manual gate by circumstance, not by limitation. `main` does carry branch protection, and
-this repository is public, so required status checks and a merge queue are both available. But
-`enforce_admins` is off and every agent merges as the repository owner, so protection does not bind
-these merges: `required_approving_review_count` has been 1 the whole time, and PRs merge through
-`gh pr merge` with zero approvals. Required checks configured today would behave the same way —
-recorded in settings, binding on nobody. Turning `enforce_admins` on would make them bind, and would
-equally make that review requirement bind every PR. So the gate stays human, and the reason it stays
-human is a deliberate trade, not a missing feature: measured over 150 merged pull requests, two were
-merged with a failing check and none was merged before its checks finished.
+This gate is enforced by the integration workflow, not by GitHub branch protection. The repository
+is public and supports required checks and merge queues, but the read-only audit on 2026-11-05 found
+`enforce_admins` disabled, no required status checks, and no required pull-request reviews on `main`.
+These settings can change: query the live settings rather than assuming an old protection snapshot
+still applies. Regardless of the settings, agents must use the merge gate above and verify both PR
+and resulting `main` checks. This audit corrects the historical protection description; it does not
+change merge authorization or enable automatic merging.
 
 `docs/INTEGRATION.md` defines the cross-subproject rules: which paths belong to Android, Desktop or
 Cloud; the contract surfaces whose change requires the other sides to be addressed in the same

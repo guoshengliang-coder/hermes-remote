@@ -156,6 +156,7 @@ async function publish({version}) {
   const result = await waitFor({
     probe: () => JSON.parse(sh('gh', ['run', 'list', '--workflow', 'android-release.yml', '--branch', tag, '--json', 'name,event,status,conclusion'])),
     classify: classifyRuns,
+    phase: 'android_publish',
     interval: 20_000,
     timeout: 30 * 60_000,
     grace: 3 * 60_000,

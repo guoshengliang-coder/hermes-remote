@@ -78,6 +78,23 @@ downgrade is not supported.”
 
 ## Publishing
 
+Before dependency installation or compilation, `android-release.yml` runs
+`node scripts/release-preflight.mjs android`. It receives only boolean presence flags for the five
+required release inputs; credential values remain on the existing signing/deployment steps. It
+validates the checked-out version and release description, fetches only the public release index
+(no credentials or redirects, 15-second deadline, 1 MiB maximum), and refuses an invalid/unavailable
+index, a full catalog, an existing version name/code, or a non-increasing code with `HR-RELEASE-008`.
+This is an early rejection check, not publication approval: the complete package gate, current-main
+checks and the server's transactional conflict checks still run. Concurrent publication can still
+race this read-only check, and `main` advancing during a build still blocks publication.
+
+`merge-when-green.mjs` prints `GATE_TIMING` JSON for `pr_checks` and `main_checks`;
+`android-release-train.mjs publish` prints it for `android_publish`. `elapsedMs` includes API/probe
+latency, polling and confirmation waits; `state` is the original success/failure/timeout/none verdict.
+It measures the caller's wait, not runner CPU time or preparation before the script was started.
+The workflow's step timestamps remain the source for build/upload timings. No release was run merely
+to measure this change. See `GITHUB_FLOW_AUDIT.md` for the baseline and follow-up decisions.
+
 > **A version number allocated on a feature branch is a version number that can be lost.** See
 > *Incident: 0.1.97 was allocated twice and published never* below before bumping anything.
 

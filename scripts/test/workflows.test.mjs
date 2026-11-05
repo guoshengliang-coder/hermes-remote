@@ -142,11 +142,11 @@ test('CI keeps secret scanning universal while component builds use tested path 
   assert.match(sast, /schedule:\n    - cron:/, 'weekly full SAST scan must remain enabled');
 });
 
-test('CI and Android release build Node workspaces once before running the full test gate', async () => {
-  for (const file of ['ci.yml', 'android-release.yml']) {
+test('CI and releases build Node workspaces once before running the full test gate', async () => {
+  for (const file of ['ci.yml', 'android-release.yml', 'connector-release.yml', 'desktop-managed-release-package.yml']) {
     const workflow = await read(file);
     assert.match(workflow, /npm run test:ci/);
-    assert.equal(/npm run build\s*\n\s*npm test/.test(workflow), false, `${file}: repeats builds through npm test`);
+    assert.equal(/npm run build\s*(?:&&|\n)\s*npm test/.test(workflow), false, `${file}: repeats builds through npm test`);
   }
 
   const rootPackage = JSON.parse(await readRoot('package.json'));
@@ -245,7 +245,10 @@ test('release secrets stay scoped to the steps that consume them', async () => {
   const lines = release.split('\n');
   const jobLevelEnv = lines.filter(line => /^ {4}env:\s*$/.test(line));
   assert.deepEqual(jobLevelEnv, [], 'release secrets must not be exposed to every step through job-level env');
-  const secrets = lines.filter(line => line.includes('secrets.'));
+  const presenceFlags = lines.filter(line => line.includes('secrets.') && line.includes('HAS_'));
+  assert.equal(presenceFlags.length, 5);
+  for (const line of presenceFlags) assert.match(line, /^ {10}HAS_\w+: \$\{\{ secrets\.\w+ != '' \}\}$/, 'preflight receives only boolean presence flags');
+  const secrets = lines.filter(line => line.includes('secrets.') && !line.includes('HAS_'));
   // Five release secrets on the two steps that consume them, plus the configuration-cache key on
   // the setup-gradle step. Each is a single step-scoped line; none is job-level env.
   assert.equal(secrets.length, 6);

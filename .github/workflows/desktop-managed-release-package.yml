@@ -37,6 +37,14 @@ jobs:
         with: { fetch-depth: 0 }
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: { node-version: 22.23.2, cache: npm }
+      # Presence flags only: release credentials remain confined to their consuming steps.
+      - name: Check release prerequisites before building
+        env:
+          HAS_SIGNING_PRIVATE_KEY: ${{ secrets.DESKTOP_RELEASE_SIGNING_PRIVATE_KEY != '' }}
+          HAS_SIGNING_KEY_ID: ${{ vars.DESKTOP_RELEASE_SIGNING_KEY_ID != '' }}
+          HAS_SIGNING_PUBLIC_KEY: ${{ vars.DESKTOP_RELEASE_SIGNING_PUBLIC_KEY != '' }}
+        run: node scripts/release-preflight.mjs desktop-components
+
       - name: Require clean current main and unused version
         env:
           MANAGED_VERSION: ${{ inputs.managed_version }}
@@ -68,7 +76,7 @@ jobs:
           # Python resolves /var to /private/var; use the same canonical temp root.
           printf 'TMPDIR=%s\n' "$(cd "$TMPDIR" && pwd -P)" >> "$GITHUB_ENV"
       - run: npm ci --ignore-scripts
-      - run: npm run build && npm test
+      - run: npm run test:ci
       - name: Build Node and Connector archives (legacy pair only when explicitly requested)
         env:
           CONNECTOR_VERSION: ${{ inputs.connector_version }}

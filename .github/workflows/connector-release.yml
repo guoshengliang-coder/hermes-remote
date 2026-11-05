@@ -49,7 +49,7 @@ jobs:
           # Python resolves /var to /private/var; use the same canonical temp root.
           printf 'TMPDIR=%s\n' "$(cd "$TMPDIR" && pwd -P)" >> "$GITHUB_ENV"
       - run: npm ci --ignore-scripts
-      - run: npm run build && npm test
+      - run: npm run test:ci
       - name: Build independently versioned schema-v1 and schema-v2 archives
         env:
           CONNECTOR_VERSION: ${{ inputs.connector_version }}
