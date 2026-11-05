@@ -54,6 +54,8 @@ Git 对象缺失、分支分叉、解析失败也返回非候选。每条 Git �
 最近一次审计中，0.1.194 的版本 PR CI 约 6 分 20 秒、main 约 7 分 15 秒、发布约 8 分 48 秒。
 省去 PR 那一轮预计可减少约 6 分钟；这是基于历史关键路径的估算，**尚非实际发布提速实测**。
 本次 observation 不减少任何 Android 检查，因此暂时没有这部分收益。
+缓存状态和改动内容会显著影响耗时：只改工具的 PR 不会改变 Android BuildConfig，不能用它的
+热缓存检查耗时直接代替真实升版 PR 的耗时，也不能保证每次节省 6 分钟。
 
 ## 验证与历史回放
 
@@ -63,7 +65,7 @@ Git 对象缺失、分支分叉、解析失败也返回非候选。每条 Git �
 |---|---|
 | 最近 20 个非 merge、标题匹配 `build(android): release` 或 `chore(android): release` 的提交，与各自第一父提交比较 | 19 个候选，1 个回退 |
 | 回退的 0.1.177（`d84c1656543ef2d340a7d68e33549b23159036b9`） | README 还改写了下方 HG-230 说明，超出标准升版条目，因此回退正确 |
-| 最近 20 个触及 `android/app/src` 的非 merge 提交，与各自第一父提交比较 | 19 个明确非候选，1 个因本地历史对象不可读而回退；无候选 |
+| 最近 20 个触及 `android/app/src` 的非 merge 提交，与各自第一父提交比较 | 20 个非候选；其中 HG-237 含删除，触发只接受新增/修改的 diff 解析回退 |
 | 20 次升版分类本机耗时 | 每次约 85–103 ms，不含启动 CI、checkout 或测试 |
 
 这证明的是样本内容匹配结果；第一父提交不保证就是当时 PR 的实际 BASE，回放也不证明基础提交 CI
@@ -78,7 +80,7 @@ node scripts/ci/android-release-metadata.mjs \
 ```
 
 合成 Git 仓库回归覆盖正常输出、长摘要、代码和依赖夹带、异常字段、渠道、版本跳跃、重复 JSON、
-符号链接、执行权限、缺失文件、分叉 BASE、不可读对象、工作区污染与 CLI 输出隐私。
+符号链接、执行权限、非法 UTF-8、缺失文件、分叉 BASE、不可读对象、工作区污染与 CLI 输出隐私。
 CI 门禁断言另外确认两个 Android job 仍只由原有组件分类结果触发。
 
 ```bash
@@ -87,6 +89,8 @@ node --test scripts/test/android-release-metadata.test.mjs \
   scripts/test/bump-android-release.test.mjs scripts/test/workflows.test.mjs
 ```
 
-以上聚焦检查 71 项通过；本机 `RUN_NETWORK_TESTS=1 npm run test:ci` 为 977 项通过、
-21 项跳过、0 失败（跳过项主要需要 PostgreSQL）。本次只改检查工具与说明，没有 Android UI、
+以上聚焦检查 72 项通过；首轮本机 `RUN_NETWORK_TESTS=1 npm run test:ci` 为 977 项通过、
+21 项跳过、0 失败（跳过项主要需要 PostgreSQL）；严格 UTF-8 修正后的脚本基线为 486 项通过、
+1 项平台跳过、0 失败。该新增回归先在旧实现上复现失败，再在修正后通过。
+本次只改检查工具与说明，没有 Android UI、
 协议或用户可见错误行为变化，不新增错误码；未做 L2 真机或 L3 模拟器验证，也未生成分发 APK。

@@ -51,6 +51,14 @@ test('the normal wrapped README entry is reconstructed with the producer', t => 
   assert.equal(f.classify().candidate, true);
 });
 
+test('invalid UTF-8 cannot be normalized into apparently canonical release notes', t => {
+  const f = fixture(t);
+  const bytes = Buffer.from(canonical(['x']));
+  bytes[bytes.indexOf(Buffer.from('"x"')) + 1] = 0xff;
+  f.write(RELEASE, bytes);
+  assert.equal(f.classify().candidate, false);
+});
+
 for (const [label, mutate] of [
   ['Kotlin source', f => f.write('android/app/src/main/java/Feature.kt', 'val changed = true')],
   ['dependency lock', f => f.write('package-lock.json', '{}')],

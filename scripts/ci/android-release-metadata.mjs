@@ -9,11 +9,13 @@ const SHA = /^[0-9a-f]{40}$/;
 const reject = reason => ({candidate: false, reason});
 
 function git(repoDir, args) {
-  return execFileSync('git', ['-C', repoDir, ...args], {
-    encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+  const bytes = execFileSync('git', ['-C', repoDir, ...args], {
+    stdio: ['ignore', 'pipe', 'ignore'],
     maxBuffer: 2 * 1024 * 1024, timeout: 5_000,
     env: {...process.env, GIT_NO_REPLACE_OBJECTS: '1'},
   });
+  // Reject malformed bytes instead of silently replacing them; preserve any BOM for exact matching.
+  return new TextDecoder('utf-8', {fatal: true, ignoreBOM: true}).decode(bytes);
 }
 
 function versions(text) {
