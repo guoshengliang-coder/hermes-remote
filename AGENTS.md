@@ -239,6 +239,12 @@ cd android
 ./gradlew :app:testDebugUnitTest :app:assembleDebug
 ```
 
+Owner-approved CI exception (2026-11-05): a PR targeting `main` may skip only the Android unit-test
+and lint jobs when the BASE-loaded release-metadata gate proves the exact three-file version-only
+patch and confirms successful main CI at that BASE SHA. Missing or uncertain evidence retains full
+checks. This exception does not change local `prepare`, main push checks, the official package gate,
+version approval or publication approval. See `docs/ANDROID_RELEASE_METADATA_PLAN.md`.
+
 UI, notification and background-behaviour changes need more than that baseline. Verification is
 layered, and the layers are **not** interchangeable — each covers something the others cannot:
 
