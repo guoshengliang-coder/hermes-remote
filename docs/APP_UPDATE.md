@@ -138,6 +138,12 @@ its tag was pushed after the same version had already been uploaded another way.
 
 ## Automatic publishing from GitHub
 
+Owner-approved exception (2026-11-05): an exact three-file version-only PR targeting `main` may skip
+its Android unit-test and lint jobs only after trusted BASE-loaded validation and confirmation of
+successful main CI at that BASE SHA. Unavailable or uncertain evidence retains full checks.
+Main push checks, local `prepare`, the official package gate and publication authorization remain
+unchanged. See [ANDROID_RELEASE_METADATA_PLAN.md](ANDROID_RELEASE_METADATA_PLAN.md) for the boundary.
+
 The repository includes `.github/workflows/android-release.yml`. Normal pushes and pull requests run
 unit tests, lint, and source compilation without any signing or deployment secret; they deliberately do
 not package an APK. Publishing runs when a tag named `android-v<appVersionName>` is pushed, or when the workflow

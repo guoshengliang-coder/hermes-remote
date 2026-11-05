@@ -19,16 +19,54 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
     outputs:
       node: ${{ steps.filter.outputs.node }}
       android: ${{ steps.filter.outputs.android }}
       desktop: ${{ steps.filter.outputs.desktop }}
       assets: ${{ steps.filter.outputs.assets }}
       web: ${{ steps.filter.outputs.web }}
+      skip_android: ${{ steps.release_metadata.outputs.skip_android }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
+      - id: release_metadata
+        name: Validate Android release metadata with trusted base
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          echo 'skip_android=false' >> "$GITHUB_OUTPUT"
+          fallback() {
+            echo 'skip_android=false' >> "$GITHUB_OUTPUT"
+            echo 'Android: 沿用完整组件检查 / full component checks (trusted validation unavailable or inapplicable).' >> "$GITHUB_STEP_SUMMARY"
+          }
+          if [[ "$EVENT_NAME" != 'pull_request' || "$BASE_REF" != 'main' || ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ || ! "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            fallback
+            exit 0
+          fi
+          if ! trusted_dir="$(mktemp -d "$RUNNER_TEMP/android-release-metadata.XXXXXX")"; then
+            fallback
+            exit 0
+          fi
+          trap 'rm -rf "$trusted_dir"' EXIT
+          # Fixed modules from BASE only. Never execute a PR copy, even when BASE lacks the gate.
+          for file in scripts/ci/android-release-metadata-gate.mjs scripts/ci/android-release-metadata.mjs scripts/bump-android-release.mjs release-server/src/schema.mjs; do
+            if ! mkdir -p "$trusted_dir/$(dirname "$file")" || ! GIT_NO_REPLACE_OBJECTS=1 git show "$BASE_SHA:$file" > "$trusted_dir/$file" 2>/dev/null; then
+              fallback
+              exit 0
+            fi
+          done
+          if ! node "$trusted_dir/scripts/ci/android-release-metadata-gate.mjs"; then
+            fallback
+          fi
       - id: filter
         name: Select affected component jobs
         env:
@@ -105,9 +143,11 @@ jobs:
   # compilation, and adding it to that command contributes exactly one SKIPPED node), so it is
   # gone. Both jobs compile the module, and both restore that compilation from the Gradle build
   # cache that the main-branch run writes — see android/gradle.properties.
+  # Only the BASE-loaded metadata gate may omit these two jobs for an exact version-only PR.
+  # Pushes, prepare and the official release package gate always retain their normal validation.
   android:
     needs: changes
-    if: needs.changes.outputs.android == 'true'
+    if: needs.changes.outputs.android == 'true' && needs.changes.outputs.skip_android != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -131,7 +171,7 @@ jobs:
 
   android-lint:
     needs: changes
-    if: needs.changes.outputs.android == 'true'
+    if: needs.changes.outputs.android == 'true' && needs.changes.outputs.skip_android != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
