@@ -7,8 +7,10 @@ No deployment or secret-value inspection was performed.
 
 ## Integration status · 2026-11-05
 
-The owner authorized completing this PR and the subsequent Desktop CI parallelization. This branch
-now includes main `2415ee37385d847d4c14443ad59557a0dad7acd9` without rewriting its history.
+The owner authorized completing [PR #729](https://github.com/guoshengliang-coder/hermes-remote/pull/729)
+and the subsequent Desktop CI parallelization. #729 integrated main
+`2415ee37385d847d4c14443ad59557a0dad7acd9` without rewriting its history, then merged as
+`865acf1add674bcd1e1b57197d1c6a027ca7d326` after both PR and main checks passed.
 [PR #730](https://github.com/guoshengliang-coder/hermes-remote/pull/730) has already isolated the
 Gateway voice-test mock clock from socket teardown; see `docs/GATEWAY_TESTING.md`.
 [PR #731](https://github.com/guoshengliang-coder/hermes-remote/pull/731) has already enabled the
@@ -17,11 +19,30 @@ owner-approved, BASE-validated version-only Android PR exception; see
 remain intact here. The original benchmark below used an earlier exact source and is historical
 evidence for command deduplication, not a speed guarantee for the integrated source.
 
-Integrated validation: 119 focused tests passed; the network-enabled local Node baseline passed
+Integrated validation for #729: 119 focused tests passed; the network-enabled local Node baseline passed
 1029 tests with 21 conditional skips (20 PostgreSQL unavailable locally, one platform skip) and
 zero failures. Actionlint 1.7.7 accepted the five affected/integrated workflows; `git diff --check`
 passed. No protected candidate/release run, native UI change, version allocation or publication was
 needed for this integration. GitHub PR and main checks remain the final merge gate.
+
+## Desktop ordinary CI parallelization
+
+The serial baseline is [main CI 41963422215](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/41963422215)
+at `2415ee37385d847d4c14443ad59557a0dad7acd9`: the Desktop job took 192 seconds,
+including 100 seconds for `desktop:test` and 82 seconds for `desktop:app`. These are complete debug
+Swift tests and a release-mode app build, not equivalent compilations that can replace each other.
+The current change preserves both commands on independent `macos-15` jobs; the original `desktop`
+check remains and `desktop-build` becomes an additional result required by the all-checks merge gate.
+Both jobs retain the same component flag, 15-minute timeout and ordinary read-only permissions.
+No cache, source, compiler-mode, signing, version or publication changes are mixed into this comparison.
+
+Compare the new PR/main job durations and the span from `changes` completion to the later Desktop
+completion (including scheduling delay). Confirm that the job intervals actually overlap and that
+both succeed, and verify the Desktop source-tree ID still matches
+`4c40181d2c3b26117f618795e157645904b39d25`. The theoretical opportunity is roughly the smaller serial
+step minus the extra checkout/scheduling cost; runner availability and variance can change the result.
+Use the follow-up PR's CI evidence for measured results rather than treating the theoretical saving
+as established. Node or other jobs may become the overall critical path once Desktop is shorter.
 
 ## Measured bottlenecks
 
