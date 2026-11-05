@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
+import {readFileSync} from 'node:fs';
 import test from 'node:test';
+
+test('every Gradle test still requires a non-cacheable complete watchdog gate', () => {
+  const wiring = readFileSync('android/test-watchdog.gradle.kts', 'utf8');
+  const gate = wiring.split('val verifyTestWatchdog =')[1].split('val workerTimeout =')[0];
+  assert.match(gate, /commandLine\("python3", file\("test-watchdog\/run_tests.py"\)\.absolutePath\)/);
+  assert.doesNotMatch(gate, /outputs\.|onlyIf|ignoreExitValue|isIgnoreExitValue/);
+  assert.match(wiring, /dependsOn\(testWatchdogJar, verifyTestWatchdog\)/);
+  assert.match(wiring, /orElse\("600"\)/);
+});
 
 test('watchdog runner discovers all cases, bounds parallelism and requires complete success', () => {
   const proc = spawnSync('python3', ['-B', '-c', String.raw`

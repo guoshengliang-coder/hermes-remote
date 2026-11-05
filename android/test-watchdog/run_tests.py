@@ -1,4 +1,4 @@
-"""Run every watchdog case in an isolated process, with bounded host-aware concurrency."""
+"""Run the complete watchdog suite with bounded host-aware process parallelism."""
 from concurrent.futures import ThreadPoolExecutor
 import json
 import os

@@ -23,7 +23,7 @@ val testWatchdogJar = tasks.register<Jar>("testWatchdogJar") {
 val verifyTestWatchdog = tasks.register<Exec>("verifyTestWatchdog") {
     group = "verification"
     description = "Proves hard timeout, normal exit and isolation using real JVM processes."
-    commandLine("python3", file("test-watchdog/test_watchdog.py").absolutePath, "-v")
+    commandLine("python3", file("test-watchdog/run_tests.py").absolutePath)
 }
 val workerTimeout = providers.gradleProperty("hermesTestWorkerTimeoutSeconds").orElse("600").get()
 require(workerTimeout.toLong() > 0) { "hermesTestWorkerTimeoutSeconds must be positive" }
