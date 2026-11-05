@@ -96,10 +96,11 @@ public class DiagnosticsHarness {
 
     def test_normal_exit_is_success_and_watcher_releases_pipes(self):
         output = self.root / 'normal-exit-evidence'
-        proc = self.spawn(True, 'exit', timeout=5, diagnostics=output)
-        out, err = proc.communicate(timeout=10)
-        self.assertEqual(0, proc.returncode)
-        self.assertNotIn('HR-TEST-001', err)
+        for destination in (None, output):
+            proc = self.spawn(True, 'exit', timeout=5, diagnostics=destination)
+            out, err = proc.communicate(timeout=10)
+            self.assertEqual(0, proc.returncode)
+            self.assertNotIn('HR-TEST-001', err)
         self.assertEqual([], list(output.glob('*.threads.txt')))
 
     def test_blocked_collector_does_not_postpone_hard_timeout_or_survive_watcher(self):

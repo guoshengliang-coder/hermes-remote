@@ -17,8 +17,8 @@ public final class TestWorkerWatchdog {
                 .getCodeSource().getLocation().toURI()).toString();
         String java = Path.of(System.getProperty("java.home"), "bin", "java").toRealPath().toString();
         // Audited: executable comes from this JVM, jar from this agent's CodeSource, and remaining
-        // dynamic arguments are this worker's identity and a validated numeric deadline. An argv
-        // vector is used, never a shell; no work-item, network or test-content input reaches it.
+        // dynamic arguments are this worker's identity, numeric deadline and optional output path.
+        // The output path is one opaque argv element, never a shell command or an executable.
         // nosemgrep: java.lang.security.audit.command-injection-process-builder.command-injection-process-builder
         watcher = new ProcessBuilder(
                 java,

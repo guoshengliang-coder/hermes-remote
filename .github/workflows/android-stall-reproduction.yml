@@ -62,7 +62,7 @@ jobs:
               junit=module.junit_summary(android/'app/build/test-results/testDebugUnitTest')
               text=(output/f'round-{index}.log').read_text()
               reused='Reusing configuration cache.' in text
-              if index>1 and not reused:raise ValueError('configuration_cache_not_reused')
+              bootstrap=(".config/.android/cache' has been created." in text)
               if index>1 and any(tasks[name]['result']!='UP-TO-DATE' for name in
                   (':app:compileDebugKotlin',':app:compileDebugUnitTestKotlin',':app:kspDebugKotlin')):
                 raise ValueError('compiler_reran')
@@ -71,6 +71,7 @@ jobs:
                   for key in ('counts','identityHash')):raise ValueError('test_identity_changed')
               row={'round':index,'elapsedSeconds':elapsed,'testTaskSeconds':tasks[':app:testDebugUnitTest']['seconds'],
                    'watchdogGateSeconds':tasks[':verifyTestWatchdog']['seconds'],'configurationCacheReused':reused,
+                   'sdkBootstrapCacheCreated':bootstrap,
                    'workerCount':len(set(diagnostics.glob('*.worker.txt'))-previous),
                    'startedEvents':sum(line.rstrip().endswith(' STARTED') for line in text.splitlines()),
                    'passedEvents':sum(line.rstrip().endswith(' PASSED') for line in text.splitlines()),'junit':junit}
@@ -79,6 +80,9 @@ jobs:
               result['samples'].append(row)
               (output/'results.json').write_text(json.dumps(result,indent=2)+'\n')
               print('COMPLETE_ROUND '+json.dumps({k:v for k,v in row.items() if k!='junit'}),flush=True)
+              # Preserve the cold SDK bootstrap observation; the final round must really reuse.
+              if index==2 and not (reused or bootstrap):raise ValueError('unexplained_cache_invalidation')
+              if index==3 and not reused:raise ValueError('configuration_cache_not_reused')
           except Exception:
             print('HR-CI-001: '+module.ERROR['summaryZh']+'\n'+module.ERROR['summaryEn'],file=sys.stderr)
             sys.exit(1)
