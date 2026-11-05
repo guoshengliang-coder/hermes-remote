@@ -425,6 +425,9 @@ QEMU 崩溃或挂起记录，但随后 adb 设备消失，应让外层控制会�
   延迟持久化时，用有限 `advanceTimeBy` + `runCurrent`。JUnit 每用例 30 秒，独立 watchdog 每个
   Gradle 测试 fork 默认 600 秒真实时间上限；超时强制终止这个 worker，报 `HR-TEST-001`，保留无关
   JVM。定向诊断可用 `-PhermesTestWorkerTimeoutSeconds=45`，不要用扩大堆或全局杀 Java 代替修复。
+  普通 Android CI 现在记录测试进度，并在 worker 预算 50%/80% 时异步取栈；失败时仅上传脱敏
+  metadata/线程状态/栈帧，保留七天。该诊断不修改 600 秒硬终止、不禁用 configuration cache，
+  详见 [ANDROID_CI_DIAGNOSTICS.md](ANDROID_CI_DIAGNOSTICS.md)。原偶发卡顿仍须靠实际证据定位。
   2026-09-30 在事故后的 `main` 基线，原 `SessionRuntimeStoreTest`、progress 组和全套单测均正常
   结束，未复现原事故；所以具体事故用例及 GC 异常链仍未独立确认。新增回归覆盖持续两小时虚拟时间
   的子代理轮询、测试成功/失败后的清理，以及真实 JVM 强制终止和隔离；生产长任务轮询没有加时限。

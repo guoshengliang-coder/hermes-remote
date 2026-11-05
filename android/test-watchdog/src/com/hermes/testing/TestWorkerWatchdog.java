@@ -24,7 +24,7 @@ public final class TestWorkerWatchdog {
                 java,
                 "-Xmx32m", "-XX:+UseSerialGC", "-cp", jar, TestWorkerWatchdog.class.getName(),
                 Long.toString(worker.pid()), worker.info().startInstant().orElseThrow().toString(),
-                Long.toString(timeoutSeconds))
+                Long.toString(timeoutSeconds), System.getProperty("hermes.test.diagnostics.dir", ""))
                 .redirectOutput(ProcessBuilder.Redirect.INHERIT)
                 .redirectError(ProcessBuilder.Redirect.INHERIT)
                 .start();
@@ -33,6 +33,12 @@ public final class TestWorkerWatchdog {
     public static void main(String[] args) throws Exception {
         ProcessHandle worker = ProcessHandle.of(Long.parseLong(args[0])).orElse(null);
         Instant started = Instant.parse(args[1]);
+        watch(worker, started, Long.parseLong(args[2]), args.length > 3 ? args[3] : "",
+                Path.of(System.getProperty("java.home"), "bin", "jcmd"));
+    }
+
+    static void watch(ProcessHandle worker, Instant started, long seconds, String output, Path jcmd) throws Exception {
+        if (!sameWorker(worker, started)) return;
         // A dead worker can remain a zombie while Gradle drains stderr. Its stdin pipe closes
         // at actual exit, avoiding a false timeout and letting the watcher release those pipes.
         Thread eof = new Thread(() -> {
@@ -42,20 +48,25 @@ public final class TestWorkerWatchdog {
         }, "test-worker-exit");
         eof.setDaemon(true);
         eof.start();
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(Long.parseLong(args[2]));
-        while (!workerExited && sameWorker(worker, started)) {
-            if (System.nanoTime() >= deadline) {
-                System.err.println("HR-TEST-001 测试进程超时，已强制终止。修复卡住的测试后重试。 / "
-                        + "Test worker timed out and was forcibly stopped. Fix the hanging test, then retry.");
-                // No SIGTERM/coroutine cooperation needed; never select processes by name.
-                if (sameWorker(worker, started)) worker.destroyForcibly();
-                return;
+        long began = System.nanoTime();
+        long duration = TimeUnit.SECONDS.toNanos(seconds);
+        try (WorkerDiagnostics diagnostics = new WorkerDiagnostics(output, worker, started, seconds, jcmd)) {
+            while (!workerExited && sameWorker(worker, started)) {
+                long elapsed = System.nanoTime() - began;
+                if (elapsed >= duration) {
+                    System.err.println("HR-TEST-001 测试进程超时，已强制终止。修复卡住的测试后重试。 / "
+                            + "Test worker timed out and was forcibly stopped. Fix the hanging test, then retry.");
+                    // No SIGTERM/coroutine cooperation needed; never select processes by name.
+                    if (sameWorker(worker, started)) worker.destroyForcibly();
+                    return;
+                }
+                diagnostics.tick(elapsed, duration);
+                Thread.sleep(100);
             }
-            Thread.sleep(100);
         }
     }
 
-    private static boolean sameWorker(ProcessHandle worker, Instant started) {
+    static boolean sameWorker(ProcessHandle worker, Instant started) {
         return worker != null && worker.isAlive()
                 && worker.info().startInstant().filter(started::equals).isPresent();
     }

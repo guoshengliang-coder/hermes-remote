@@ -1297,6 +1297,23 @@ without Gradle/Android using `python3 android/test-watchdog/test_watchdog.py -v`
 (JDK 17+ and Python 3 required). Fix the hanging test before retrying; do not increase heap or
 terminate processes by name. See `docs/DEVICE_TESTING.md` §8 for the incident and reading limits.
 
+Ordinary Android CI opts into stall evidence with `HERMES_TEST_DIAGNOSTICS_DIR` pointing to a
+fresh runner-temporary directory. Gradle's built-in STARTED/PASSED/FAILED/SKIPPED logging identifies
+unfinished tests in the job log and remains compatible with configuration-cache reuse. The external
+watchdog requests two snapshots at 50% and 80% of the unchanged worker budget (300s and 480s by
+default). It calls only its JDK's `jcmd <validated-worker-pid> Thread.print -l`, asynchronously with a
+five-second collector limit. A stalled/missing collector or unwritable evidence directory cannot
+postpone the hard stop. Exported files contain worker PID/start/budget, numeric thread IDs, states
+and Java frames; thread names, object details, paths and raw exceptions are excluded. Raw dumps
+are temporary, outside the upload directory, and removed after filtering.
+
+Only a failed ordinary CI job uploads these `*.txt` files, with seven-day retention; successful
+jobs keep the normal console evidence. The flag is absent from release/lint/local defaults, and no
+signing or feedback inputs are supplied to these diagnostics. Full real-JVM regression coverage
+includes capture, sanitization/limits, a blocked collector, failed output, normal exit, reused-PID
+protection and another JVM remaining alive. This is diagnostic support, not a fix for an unidentified
+hang. The bounded repeat record is in `../docs/ANDROID_CI_DIAGNOSTICS.md`.
+
 ### Optional FCM push (HG-94)
 
 A build carries FCM wake hints only when it is given the four Firebase client values; without them

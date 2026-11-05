@@ -167,7 +167,18 @@ jobs:
           # with it, runs log "Reusing configuration cache." — except the first run after a change
           # to app/build.gradle.kts, which every release makes. An absent secret is not a failure.
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
-      - run: ./gradlew :app:testDebugUnitTest --no-daemon
+      - name: Run full JVM tests with stall diagnostics
+        env:
+          HERMES_TEST_DIAGNOSTICS_DIR: ${{ runner.temp }}/android-test-diagnostics
+        run: ./gradlew :app:testDebugUnitTest --no-daemon --console=plain
+      - name: Preserve sanitized worker evidence on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-test-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/android-test-diagnostics/*.txt
+          if-no-files-found: ignore
+          retention-days: 7
 
   android-lint:
     needs: changes

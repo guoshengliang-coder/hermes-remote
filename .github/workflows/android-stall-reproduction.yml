@@ -1,0 +1,94 @@
+name: Android stall reproduction
+
+on:
+  push:
+    branches: [codex/android-ci-diagnostics]
+    paths:
+      - .github/workflows/android-stall-reproduction.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-stall-reproduction-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  repeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
+        with:
+          cache-read-only: true
+          build-scan-publish: false
+      - name: Repeat three complete suites and verify cache reuse
+        env:
+          EVIDENCE_DIR: ${{ runner.temp }}/android-stall-reproduction
+          HERMES_TEST_DIAGNOSTICS_DIR: ${{ runner.temp }}/android-test-diagnostics
+        run: |
+          python3 -B - <<'PY'
+          import importlib.util,json,os,shutil,subprocess,sys,time
+          from pathlib import Path
+          spec=importlib.util.spec_from_file_location('evidence','scripts/ci/benchmark-android-tests.py')
+          module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+          output=Path(os.environ['EVIDENCE_DIR']);output.mkdir(parents=True)
+          diagnostics=Path(os.environ['HERMES_TEST_DIAGNOSTICS_DIR'])
+          root=Path.cwd();android=root/'android'
+          result={'sourceCommit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+                  'cpus':len(os.sched_getaffinity(0)),'samples':[]}
+          try:
+            for index in range(1,4):
+              before=set((android/'build/reports/profile').glob('*.html'))
+              previous=set(diagnostics.glob('*.worker.txt'))
+              start=time.monotonic()
+              with (output/f'round-{index}.log').open('w') as log:
+                proc=subprocess.run(['./gradlew',':app:testDebugUnitTest','--rerun','--no-daemon',
+                                     '--console=plain','--profile'],cwd=android,stdout=log,
+                                    stderr=subprocess.STDOUT,timeout=1200)
+              elapsed=time.monotonic()-start
+              if proc.returncode:raise ValueError('full_suite_failed')
+              fresh=set((android/'build/reports/profile').glob('*.html'))-before
+              if len(fresh)!=1:raise ValueError('missing_profile')
+              profile=fresh.pop();shutil.copyfile(profile,output/f'round-{index}.html')
+              tasks=module.profile_tasks(profile.read_text())
+              junit=module.junit_summary(android/'app/build/test-results/testDebugUnitTest')
+              text=(output/f'round-{index}.log').read_text()
+              reused='Reusing configuration cache.' in text
+              if index>1 and not reused:raise ValueError('configuration_cache_not_reused')
+              if index>1 and any(tasks[name]['result']!='UP-TO-DATE' for name in
+                  (':app:compileDebugKotlin',':app:compileDebugUnitTestKotlin',':app:kspDebugKotlin')):
+                raise ValueError('compiler_reran')
+              if tasks[':app:testDebugUnitTest']['result']!='':raise ValueError('test_not_executed')
+              if result['samples'] and any(junit[key]!=result['samples'][0]['junit'][key]
+                  for key in ('counts','identityHash')):raise ValueError('test_identity_changed')
+              row={'round':index,'elapsedSeconds':elapsed,'testTaskSeconds':tasks[':app:testDebugUnitTest']['seconds'],
+                   'watchdogGateSeconds':tasks[':verifyTestWatchdog']['seconds'],'configurationCacheReused':reused,
+                   'workerCount':len(set(diagnostics.glob('*.worker.txt'))-previous),
+                   'startedEvents':sum(line.rstrip().endswith(' STARTED') for line in text.splitlines()),
+                   'passedEvents':sum(line.rstrip().endswith(' PASSED') for line in text.splitlines()),'junit':junit}
+              if row['workerCount']!=2 or row['startedEvents']<junit['counts']['tests']:
+                raise ValueError('missing_worker_or_progress_evidence')
+              result['samples'].append(row)
+              (output/'results.json').write_text(json.dumps(result,indent=2)+'\n')
+              print('COMPLETE_ROUND '+json.dumps({k:v for k,v in row.items() if k!='junit'}),flush=True)
+          except Exception:
+            print('HR-CI-001: '+module.ERROR['summaryZh']+'\n'+module.ERROR['summaryEn'],file=sys.stderr)
+            sys.exit(1)
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: android-stall-reproduction
+          path: |
+            ${{ runner.temp }}/android-stall-reproduction/
+            ${{ runner.temp }}/android-test-diagnostics/*.txt
+          retention-days: 7
+          if-no-files-found: error
