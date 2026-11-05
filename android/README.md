@@ -480,6 +480,9 @@ remain in `docs/ANDROID_SMOKE.md`; Web scope is being clarified against the appr
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.195 renders upstream `::preview{file="…"}` inline HTML charts from Mac-started
+  conversations as isolated cards (opaque origin, no network, no bridge) with a full-screen
+  interactive view; adds HR-PREVIEW-001/002.
 - Version 0.1.194 restores complete filtered session lists and older phone-local pins (HG-251), with
   atomic pagination and route isolation.
 - Version 0.1.193 preserves original sent filenames for cards and external open/share, restores
@@ -1253,7 +1256,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.194-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.195-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
