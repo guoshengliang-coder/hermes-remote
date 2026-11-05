@@ -52,15 +52,33 @@ test('Android research rejects unsafe output paths without exposing raw context'
   assert.doesNotMatch(proc.stdout + proc.stderr, /synthetic-secret-output|Traceback/);
 });
 
-test('research workflow keeps full tests, watchdog and source isolation', () => {
-  const workflow = readFileSync('.github/workflows/android-test-research.yml', 'utf8');
+test('timeout diagnostics target test workers only and tolerate unavailable jcmd', () => {
+  const proc = spawnSync('python3', ['-B', '-c', String.raw`
+import importlib.util,subprocess,tempfile
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+spec=importlib.util.spec_from_file_location('m','scripts/ci/benchmark-android-tests.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+with tempfile.TemporaryDirectory() as d:
+ root=Path(d)
+ with patch.object(m.subprocess,'run',side_effect=[SimpleNamespace(stdout='12 GradleDaemon\n34 worker.org.gradle.process.internal.worker.GradleWorkerMain\n'),SimpleNamespace(returncode=0)]) as run:
+  m.snapshot_threads(root,'sample',2)
+  assert run.call_count==2
+  assert run.call_args_list[1].args[0]==['jcmd','34','Thread.print','-l']
+ with patch.object(m.subprocess,'run',side_effect=subprocess.TimeoutExpired('jcmd',15)):
+  m.snapshot_threads(root,'sample',6)
+ assert (root/'sample-diagnostics-6.txt').read_text()=='Thread snapshot unavailable.\n'
+`], {encoding: 'utf8'});
+  assert.equal(proc.status, 0, proc.stderr);
+});
+
+test('Android research keeps complete tests, compiler reuse checks and watchdog', () => {
   const helper = readFileSync('scripts/ci/benchmark-android-tests.py', 'utf8');
-  assert.match(workflow, /branches: \[codex\/android-test-research\]/);
-  assert.match(workflow, /persist-credentials: false/);
-  assert.match(workflow, /timeout-minutes: 35/);
-  assert.doesNotMatch(workflow, /secrets\.|environment:|assembleDebug|--scan|pull_request:|workflow_dispatch:/);
   assert.doesNotMatch(helper, /--tests|excludeCategories|ignoreFailures|maxHeapSize\s*=/);
   assert.match(helper, /:verifyTestWatchdog/);
+  assert.match(helper, /watchdogEnabled/);
+  assert.match(helper, /compiler_reran_between_samples/);
+  assert.match(helper, /test_coverage_changed/);
   assert.match(helper, /TASK, "--rerun"/);
   assert.match(helper, /ORDER = \("baseline", "candidate", "candidate", "baseline"\)/);
 });

@@ -128,6 +128,17 @@ gradle.projectsEvaluated {
                     cpus: cpus, originalForks: maxParallelForks, requestedForks: requested, heap: maxHeapSize
                 ]))
                 maxParallelForks = requested
+                beforeTest { descriptor ->
+                    println('ANDROID_TEST_START ' + groovy.json.JsonOutput.toJson([
+                        testClass: descriptor.className, methodHash: Integer.toHexString(descriptor.name.hashCode())
+                    ]))
+                }
+                afterTest { descriptor, result ->
+                    println('ANDROID_TEST_END ' + groovy.json.JsonOutput.toJson([
+                        testClass: descriptor.className, methodHash: Integer.toHexString(descriptor.name.hashCode()),
+                        result: result.resultType.toString()
+                    ]))
+                }
                 doFirst {
                     println('ANDROID_RESEARCH_EXECUTION ' + groovy.json.JsonOutput.toJson([
                         forks: maxParallelForks, heap: maxHeapSize,
@@ -139,6 +150,20 @@ gradle.projectsEvaluated {
     }
 }
 '''
+
+
+def snapshot_threads(output, label, interval):
+    try:
+        listing = subprocess.run(["jcmd", "-l"], capture_output=True, text=True, timeout=15)
+        for line in listing.stdout.splitlines():
+            pid, _, command = line.partition(" ")
+            if pid.isdecimal() and "GradleWorkerMain" in command:
+                with (output / f"{label}-worker-{pid}-{interval}.txt").open("w") as dump:
+                    subprocess.run(["jcmd", pid, "Thread.print", "-l"], stdout=dump,
+                                   stderr=subprocess.STDOUT, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        # Diagnostics are best effort and must not terminate or change the test run.
+        (output / f"{label}-diagnostics-{interval}.txt").write_text("Thread snapshot unavailable.\n")
 
 
 def main():
@@ -166,15 +191,28 @@ def main():
         before = set((android / "build/reports/profile").glob("*.html"))
         start = time.monotonic()
         with (output / f"{label}.log").open("w") as stream:
-            result = subprocess.run(["./gradlew", *tasks, *common, f"-PresearchForks={forks}"], cwd=android,
-                                    stdout=stream, stderr=subprocess.STDOUT, timeout=1200)
-        if result.returncode:
-            raise ValueError("gradle_failed")
+            with subprocess.Popen(["./gradlew", *tasks, *common, f"-PresearchForks={forks}"], cwd=android,
+                                  stdout=stream, stderr=subprocess.STDOUT) as process:
+                for interval in range(20):
+                    try:
+                        process.wait(timeout=60)
+                        break
+                    except subprocess.TimeoutExpired:
+                        # Credential-free test workers only; preserve evidence before the existing
+                        # 600s watchdog kills a hung process. Never change the watchdog deadline.
+                        if interval in (2, 6):
+                            snapshot_threads(output, label, interval)
+                else:
+                    process.kill()
+                    process.wait()
+                    raise ValueError("gradle_failed")
         fresh = set((android / "build/reports/profile").glob("*.html")) - before
         if len(fresh) != 1:
             raise ValueError("missing_profile")
         profile = fresh.pop()
         shutil.copyfile(profile, output / f"{label}.html")
+        if process.returncode:
+            raise ValueError("gradle_failed")
         return time.monotonic() - start, profile_tasks(profile.read_text())
 
     elapsed, tasks = run("compile", [":app:compileDebugUnitTestKotlin", ":testWatchdogJar", ":verifyTestWatchdog"], baseline)
