@@ -78,15 +78,3 @@ with tempfile.TemporaryDirectory() as tmp:
 `], {encoding: 'utf8'});
   assert.equal(result.status, 0, result.stderr);
 });
-
-test('branch benchmark has read-only permissions and no release credentials or production actions', async () => {
-  const workflow = await readFile('.github/workflows/node-gate-benchmark.yml', 'utf8');
-  assert.match(workflow, /branches: \[codex\/github-flow-preflight\]/);
-  assert.match(workflow, /permissions:\n  contents: read/);
-  assert.match(workflow, /persist-credentials: false/);
-  assert.match(workflow, /runs-on: macos-15/);
-  assert.match(workflow, /timeout-minutes: 30/);
-  assert.match(workflow, /node-version: 22\.23\.2/);
-  assert.match(workflow, /python3 scripts\/ci\/benchmark-node-gate\.py/);
-  assert.doesNotMatch(workflow, /secrets\.|environment:|tags:|workflow_dispatch:|publish-|notarytool|gradlew|packages: write/);
-});

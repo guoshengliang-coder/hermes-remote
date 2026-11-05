@@ -118,12 +118,13 @@ alternating order on the same `macos-15` runner with fixed Node/dependency/sourc
 raw timings and test counts. No main merge is needed for a branch-push-triggered benchmark. A new
 `workflow_dispatch` workflow alone must first exist on the default branch, so it is not the right
 pre-merge bootstrap. Do not relax existing main-only release conditions to benchmark them.
-GitHub benchmark execution and any branch push have not been performed.
+The local comparison preceded the authorized GitHub experiment described below.
 
 ## GitHub experiment setup
 
 The owner authorized a test-branch push and GitHub comparison on 2026-11-05. The isolated branch
-`codex/github-flow-preflight` contains a branch-only `Node gate benchmark` workflow and
+`codex/github-flow-preflight` launched a branch-only `Node gate benchmark` workflow at commit
+`46345973aae39cac9ff6872610422de40f0bee1b`, using
 `scripts/ci/benchmark-node-gate.py`. It fixes Node to 22.23.2 and uses one `macos-15` job for all six
 samples. Dependencies are installed once outside the measurement. Each sample removes only
 untracked generated workspace outputs, executes a fixed command, retains raw logs and requires five
@@ -137,3 +138,11 @@ and disabled persisted checkout credentials. It cannot be triggered by main push
 Focused validation now includes 43 passing tests covering count equivalence, negative speedups,
 safe output cleanup, structured errors and workflow isolation. Pre-push `npm run test:ci` passed: 935 passed, 33 conditional skips, zero failures.
 Actionlint 1.7.7 passed for all five affected workflows. No main merge or publication is authorized by this experiment.
+
+The temporary push-triggered workflow was removed after launching the immutable benchmark commit;
+it will not enter main. Its isolation test was removed with it, while the reusable benchmark helper
+and evidence/count/cleanup tests remain. The already-started run keeps its original checkout and
+source identity. Ordinary PR CI for the measured commit passed with 973 passing / 5 platform skips,
+including disposable PostgreSQL and opt-in Gateway network coverage; SAST and Website also passed.
+
+Post-cleanup validation: 42 focused tests passed; full local Node baseline 934 passed / 33 conditional skips / zero failures.
