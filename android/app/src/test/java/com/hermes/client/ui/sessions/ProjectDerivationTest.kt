@@ -91,6 +91,26 @@ class ProjectDerivationTest {
         assertEquals(listOf("new", "b2"), out[1].previewSessions.map { it.id }) // recent-first previews
     }
 
+    @Test fun root_launch_directory_is_a_known_default_not_an_empty_path() {
+        assertTrue(isDefaultProjectPath("/", "/"))
+        assertTrue(isDefaultProjectPath("///", "/"))
+        val out = deriveProjectsFromSessions(
+            listOf(s("home", "personal", null, 10, cwd = "/"),
+                s("real", "personal", "/Users/me/project", 20)),
+            defaultProjectPath = "/",
+        )
+        assertEquals(listOf(DEFAULT_PROJECT_ID, "/Users/me/project"), out.map { it.id })
+        assertEquals("/", out.first().path)
+        assertEquals(1, out.first().sessionCount)
+    }
+
+    @Test fun root_has_no_display_label_even_before_the_default_path_is_learned() {
+        assertNull(projectLabelOfPath("/", null, null))
+        assertNull(projectLabelOfPath("/", null, "/"))
+        assertNull(projectLabelOfPath("/Users/me", "/", null))
+        assertEquals("project", projectLabelOfPath("/Users/me/project/", null, "/"))
+    }
+
     @Test fun falls_back_to_cwd_when_no_git_repo_root() {
         val out = deriveProjectsFromSessions(
             listOf(

@@ -34,6 +34,25 @@ class SessionSublinePartsTest {
         assertTrue(sessionSublineParts(s(null)).isEmpty)
     }
 
+    @Test fun root_directory_does_not_add_a_project_segment_to_ordinary_rows() {
+        for (defaultPath in listOf(null, "/")) {
+            val parts = sessionSublineParts(s("model", cwd = "/"), defaultProjectPath = defaultPath)
+            assertNull(parts.lead)
+            assertEquals("model", parts.model)
+            assertTrue(sessionSublineParts(s(null, cwd = "/"), defaultProjectPath = defaultPath).isEmpty)
+        }
+    }
+
+    @Test fun named_independent_projects_and_branch_mode_keep_their_identity() {
+        assertEquals("知识库", sessionSublineParts(
+            s("model", cwd = "/Users/me/knowledge/sub"), defaultProjectPath = "/",
+            projectName = "知识库",
+        ).lead)
+        assertEquals("main", sessionSublineParts(
+            s("model", cwd = "/", branch = "main"), lead = SublineLead.BRANCH,
+        ).lead)
+    }
+
     @Test fun branch_mode_leads_with_the_git_branch_not_the_project() {
         val parts = sessionSublineParts(s("claude-sonnet-5", repo = "/u/proj", branch = "codex/router"), lead = SublineLead.BRANCH)
         assertEquals("codex/router", parts.lead)

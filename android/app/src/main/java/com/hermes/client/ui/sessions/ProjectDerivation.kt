@@ -4,6 +4,7 @@ import com.hermes.client.domain.Project
 import com.hermes.client.domain.ProjectLane
 import com.hermes.client.domain.ProjectRepo
 import com.hermes.client.domain.Session
+import com.hermes.client.domain.normalizeProjectPath
 
 /**
  * Group id for the DEFAULT project: the gateway's launch directory. Every session the phone
@@ -36,8 +37,8 @@ fun projectKeyOf(session: Session): String? =
 
 /** Whether [path] is the gateway launch directory (the default project), ignoring trailing slashes. */
 fun isDefaultProjectPath(path: String?, defaultProjectPath: String?): Boolean {
-    val a = path?.trimEnd('/', '\\')?.ifBlank { null } ?: return false
-    val b = defaultProjectPath?.trimEnd('/', '\\')?.ifBlank { null } ?: return false
+    val a = normalizeProjectPath(path) ?: return false
+    val b = normalizeProjectPath(defaultProjectPath) ?: return false
     return a == b
 }
 
@@ -53,6 +54,8 @@ fun projectLabelOf(session: Session, defaultProjectPath: String? = null): String
 fun projectLabelOfPath(cwd: String?, gitRepoRoot: String?, defaultProjectPath: String? = null): String? {
     val key = gitRepoRoot?.ifBlank { null } ?: cwd?.ifBlank { null } ?: return null
     if (isDefaultProjectPath(key, defaultProjectPath)) return null
+    // Older installs may have lost the root default path. A separator alone is not a name.
+    if (key.trimEnd('/', '\\').isEmpty()) return null
     return basename(key)
 }
 
@@ -88,7 +91,7 @@ fun deriveProjectsFromSessions(
     val default = buildProject(
         id = DEFAULT_PROJECT_ID,
         label = "Default project",
-        path = defaultProjectPath?.trimEnd('/', '\\')?.ifBlank { null },
+        path = normalizeProjectPath(defaultProjectPath),
         rows = byKey[null].orEmpty(),
     )
     return listOf(default) + projects
