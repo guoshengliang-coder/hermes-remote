@@ -1,5 +1,18 @@
 # MVP deployment
 
+## Gateway 0.4.41 release preparation — 2026-11-14 (authorized)
+
+The owner requested merge/publication of HG-254 and explicitly confirmed Gateway 0.4.41.
+Full release-candidate coverage also includes HG-250 (#721): publish its browser session
+mutation-fence allowlist before the updated Web bundle. This routine release includes the
+already-merged avatar size wording correction and voice-proxy test restructuring; it adds no
+new feature implementation. Keep schema 20, protocol versions, minimum clients and production
+flags unchanged. Use paired Gateway/operator bundles from one successful main Gateway OCI
+run, verify archives before/after transfer, then run the existing R5-F1 candidate/switch/public
+smoke/observation gate with the prior slot retained. Web and Android publication use their
+independent gates. Preparation is not production success; physical-device and real-account
+acceptance remain outstanding.
+
 The first production-shaped relay was installed and verified on 2026-08-29. The production
 hostname was migrated to `mrlgs.net` on 2026-08-30.
 
