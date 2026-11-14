@@ -61,3 +61,27 @@ L3 Pixel_API_37 可用但未启动，本次不修改目标 SDK 门控行为，�
 本次主机探测：L1 JVM/Roborazzi 可用，L2 无连接真机，L3 有 Pixel_API_37。
 原报告设备、真实运行事件时序与厂商绘制行为待真机确认，步骤见 `ANDROID_SMOKE.md` HG-252。
 本变更不分配版本、不分发 APK、不发布服务，也不代表人工验收通过。
+
+## 合并补修：用户明确授权 SDK 最新版（2026-11-14）
+
+PR 首轮 CI 在运行测试前因旧 `io.missiongo:missiongo-feedback:0.2.5` 的公开 POM 返回 404 失败。
+用户随后明确要求升级 SDK 最新版，升级与原修复共用 PR，不修改或发布 MissionGo 服务。
+
+- 官方 `guoshengliang-coder/missiongo` 主线 `released.json` 的已发布 `androidSdk` 为 **0.2.8**，
+  来源 `a939f47bc61c283d01ffae77f555bf325e9e4a41`。公开 Maven origin 不变，0.2.8 的 POM 与 AAR
+  已实际下载并确认 HTTP 200；公开接入文档的 0.2.5 说明已落后于发布记录。
+- 实际 AAR 中宿主直接消费的六类公共 API 签名与 0.2.5 一致，不改 endpoint、Token 注入、
+  日志脱敏、错误映射、主题传递、无配置隐藏入口与宿主反馈接口。
+- 刷新依赖后的首次升级构建确实在 Manifest 合并失败：SDK 新增的相机 `FileProvider`
+  与宿主同为 `androidx.core.content.FileProvider`，两套 authority 和路径元数据发生冲突。
+  宿主改用独立 `HermesFileProvider` 子类作为 Manifest 身份，保留原 `${applicationId}.fileprovider`
+  和全部原路径；SDK 保留 `${applicationId}.missiongofeedback.fileprovider` 和仅相机缓存目录。
+  不用 `tools:replace` 覆盖 SDK authority 或合并扩大它的共享路径。
+- 新增宿主合并 Manifest 回归，检查两套 provider 未导出且允许逐 URI 授权、原宿主文件可读、
+  SDK 相机文件可读且拒绝其他宿主缓存。SDK 编辑器真实相机/图库、WebView、返回和旋转仍须真机
+  验证，见 `ANDROID_SMOKE.md` 的 0.2.8 升级章节。
+
+升级后的聚焦反馈测试 21 项通过（含新增 provider 兼容回归 3 项）。最终
+`:app:testDebugUnitTest :app:assembleDebug :app:lintDebug` 全部通过，2976 项测试无失败、错误或跳过；
+另核对实际测试 APK 签名与 `SIGNING.md` 一致，`git diff --check` 通过。L1 已运行，L2 无真机，
+L3 未运行。后续 CI 与实际集成结果以 PR 和条目交接记录为准；本节不扩大升版/发布授权。
