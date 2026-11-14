@@ -141,8 +141,10 @@
                 android:resource="@xml/hermes_widget_info" />
         </receiver>
 
+        <!-- A distinct class keeps the host provider separate from libraries' FileProviders.
+             The existing authority and paths remain unchanged for shares and APK installation. -->
         <provider
-            android:name="androidx.core.content.FileProvider"
+            android:name=".HermesFileProvider"
             android:authorities="${applicationId}.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true">

@@ -1,3 +1,18 @@
+The MissionGo feedback SDK is pinned to 0.2.8, the latest release verified against its official
+release record and public POM/AAR. This replaces the unavailable 0.2.5 dependency without changing
+the Maven origin, feedback endpoint/token, or host reporting API. A distinct HermesFileProvider
+class prevents a manifest collision with the SDK camera provider while retaining existing host
+share authorities/paths and the SDK's narrow capture path. Editor Back, camera selection,
+WebView compatibility and configuration changes still need physical-device verification; see
+`../docs/ANDROID_SMOKE.md`. No APK version is allocated or published by this dependency update.
+
+HG-252 gives ordinary grouped Chats one stable device/profile/session row identity and applies
+regrouping, sorting and collapse changes immediately. Rows no longer fade or move through their
+neighbours; runtime indicators and explicit scroll reveals remain. Dynamic regression tests use
+the production list and compare intermediate rendered frames, including app-dark/system-light
+and large fonts. Original-device verification remains in `../docs/ANDROID_SMOKE.md`.
+This source change does not allocate or publish an APK.
+
 HG-251 filters internal and empty sessions before the upstream list window and reads all pages
 before replacing the complete Chats/Bots cache. Older phone-local pins are included without a
 pin migration. Archive keeps its own source filters; profile errors and interrupted/stale-route
