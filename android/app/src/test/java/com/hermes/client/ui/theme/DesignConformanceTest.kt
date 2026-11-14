@@ -100,6 +100,12 @@ class DesignConformanceTest {
             // The graphic tier of WARN: the pillar and the waiting dot, which the design source
             // paints a brighter amber than the words beside them.
             "warnGraphic" -> warnGraphicArgb(dark)
+            "composer" -> when (name) {
+                "container" -> if (dark) ComposerActionDark else ComposerActionLight
+                "ink" -> ComposerActionInk
+                "outline" -> if (dark) ComposerActionOutlineDark else androidx.compose.ui.graphics.Color.Transparent
+                else -> error("unknown composer role '$name'")
+            }.toArgb()
             "tiles" -> when (name) {
                 "fab" -> if (dark) FabContainerDark else FabContainerLight
                 "spinner" -> if (dark) SpinnerDark else SpinnerLight

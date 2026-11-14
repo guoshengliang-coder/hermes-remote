@@ -2258,6 +2258,17 @@ behavior is claimed. L2 was unavailable (no physical device attached).
 
 Use an isolated Hermes home and the paired upstream backend/Desktop build plus compatible Go Gateway, Web and Android builds. Star, unstar, hide and restore on each surface; verify the other two converge, restart and verify persistence. A hidden current model must keep running. Switch Mac while a preference request is delayed; no old-instance row or action may land on the new Mac. Import old favorites after another surface cancels the same model; cancellation must survive and originals remain available. Test concurrent same-field writes (409/review) and different fields (both survive). Disconnect during mutation and before response: no automatic replay or success claim; reconnect reads the authority. Shared guest direct HTTP POST must return HR-MODEL-003 through browser and both native route forms. Old Hermes 404 must show independent mode; 5xx must show HR-MODEL-001. Name actual devices in the verification receipt; JVM/browser automation alone is not real-device acceptance.
 
+## HG-254 · Web composer physical acceptance
+
+The production-component browser harness verifies light/dark colours, 48px/24px geometry,
+mouse/touch actions, disabled/preparing, keyboard/IME, focus and 1.3x text. Desktop WebKit is not
+physical iPhone/PWA acceptance: actual safe-area, keyboard and finger interaction still require
+iPhone Safari/Home Screen Web App and Android Chrome checks. Confirm send/stop stay in their
+existing slot in compact, expanded and voice modes, the dark hairline is visible, long model
+labels cannot squeeze the action, and empty/preparing states cannot send. Name the actual device,
+browser and product release. No live microphone/provider or production conversation is exercised
+by the synthetic harness. See `HG_254_COMPOSER_ACTION.md`.
+
 ## HG-244 congestion and fault isolation
 
 Use the single acceptance checklist in `HG_244_CONGESTION.md`. New mode is opt-in at both ends. Exercise control-only loss and replacement while chat and both file directions are active; confirm no business generation change and exact file hashes. Exercise business-only loss while control responds, early/duplicate/late cancellation, revoked binding, stale nonce/health, two Connector instances, old/new combinations and rollback. A 30-minute loopback fixture is automated; actual shaped WAN and Baidu Netdisk saturation, phone/sleep-wake and production database/proxy behavior remain separate release checks.

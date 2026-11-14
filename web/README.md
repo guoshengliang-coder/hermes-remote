@@ -1,3 +1,8 @@
+HG-254 aligns the existing 3rem send/stop slot with Android: near-black fill, white 1.7px
+round-stroke up arrow and solid Stop, with a dark-theme hairline. Disabled/preparing states,
+keyboard/IME rules and voice interactions are retained. The production-component browser check
+and physical-device limits are in `../docs/HG_254_COMPOSER_ACTION.md`. This does not publish Web.
+
 HG-231 follows the initiating pointer outside the hold button and uses the final release position.
 Matching touch-end/cancel events provide a fallback when WebKit omits a pointer end; other fingers
 cannot finish the recording. Pointer cancellation, unexpected capture loss, window blur and missed

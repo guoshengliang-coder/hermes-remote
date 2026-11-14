@@ -569,3 +569,40 @@ it("switching from typing to voice clears a stale iOS keyboard frame without sen
     expect(h.host.querySelector("textarea")!.value).toBe("保留的草稿");
   } finally { stop(); }
 });
+
+it("uses the reviewed send arrow and a filled Stop without changing either action (HG-254)", () => {
+  const h = mount();
+  type(h.host, "send once");
+  const send = h.host.querySelector<HTMLButtonElement>('.send-button')!;
+  const arrow = send.querySelector('path')!;
+  expect(arrow.getAttribute('d')).toBe('M12 19V5M5 12l7-7 7 7');
+  expect(arrow.getAttribute('stroke-width')).toBe('1.7');
+  expect(send.getAttribute('aria-label')).toBe('发送');
+  act(() => send.click());
+  expect(h.props.onSend).toHaveBeenCalledExactlyOnceWith('send once', []);
+  h.update({ generating: true });
+  const stop = h.host.querySelector<HTMLButtonElement>('.send-button.stop')!;
+  expect(stop.querySelector('rect')!.getAttribute('fill')).toBe('currentColor');
+  expect(stop.querySelector('rect')!.getAttribute('stroke')).toBe('none');
+  act(() => stop.click());
+  expect(h.props.onInterrupt).toHaveBeenCalledOnce();
+  expect(h.props.onSend).toHaveBeenCalledTimes(1);
+});
+
+it("voice mode keeps the same Stop action and preserves the text draft (HG-254)", async () => {
+  const h = mount();
+  type(h.host, "已有草稿");
+  act(() => h.host.querySelector<HTMLButtonElement>('.composer-voice')!.click());
+  await settle();
+  h.update({ generating: true });
+  const stop = h.host.querySelector<HTMLButtonElement>('.voice-mode .send-button.stop')!;
+  expect(stop).not.toBeNull();
+  expect(stop.getAttribute('aria-label')).toBe('停止');
+  expect(stop.querySelector('rect')!.getAttribute('fill')).toBe('currentColor');
+  expect(h.host.querySelector<HTMLButtonElement>('.voice-hold')!.disabled).toBe(true);
+  act(() => stop.click());
+  expect(h.props.onInterrupt).toHaveBeenCalledOnce();
+  expect(h.props.onSend).not.toHaveBeenCalled();
+  act(() => h.host.querySelector<HTMLButtonElement>('.composer-voice')!.click());
+  expect(h.host.querySelector('textarea')!.value).toBe('已有草稿');
+});
