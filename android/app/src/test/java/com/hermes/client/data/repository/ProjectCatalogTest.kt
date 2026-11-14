@@ -159,4 +159,18 @@ class ProjectCatalogTest {
         c.refresh()
         assertNull(c.nameFor(session("/Users/bs/hermes"), "/Users/bs/hermes"))
     }
+
+    @Test fun a_root_default_never_swallows_an_independent_project() = runTest {
+        val c = catalog()
+        // The cold-cache fallback must also hide `/` before a new session teaches its path.
+        assertNull(c.nameFor(session("/"), null))
+        coEvery { projectsRepo.tree(any()) } returns ProjectTree(
+            listOf(project("__no_project__", "Home", "/").copy(isNoProject = true),
+                project("knowledge", "知识库", "/Users/me/knowledge")), null,
+        )
+        c.refresh()
+        assertNull(c.nameFor(session("/"), "/"))
+        assertEquals("知识库", c.nameFor(session("/Users/me/knowledge/sub"), "/"))
+        assertEquals("other", c.nameFor(session("/Users/me/other"), "/"))
+    }
 }

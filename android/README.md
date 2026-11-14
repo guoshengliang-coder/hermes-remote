@@ -1,3 +1,9 @@
+HG-253 hides the meaningless `/` project segment on ordinary session, archive and search rows,
+including installations that have not learned the default folder yet. Root default paths survive
+preference storage and comparison; independent projects keep their names, with folder basenames
+as fallback. Model, branch, pin and draft presentation remains intact. Physical-device checks
+are listed in `../docs/ANDROID_SMOKE.md`. This source change does not allocate or publish an APK.
+
 The MissionGo feedback SDK is pinned to 0.2.8, the latest release verified against its official
 release record and public POM/AAR. This replaces the unavailable 0.2.5 dependency without changing
 the Maven origin, feedback endpoint/token, or host reporting API. A distinct HermesFileProvider

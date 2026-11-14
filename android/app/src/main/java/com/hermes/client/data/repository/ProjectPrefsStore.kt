@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.hermes.client.domain.normalizeProjectPath
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
@@ -32,7 +33,7 @@ class ProjectPrefsStore(private val context: Context) {
 
     suspend fun setDefaultProjectPath(path: String?) {
         context.projectPrefsDataStore.edit { p ->
-            val clean = path?.trimEnd('/', '\\')?.ifBlank { null }
+            val clean = normalizeProjectPath(path)
             if (clean == null) p.remove(defaultPathKey) else p[defaultPathKey] = clean
         }
     }
