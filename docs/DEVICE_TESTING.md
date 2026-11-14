@@ -51,6 +51,12 @@ done
 
 ## 1. 构建与装哪个包
 
+HG-253 合并检查中，Linux CI 的 `AttachmentFileUriTest` 两次因 FileProvider 根目录缓存失败：
+authority 沿用包名，但 Robolectric 的 `cacheDir` 每个测试都不同。静态 `getUriForFile` 可能先读到
+上一沙箱的策略，尚未通过真实 Provider 的 `attachInfo` 生命周期失效。测试先用不同 cacheDir
+明确制造旧策略，再按当前 Context 挂接 `HermesFileProvider`；保留原始文件名、大小及重复打开断言。
+这只修复测试隔离，不改生产路径、Provider 权限或分享范围，也不以重跑通过替代根因修复。
+
 HG-220（2026-10-20）在 API 36 模拟器上发现：当前依赖中的 Espresso 触控注入器反射调用
 `InputManager.getInstance()`，该入口已不存在，`performClick()` 会报 `NoSuchMethodException`。
 这是测试注入失败，不能据此判定 App 点击失败。Compose 测试 Rule 的空闲同步也会初始化该入口，
