@@ -12,7 +12,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Keyboard
-import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -161,19 +160,9 @@ internal fun VoiceComposerBar(
             )
         }
         if (isGenerating && sessionWritable) {
-            Surface(
-                shape = androidx.compose.foundation.shape.CircleShape,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(48.dp),
-            ) {
-                IconButton(onClick = onStop) {
-                    Icon(
-                        Icons.Rounded.Stop,
-                        contentDescription = localized(language, "停止", "Stop"),
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                    )
-                }
-            }
+            ComposerActionButton(
+                isStop = true, enabled = true, language = language, onClick = onStop,
+            )
         } else {
             IconButton(onClick = onAdd, enabled = sessionWritable) {
                 Icon(

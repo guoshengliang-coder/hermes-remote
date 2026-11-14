@@ -99,6 +99,11 @@ seconds of real playback, with a separate 24MiB compressed-sample target ceiling
 
 # Hermes Remote Android
 
+HG-254 unifies the chat action with Web: a 48dp near-black circle, 24dp round-stroke up arrow
+and solid Stop. Expanded, compact and voice modes share one component; empty-input and action
+behaviour stay unchanged. The dark action uses its own fill and hairline, independent of the list
+FAB. Evidence and physical-device limits: `../docs/HG_254_COMPOSER_ACTION.md`. No APK is published.
+
 On measured fast links, sequential video read-ahead refills its bounded window before awaiting
 the current range. A request-local body-goodput sample excludes first-byte latency; unknown or
 sub-1 MiB/s responses retain conservative scheduling. A shrunken one-range window never refills

@@ -46,7 +46,6 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.NoteAdd
-import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Archive
@@ -61,7 +60,6 @@ import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -1540,34 +1538,12 @@ fun ChatScreen(
                                 IconButton(onClick = { showAttachSheet = true }, enabled = sessionWritable) {
                                     Icon(Icons.Rounded.Add, contentDescription = localized(language, "添加内容", "Add content"), modifier = Modifier.size(28.dp))
                                 }
-                                // Send and stop are ONE circular button whose glyph swaps (➤ ⇄ ■), so the
-                                // control keeps its place, size, and color through the whole cycle. Empty
-                                // draft renders a quiet bare arrow instead of a grey "broken" disc; the
-                                // button lighting up in accent is itself the "you can send now" signal.
-                                // Explicit square size: CircleShape on content-measured bounds
-                                // rendered as an EGG on some OEM ROMs (non-square measurement).
-                                // Theme primary, not the per-profile hashed hue — a global core
-                                // control shouldn't change color with the active profile.
-                                Surface(
-                                    shape = androidx.compose.foundation.shape.CircleShape,
-                                    color = if (state.isGenerating || canSend) MaterialTheme.colorScheme.primary
-                                    else androidx.compose.ui.graphics.Color.Transparent,
-                                    modifier = Modifier.size(48.dp),
-                                ) {
-                                    when {
-                                        state.isGenerating && sessionWritable -> IconButton(onClick = stopGeneration) {
-                                            Icon(Icons.Rounded.Stop, contentDescription = localized(language, "停止", "Stop"), tint = MaterialTheme.colorScheme.onPrimary)
-                                        }
-                                        else -> IconButton(onClick = { submit() }, enabled = canSend) {
-                                            Icon(
-                                                Icons.AutoMirrored.Rounded.Send,
-                                                contentDescription = localized(language, "发送", "Send"),
-                                                tint = if (canSend) MaterialTheme.colorScheme.onPrimary
-                                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-                                            )
-                                        }
-                                    }
-                                }
+                                ComposerActionButton(
+                                    isStop = state.isGenerating && sessionWritable,
+                                    enabled = (state.isGenerating && sessionWritable) || canSend,
+                                    language = language,
+                                    onClick = if (state.isGenerating && sessionWritable) stopGeneration else ({ submit() }),
+                                )
                             }
                         }
                     } else {
@@ -1603,24 +1579,12 @@ fun ChatScreen(
                                 ),
                             )
                             when {
-                                state.isGenerating && sessionWritable -> Surface(
-                                    shape = androidx.compose.foundation.shape.CircleShape,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(48.dp),
-                                ) {
-                                    IconButton(onClick = stopGeneration) {
-                                        Icon(Icons.Rounded.Stop, contentDescription = localized(language, "停止", "Stop"), tint = MaterialTheme.colorScheme.onPrimary)
-                                    }
-                                }
-                                canSend -> Surface(
-                                    shape = androidx.compose.foundation.shape.CircleShape,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(48.dp),
-                                ) {
-                                    IconButton(onClick = { submit() }) {
-                                        Icon(Icons.AutoMirrored.Rounded.Send, localized(language, "发送", "Send"), tint = MaterialTheme.colorScheme.onPrimary)
-                                    }
-                                }
+                                state.isGenerating && sessionWritable -> ComposerActionButton(
+                                    isStop = true, enabled = true, language = language, onClick = stopGeneration,
+                                )
+                                canSend -> ComposerActionButton(
+                                    isStop = false, enabled = true, language = language, onClick = { submit() },
+                                )
                                 else -> IconButton(onClick = { showAttachSheet = true }, enabled = sessionWritable) {
                                     Icon(Icons.Rounded.Add, contentDescription = localized(language, "添加内容", "Add content"), modifier = Modifier.size(28.dp))
                                 }

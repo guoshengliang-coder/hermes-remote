@@ -51,6 +51,9 @@
   --subline-faint: #a8a29e;
   --fab-container: #181c24;
   --fab-outline: transparent;
+  --composer-action: #181c24;
+  --composer-action-ink: #ffffff;
+  --composer-action-outline: transparent;
   --spinner: #2563eb;
   --incident-container: #fff1f2;
   --incident-ink: #9f1239;
@@ -126,6 +129,9 @@ html[data-theme="dark"] {
     --subline-faint: #64615b;
     --fab-container: #181c24;
     --fab-outline: #3a4049;
+    --composer-action: #1e232b;
+    --composer-action-ink: #ffffff;
+    --composer-action-outline: #3a4049;
     --spinner: #3b82f6;
     --incident-container: #2a1b1d;
     --incident-ink: #fca5a5;
@@ -2627,8 +2633,9 @@ html[data-theme="dark"] .group-header {
   height: var(--touch);
   flex: none;
   border-radius: 999px;
-  background: var(--primary);
-  color: var(--on-primary);
+  background: var(--composer-action);
+  color: var(--composer-action-ink);
+  border: 1px solid var(--composer-action-outline);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2636,13 +2643,9 @@ html[data-theme="dark"] .group-header {
 
 .send-button:disabled {
   background: transparent;
-  color: var(--outline);
-  opacity: 1;
-}
-
-.send-button.stop {
-  background: var(--on-surface);
-  color: var(--surface);
+  border-color: transparent;
+  color: var(--on-surface-variant);
+  opacity: 0.55;
 }
 
 .composer-disclaimer {
@@ -4799,8 +4802,6 @@ button.chat-workspace:disabled {
 .composer .icon-button svg, .composer .send-button svg { width: 1.5rem; height: 1.5rem; }
 .composer .composer-add svg { width: 1.75rem; height: 1.75rem; }
 .composer .model-chip { flex: 1; min-width: 0; max-width: none; margin: 0; text-align: left; background: transparent; font-family: inherit; }
-.composer .send-button.stop { background: var(--primary); color: var(--on-primary); }
-.composer .send-button:disabled { color: var(--on-surface-variant); opacity: 0.55; }
 .voice-mode { gap: 0.375rem; }
 .voice-hold { flex: 1; min-width: 0; min-height: 3.25rem; border-radius: 1.125rem; background: var(--surface-variant); font-size: 1rem; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .voice-overlay { position: fixed; inset: 0; z-index: 90; display: flex; align-items: flex-end; justify-content: center; background: rgb(0 0 0 / 45%); pointer-events: auto; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }

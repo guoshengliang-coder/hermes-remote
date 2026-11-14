@@ -710,3 +710,14 @@ val MoreDotsIcon: ImageVector by lazy {
         }
     }.build()
 }
+
+/** HG-254: centred send arrow, matching the approved Web glyph and 1.7dp icon brush. */
+val SendUpIcon: ImageVector by lazy {
+    strokeIcon("SendUp") {
+        moveTo(12f, 19f)
+        lineTo(12f, 5f)
+        moveTo(5f, 12f)
+        lineTo(12f, 5f)
+        lineTo(19f, 12f)
+    }
+}

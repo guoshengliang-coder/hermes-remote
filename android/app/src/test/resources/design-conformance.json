@@ -121,6 +121,12 @@
       "design": ["#181C24", "#181C24"], "impl": ["#181C24", "#181C24"],
       "reason": "" },
 
+    { "role": "composer.action.container", "ref": "composer:container",
+      "design": ["#181C24", "#1E232B"], "impl": ["#181C24", "#1E232B"],
+      "reason": "", "note": "HG-254 approved reference; separate from the list FAB." },
+    { "role": "composer.action.ink", "ref": "composer:ink",
+      "design": ["#FFFFFF", "#FFFFFF"], "impl": ["#FFFFFF", "#FFFFFF"], "reason": "" },
+
     { "role": "incident.container", "ref": "tiles:incidentBg",
       "design": ["#FFF1F2", "#2A1B1D"], "impl": ["#FFF1F2", "#2A1B1D"], "reason": "" },
 

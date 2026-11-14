@@ -72,13 +72,13 @@ export const PlusIcon = (p: IconProps) => (
 
 export const SendIcon = (p: IconProps) => (
   <Svg {...p}>
-    <path d="M12 19V5M6 11l6-6 6 6" />
+    <path d="M12 19V5M5 12l7-7 7 7" stroke-width="1.7" />
   </Svg>
 );
 
 export const StopIcon = (p: IconProps) => (
   <Svg {...p}>
-    <rect x="7" y="7" width="10" height="10" rx="2" />
+    <rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor" stroke="none" />
   </Svg>
 );
 
