@@ -1,3 +1,10 @@
+HG-252 gives ordinary grouped Chats one stable device/profile/session row identity and applies
+regrouping, sorting and collapse changes immediately. Rows no longer fade or move through their
+neighbours; runtime indicators and explicit scroll reveals remain. Dynamic regression tests use
+the production list and compare intermediate rendered frames, including app-dark/system-light
+and large fonts. Original-device verification remains in `../docs/ANDROID_SMOKE.md`.
+This source change does not allocate or publish an APK.
+
 HG-251 filters internal and empty sessions before the upstream list window and reads all pages
 before replacing the complete Chats/Bots cache. Older phone-local pins are included without a
 pin migration. Archive keeps its own source filters; profile errors and interrupted/stale-route

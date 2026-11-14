@@ -426,178 +426,25 @@ fun SessionsScreen(
                             val isPinned = { s: Session ->
                                 com.hermes.client.data.repository.PinStore.token(s.profile, s.id, s.deviceId) in pins
                             }
-                            // Sessions blocked on the user jump the whole order — then pins,
-                            // then plain recency.
-                            val (needsYou, others) = splitNeedsYou(state.sessions) { s ->
-                                vm.runtimeFor(s, runtimes)?.phase
-                            }
-                            val pinned = others.filter(isPinned)
-                            val groups = groupByRecency(
-                                others.filterNot(isPinned),
-                                nowMs = System.currentTimeMillis(),
+                            GroupedSessionsList(
+                                sessions = state.sessions,
+                                isPinned = isPinned,
+                                runtimeFor = { vm.runtimeFor(it, runtimes) },
+                                unreadTokens = unreadTokens,
+                                draftTokens = drafts,
+                                unsentTokens = unsent,
+                                defaultProjectPath = defaultProjectPath,
+                                selectedSession = selectedSession,
+                                selectedDevice = selectedDevice,
+                                selectedProfile = selectedProfile,
+                                listState = sessionsListState,
+                                onOpen = { openExisting(it) },
+                                onMoveToProject = { moveTarget = it },
+                                onTogglePin = { vm.togglePin(it) },
+                                onRename = { session, title -> vm.rename(session, title) },
+                                onArchive = { vm.archive(it) },
+                                onDelete = { vm.delete(it) },
                             )
-
-                            // Collapsible groups (Mission Control's pattern): tap the header to
-                            // fold, the count stays visible so nothing silently disappears.
-                            var collapsed by androidx.compose.runtime.saveable.rememberSaveable {
-                                androidx.compose.runtime.mutableStateOf(emptyList<String>())
-                            }
-                            val toggle: (String) -> Unit = { k ->
-                                collapsed = if (k in collapsed) collapsed - k else collapsed + k
-                            }
-                            LazyColumn(state = sessionsListState) {
-                                if (needsYou.isNotEmpty()) {
-                                    item(key = "h-needs") {
-                                        SectionHeader(
-                                            localized(language, "需要你处理", "Needs you"), needsYou.size, SectionTone.NEEDS_YOU,
-                                            collapsed = "needs" in collapsed, onToggle = { toggle("needs") },
-                                        )
-                                    }
-                                    if ("needs" !in collapsed) {
-                                        items(needsYou, key = { "n-${it.profile.orEmpty()}:${it.id}" }) { s ->
-                                            SessionRow(
-                                                session = s, selected = s.id == selectedSession && s.deviceId == selectedDevice && s.profile == selectedProfile, isPinned = isPinned(s), defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
-                                                runtime = vm.runtimeFor(s, runtimes),
-                                                unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
-                                                hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
-                                                hasUnsent = SessionReadStore.token(s.profile, s.id, s.deviceId) in unsent,
-                                                onOpen = { openExisting(s) },
-                                                onTogglePin = { vm.togglePin(s) },
-                                                onRename = { vm.rename(s, it) },
-                                                onArchive = { vm.archive(s) },
-                                                onDelete = { vm.delete(s) },
-                                                modifier = Modifier.animateItem(),
-                                            )
-                                        }
-                                    }
-                                }
-                                if (pinned.isNotEmpty()) {
-                                    item(key = "h-pinned") {
-                                        SectionHeader(
-                                            localized(language, "已置顶", "Pinned"), pinned.size, SectionTone.PINNED,
-                                            note = localized(language, "仅此设备", "Device only"),
-                                            collapsed = "pinned" in collapsed, onToggle = { toggle("pinned") },
-                                        )
-                                    }
-                                    if ("pinned" !in collapsed) {
-                                        items(pinned, key = { "p-${it.profile.orEmpty()}:${it.id}" }) { s ->
-                                            SessionRow(
-                                                session = s, selected = s.id == selectedSession && s.deviceId == selectedDevice && s.profile == selectedProfile, isPinned = true, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
-                                                runtime = vm.runtimeFor(s, runtimes),
-                                                unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
-                                                hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
-                                                hasUnsent = SessionReadStore.token(s.profile, s.id, s.deviceId) in unsent,
-                                                onOpen = { openExisting(s) },
-                                                onTogglePin = { vm.togglePin(s) },
-                                                onRename = { vm.rename(s, it) },
-                                                onArchive = { vm.archive(s) },
-                                                onDelete = { vm.delete(s) },
-                                                modifier = Modifier.animateItem(),
-                                            )
-                                        }
-                                    }
-                                }
-                                if (groups.today.isNotEmpty()) {
-                                    item(key = "h-today") {
-                                        SectionHeader(
-                                            localized(language, "今天", "Today"), groups.today.size, SectionTone.TODAY,
-                                            collapsed = "today" in collapsed, onToggle = { toggle("today") },
-                                        )
-                                    }
-                                    if ("today" !in collapsed) {
-                                        items(groups.today, key = { "today-${it.profile.orEmpty()}:${it.id}" }) { s ->
-                                            SessionRow(
-                                                session = s, selected = s.id == selectedSession && s.deviceId == selectedDevice && s.profile == selectedProfile, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
-                                                runtime = vm.runtimeFor(s, runtimes),
-                                                unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
-                                                hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
-                                                hasUnsent = SessionReadStore.token(s.profile, s.id, s.deviceId) in unsent,
-                                                onOpen = { openExisting(s) },
-                                                onTogglePin = { vm.togglePin(s) },
-                                                onRename = { vm.rename(s, it) },
-                                                onArchive = { vm.archive(s) },
-                                                onDelete = { vm.delete(s) },
-                                                modifier = Modifier.animateItem(),
-                                            )
-                                        }
-                                    }
-                                }
-                                if (groups.yesterday.isNotEmpty()) {
-                                    item(key = "h-yesterday") {
-                                        SectionHeader(
-                                            localized(language, "昨天", "Yesterday"), groups.yesterday.size, SectionTone.YESTERDAY,
-                                            collapsed = "yesterday" in collapsed, onToggle = { toggle("yesterday") },
-                                        )
-                                    }
-                                    if ("yesterday" !in collapsed) {
-                                        items(groups.yesterday, key = { "yesterday-${it.profile.orEmpty()}:${it.id}" }) { s ->
-                                            SessionRow(
-                                                session = s, selected = s.id == selectedSession && s.deviceId == selectedDevice && s.profile == selectedProfile, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
-                                                runtime = vm.runtimeFor(s, runtimes),
-                                                unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
-                                                hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
-                                                hasUnsent = SessionReadStore.token(s.profile, s.id, s.deviceId) in unsent,
-                                                onOpen = { openExisting(s) },
-                                                onTogglePin = { vm.togglePin(s) },
-                                                onRename = { vm.rename(s, it) },
-                                                onArchive = { vm.archive(s) },
-                                                onDelete = { vm.delete(s) },
-                                                modifier = Modifier.animateItem(),
-                                            )
-                                        }
-                                    }
-                                }
-                                if (groups.week.isNotEmpty()) {
-                                    item(key = "h-week") {
-                                        SectionHeader(
-                                            localized(language, "前 7 天", "Previous 7 days"), groups.week.size, SectionTone.RECENT,
-                                            collapsed = "week" in collapsed, onToggle = { toggle("week") },
-                                        )
-                                    }
-                                    if ("week" !in collapsed) {
-                                        items(groups.week, key = { "week-${it.profile.orEmpty()}:${it.id}" }) { s ->
-                                            SessionRow(
-                                                session = s, selected = s.id == selectedSession && s.deviceId == selectedDevice && s.profile == selectedProfile, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
-                                                runtime = vm.runtimeFor(s, runtimes),
-                                                unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
-                                                hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
-                                                hasUnsent = SessionReadStore.token(s.profile, s.id, s.deviceId) in unsent,
-                                                onOpen = { openExisting(s) },
-                                                onTogglePin = { vm.togglePin(s) },
-                                                onRename = { vm.rename(s, it) },
-                                                onArchive = { vm.archive(s) },
-                                                onDelete = { vm.delete(s) },
-                                                modifier = Modifier.animateItem(),
-                                            )
-                                        }
-                                    }
-                                }
-                                if (groups.earlier.isNotEmpty()) {
-                                    item(key = "h-earlier") {
-                                        SectionHeader(
-                                            localized(language, "更早", "Earlier"), groups.earlier.size, SectionTone.OLDER,
-                                            collapsed = "earlier" in collapsed, onToggle = { toggle("earlier") },
-                                        )
-                                    }
-                                    if ("earlier" !in collapsed) {
-                                        items(groups.earlier, key = { "earlier-${it.profile.orEmpty()}:${it.id}" }) { s ->
-                                            SessionRow(
-                                                session = s, selected = s.id == selectedSession && s.deviceId == selectedDevice && s.profile == selectedProfile, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
-                                                runtime = vm.runtimeFor(s, runtimes),
-                                                unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
-                                                hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
-                                                hasUnsent = SessionReadStore.token(s.profile, s.id, s.deviceId) in unsent,
-                                                onOpen = { openExisting(s) },
-                                                onTogglePin = { vm.togglePin(s) },
-                                                onRename = { vm.rename(s, it) },
-                                                onArchive = { vm.archive(s) },
-                                                onDelete = { vm.delete(s) },
-                                                modifier = Modifier.animateItem(),
-                                            )
-                                        }
-                                    }
-                                }
-                            }
                         }
                     }
                     if (needsYouPill > 0) {
