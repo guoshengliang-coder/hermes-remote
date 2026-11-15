@@ -1,6 +1,7 @@
 # HG-254 · Android / Web chat action
 
-The approved design uses a 48dp / 3rem circular action, a 24dp / 1.5rem up arrow with a
+The 2026-11-15 user refinement uses a 44dp / 2.75rem painted circle inside the existing
+48dp / 3rem touch/layout target, a 24dp / 1.5rem up arrow with a
 1.7dp / px round stroke, and a solid Stop square. Light fill is `#181C24`, dark fill is
 `#1E232B`, content is white, and dark has a 1dp / px `#3A4049` hairline. These tokens are
 independent of the current list FAB (`#181C24` in both themes).
@@ -8,10 +9,44 @@ independent of the current list FAB (`#181C24` in both themes).
 ## Scope
 
 Android expanded, compact and voice modes use `ComposerActionButton`; Web retains its existing
-shared Composer action and 3rem dimensions. Empty drafts keep the bare disabled arrow in expanded
-mode and the existing attachment action in compact mode. Send/Stop ownership, preparation, voice
+shared Composer action and 3rem target. Disabled/empty/preparing uses an 8% onSurfaceVariant disc
+and 75% ink, with no enabled-state hairline. Compact empty input retains the attachment action. Send/Stop ownership, preparation, voice
 gestures, keyboard/IME rules, drafts and attachments are unchanged. No new error or protocol code,
 version allocation or public distribution is involved.
+
+## Refinement diagnosis and verification — 2026-11-15
+
+The user selected the circular shape, then approved 44dp visually with 48dp touch area and the
+quiet empty-input disc. Implementation authorization is the original conversation's “开工优化”;
+the original item remains pending verification, without a new claim or business-state rollback.
+Base is clean main `9585fbc8`; the new local refinement is not part of the previously released
+Android 0.1.197 or Web 0.1.1-78cc1585bb58 until separately integrated and published.
+
+The deployed Web stylesheet `index-DH9t0Vsl.css` confirmed the composer used the global lowest
+container (#0A0D11 in dark), unlike the reviewed #1A1D21 tonal surface. Only the dark composer
+gets the corrected local background; global theme containers are unchanged. Android uses the
+same production `ComposerSurface` wrapper in ChatScreen and rendering fixtures, preserving its
+original corner/tonal/shadow parameters. Nested pixels confirm the expected dark layer and
+button colour; the user's actual phone discrepancy remains unreplicated without its screenshot.
+
+Coverage adds 44/48 geometry, the transparent rim's touch ownership, exact enabled hairline,
+quiet fill/ink, full production container nesting, text scale and app-dark/system-light cases.
+Old Android fails the new rim/quiet-disc pixel tests; old Web fails the decoration/disabled-press
+regressions. Native alpha composition allows one byte of renderer rounding, not a missing disc.
+
+Real WebKit touch testing exposed an additional boundary: an inert press could synthesize a
+compatibility click on neighbouring Add. Capture cancels only disabled send-control pointer/touch
+defaults and leaves no stale blur flag; enabled controls, keyboard/IME and voice still use their
+original handlers. DOM regression plus browser disabled-slot and later-blur checks cover the fix.
+Chromium/WebKit × light/dark × mouse/touch all eight combinations pass; Web typecheck, 1,028 tests
+and build pass. Android focused screenshot verification and full unit/build baseline pass.
+The full Android baseline passed 2,998 tests with zero failures/errors/skips and assembleDebug.
+L3 ComposerActionDeviceTest passed on Pixel_API_37 / Android17, including nested paint, 48dp
+accessibility/layout bounds, transparent-rim touch and inert disabled centre/rim. Screenshots were
+pulled and inspected; the owned emulator was closed. L2 is unavailable on this host.
+
+The following evidence and three audit passes describe the original 2026-11-14 implementation;
+its old transparent-disabled checks are superseded by the refinement above.
 
 ## Evidence
 

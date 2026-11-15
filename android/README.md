@@ -99,10 +99,11 @@ seconds of real playback, with a separate 24MiB compressed-sample target ceiling
 
 # Hermes Remote Android
 
-HG-254 unifies the chat action with Web: a 48dp near-black circle, 24dp round-stroke up arrow
-and solid Stop. Expanded, compact and voice modes share one component; empty-input and action
-behaviour stay unchanged. The dark action uses its own fill and hairline, independent of the list
-FAB. Evidence and physical-device limits: `../docs/HG_254_COMPOSER_ACTION.md`. No APK is published.
+HG-254 refinement keeps the 48dp touch/layout slot with a smaller 44dp circle, 24dp round-stroke
+up arrow and solid Stop. Disabled actions retain an 8% secondary-colour disc with 75% ink;
+compact empty input keeps Add. The real `ComposerSurface` is shared with nested rendering checks.
+The dark action retains its own fill/hairline, independent of the list FAB. Evidence and remaining
+physical-device limits: `../docs/HG_254_COMPOSER_ACTION.md`. This refinement does not publish an APK.
 
 On measured fast links, sequential video read-ahead refills its bounded window before awaiting
 the current range. A request-local body-goodput sample excludes first-byte latency; unknown or

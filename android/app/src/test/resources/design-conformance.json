@@ -123,7 +123,7 @@
 
     { "role": "composer.action.container", "ref": "composer:container",
       "design": ["#181C24", "#1E232B"], "impl": ["#181C24", "#1E232B"],
-      "reason": "", "note": "HG-254 approved reference; separate from the list FAB." },
+      "reason": "", "note": "HG-254 refinement 2026-11-15: 44dp disc inside 48dp touch slot; disabled onSurfaceVariant fill 8%, ink 75%. Enabled colours remain separate from the list FAB." },
     { "role": "composer.action.ink", "ref": "composer:ink",
       "design": ["#FFFFFF", "#FFFFFF"], "impl": ["#FFFFFF", "#FFFFFF"], "reason": "" },
 

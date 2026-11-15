@@ -54,6 +54,8 @@
   --composer-action: #181c24;
   --composer-action-ink: #ffffff;
   --composer-action-outline: transparent;
+  --composer-action-disabled: rgb(73 70 65 / 8%);
+  --composer-action-disabled-ink: rgb(73 70 65 / 75%);
   --spinner: #2563eb;
   --incident-container: #fff1f2;
   --incident-ink: #9f1239;
@@ -132,6 +134,9 @@ html[data-theme="dark"] {
     --composer-action: #1e232b;
     --composer-action-ink: #ffffff;
     --composer-action-outline: #3a4049;
+    --composer-action-disabled: rgb(168 164 156 / 8%);
+    --composer-action-disabled-ink: rgb(168 164 156 / 75%);
+    --composer-surface: #1a1d21;
     --spinner: #3b82f6;
     --incident-container: #2a1b1d;
     --incident-ink: #fca5a5;
@@ -2591,7 +2596,7 @@ html[data-theme="dark"] .group-header {
   gap: 0.25rem;
   padding: 0.375rem;
   border-radius: 1.875rem;
-  background: var(--surface-container-lowest);
+  background: var(--composer-surface, var(--surface-container-lowest));
   box-shadow: var(--shadow);
 }
 
@@ -2633,19 +2638,36 @@ html[data-theme="dark"] .group-header {
   height: var(--touch);
   flex: none;
   border-radius: 999px;
-  background: var(--composer-action);
+  background: transparent;
   color: var(--composer-action-ink);
-  border: 1px solid var(--composer-action-outline);
+  border: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
+/* The action keeps its 48px slot/focus target; only the painted circle is 44px. */
+.send-button-disc {
+  width: 2.75rem;
+  height: 2.75rem;
+  flex: none;
+  border-radius: 50%;
+  background: var(--composer-action);
+  border: 1px solid var(--composer-action-outline);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
 .send-button:disabled {
-  background: transparent;
+  opacity: 1;
+}
+
+.send-button:disabled .send-button-disc {
+  background: var(--composer-action-disabled);
   border-color: transparent;
-  color: var(--on-surface-variant);
-  opacity: 0.55;
+  color: var(--composer-action-disabled-ink);
 }
 
 .composer-disclaimer {

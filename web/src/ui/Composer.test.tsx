@@ -574,6 +574,7 @@ it("uses the reviewed send arrow and a filled Stop without changing either actio
   const h = mount();
   type(h.host, "send once");
   const send = h.host.querySelector<HTMLButtonElement>('.send-button')!;
+  expect(send.querySelector('.send-button-disc')?.getAttribute('aria-hidden')).toBe('true');
   const arrow = send.querySelector('path')!;
   expect(arrow.getAttribute('d')).toBe('M12 19V5M5 12l7-7 7 7');
   expect(arrow.getAttribute('stroke-width')).toBe('1.7');
@@ -582,11 +583,30 @@ it("uses the reviewed send arrow and a filled Stop without changing either actio
   expect(h.props.onSend).toHaveBeenCalledExactlyOnceWith('send once', []);
   h.update({ generating: true });
   const stop = h.host.querySelector<HTMLButtonElement>('.send-button.stop')!;
+  expect(stop.querySelector('.send-button-disc')).not.toBeNull();
   expect(stop.querySelector('rect')!.getAttribute('fill')).toBe('currentColor');
   expect(stop.querySelector('rect')!.getAttribute('stroke')).toBe('none');
   act(() => stop.click());
   expect(h.props.onInterrupt).toHaveBeenCalledOnce();
   expect(h.props.onSend).toHaveBeenCalledTimes(1);
+});
+
+it("disabled presses cannot retarget and do not leave stale blur protection (WebKit)", () => {
+  const h = mount();
+  const area = type(h.host, "");
+  const disabled = h.host.querySelector<HTMLButtonElement>('.send-button')!;
+  expect(disabled.disabled).toBe(true);
+  const press = new Event('pointerdown', { bubbles: false, cancelable: true });
+  act(() => { disabled.dispatchEvent(press); });
+  expect(press.defaultPrevented).toBe(true);
+  const touch = new Event('touchstart', { bubbles: false, cancelable: true });
+  act(() => { disabled.dispatchEvent(touch); });
+  expect(touch.defaultPrevented).toBe(true);
+  expect(h.host.querySelector('.composer.expanded')).not.toBeNull();
+  expect(h.host.querySelector('.add-tiles')).toBeNull();
+  expect(h.props.onSend).not.toHaveBeenCalled();
+  act(() => area.blur());
+  expect(h.host.querySelector('.composer.expanded')).toBeNull();
 });
 
 it("voice mode keeps the same Stop action and preserves the text draft (HG-254)", async () => {
