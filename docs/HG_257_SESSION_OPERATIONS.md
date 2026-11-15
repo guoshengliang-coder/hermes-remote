@@ -87,3 +87,48 @@ and multi-client concurrency acceptance remain outstanding. No production sessio
 
 Only local source changes are delivered. No push, PR, integration registration, merge, version bump,
 service restart, client installation or publication has been performed. HG-257 remains in progress.
+
+## Related-operation audit follow-up — three rounds, 2026-11-16
+
+The user requested at most three rounds with repairs. These are separate evidence-led passes by
+this implementation session, not an external human review or independently staffed Agent review.
+After round 3, remaining runs only verify its repairs; no fourth audit round was started.
+
+1. **Exact target and acknowledgement.** The official curated rename resolves prefixes/aliases,
+   whereas the adapter had trusted `complete: ok` alone. A read-only exact-ID mutation-snapshot now
+   proves the stored target exists before opening Console and compares any supplied original
+   revision. A successful rename additionally requires the official stdout acknowledgement naming
+   the exact ID and title; its command/run ID must match the subsequent completion and differ from
+   the confirmation request. Missing/wrong-target/wrong-title output is unconfirmed, never success.
+   Four new negative cases failed against the preceding code and passed after repair.
+2. **Connection lifetime and response ownership.** Closing the mode-probe socket had not cancelled
+   the separate Console socket. Its lifecycle signal now reaches child ticket acquisition, snapshot,
+   Console and authority HTTP work. Tests cover probe loss before command, cancellation after the
+   snapshot, interleaved delete/rename and release of the per-target guard. Tightening this scope
+   also exposed a repair regression: disposing it could abort a returned authority Response body.
+   The bounded authority body is now drained before returning a detached Response; an incremental
+   body regression test failed before that fix and passed afterwards. The probe-loss test likewise
+   failed on the previous implementation. A write already sent before loss remains uncertain.
+3. **Input contract and upgrade evidence.** Duplicate query parameters could make Connector read
+   the first profile while FastAPI uses the last. All duplicates are refused before I/O. Present
+   counters must be nonnegative safe integers (canonical decimal query syntax); request IDs must
+   be nonempty, at most 128 characters and control-free. PATCH fence types follow the same rule.
+   Absolute, authority-relative and normalized traversal paths are never adapted. Twelve added
+   negative cases failed before repair and passed afterwards. Real-upstream validation adds exact
+   Console output, demonstrated prefix resolution and the snapshot's exact-ID refusal, bringing the
+   installed-source probe to 38 passed checks.
+
+The exact-ID snapshot and the English Console output grammar are explicit upstream dependencies,
+not a promise of stable version negotiation. Unknown or missing fields/output fail closed. This
+preflight is not atomic with legacy rename: external deletion/replacement or edits can still race
+it. No CAS claim, authority bypass, unsupported-title workaround or automatic write retry is added.
+Existing active-delete, shell-syntax title, authority workspace and physical acceptance limits above
+still apply.
+
+Validation: focused Connector mutation suite 32 passed; full Node build/test passed (protocol 27,
+Connector 209, Gateway 237, release server 41, scripts 548; 33 environment-dependent tests skipped).
+The real installed upstream probe passed 38 checks at bf0203a794a07aac3ff764972ab9087baa4e4f4e;
+its Git worktree remains clean. git diff --check passed. Android/Web source did not change in this
+follow-up, so their prior 3,032 / 1,093 successful baselines were not repeated. No device, browser
+production end-to-end, live Basic Auth Console integration or external-client race verification was
+performed. No push, PR, integration registration, merge, version bump, restart or publication.

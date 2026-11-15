@@ -202,6 +202,19 @@ def main():
                     and db.get_session(sid)["title"] == unusual_title and db.get_messages(sid) == before_messages,
                     {"status": result.status, "output": result.output, "command_identity_preserved": result.command == command})
                 check("console command identity preserved", result.command == command)
+                check("console output confirms exact target and title",
+                    result.output.rstrip() == f"Session '{sid}' renamed to: {unusual_title}")
+                alias_target = "audit-rename-prefix-full"
+                db.create_session(alias_target, source="hermes_remote")
+                alias_command = "sessions rename audit-rename-prefix " + shlex.quote("prefix fixture")
+                alias_result = engine.execute(alias_command, confirmed=True)
+                check("curated rename may resolve a prefix to a different stored id", alias_result.status == "ok"
+                    and alias_result.output.rstrip() == f"Session '{alias_target}' renamed to: prefix fixture")
+                from hermes_cli.web_routers.sessions import get_session_mutation_snapshot
+                alias_snapshot = await get_session_mutation_snapshot("audit-rename-prefix", request, None)
+                check("exact snapshot rejects a prefix alias before mutation", alias_snapshot["session_id"] == "audit-rename-prefix"
+                    and alias_snapshot["exists"] is False)
+
                 refused = engine.execute("sessions rename " + shlex.quote(sid) + " " + shlex.quote("$(cmd); delete all"), confirmed=True)
                 check("console rejects shell syntax without changing title", refused.status == "error"
                     and db.get_session(sid)["title"] == unusual_title)

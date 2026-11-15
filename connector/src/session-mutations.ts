@@ -4,6 +4,10 @@ import { boundedResponseBody, type HermesAuth } from "./hermes-auth.js";
 const ID = /^[A-Za-z0-9_.:-]{1,128}$/;
 const PROFILE = /^[\p{L}\p{N}_. -]{1,64}$/u;
 const pending = new Set<string>();
+const counter = (value: unknown): boolean => Number.isSafeInteger(value) && Number(value) >= 0;
+const requestId = (value: unknown): boolean => typeof value === "string" && value.trim().length > 0 &&
+  value.length <= 128 && !/[\u0000-\u001f\u007f]/.test(value);
+const queryCounter = (value: string): boolean => /^(0|[1-9][0-9]*)$/.test(value) && counter(Number(value));
 class MutationError extends Error {
   constructor(readonly refused = false) { super("session mutation did not complete"); }
 }
@@ -16,7 +20,7 @@ const quote = (value: string) => `'${value.replaceAll("'", `'"'"'`)}'`;
 
 /** One authenticated local connection. Never log tickets, commands, titles, or response bodies. */
 export async function localSessionSocket<T>(auth: Pick<HermesAuth, "websocketUrl" | "consoleWebsocketUrl" | "request">, path: "/api/ws" | "/api/console",
-  profile: string, signal: AbortSignal, run: (send: (value: object) => void, receive: () => Promise<Record<string, unknown>>) => Promise<T>): Promise<T> {
+  profile: string, signal: AbortSignal, run: (send: (value: object) => void, receive: () => Promise<Record<string, unknown>>, connectionSignal: AbortSignal) => Promise<T>): Promise<T> {
   const url = new URL(await (path === "/api/console" ? auth.consoleWebsocketUrl(signal) : auth.websocketUrl(path, signal)));
   signal.throwIfAborted();
   if (path === "/api/console") url.searchParams.set("profile", profile);
@@ -24,7 +28,13 @@ export async function localSessionSocket<T>(auth: Pick<HermesAuth, "websocketUrl
   const queue: Record<string, unknown>[] = [];
   let waiter: { resolve(value: Record<string, unknown>): void; reject(error: unknown): void } | undefined;
   let stopped = false;
-  const stop = () => { stopped = true; waiter?.reject(new MutationError()); waiter = undefined; socket.terminate(); };
+  const lifecycle = new AbortController();
+  const connectionSignal = AbortSignal.any([signal, lifecycle.signal]);
+  const stop = () => {
+    if (stopped) return;
+    stopped = true; lifecycle.abort();
+    waiter?.reject(new MutationError()); waiter = undefined; socket.terminate();
+  };
   const timer = setTimeout(stop, 30_000);
   signal.addEventListener("abort", stop, { once: true });
   socket.on("error", stop); socket.on("close", stop);
@@ -45,16 +55,23 @@ export async function localSessionSocket<T>(auth: Pick<HermesAuth, "websocketUrl
     if (stopped) throw new MutationError();
     return queue.shift() ?? new Promise<Record<string, unknown>>((resolve, reject) => { waiter = { resolve, reject }; });
   };
-  try { return await run((value) => { signal.throwIfAborted(); if (stopped || socket.readyState !== WebSocket.OPEN) throw new MutationError(); socket.send(JSON.stringify(value)); }, receive); }
-  finally { clearTimeout(timer); signal.removeEventListener("abort", stop); socket.removeListener("error", stop); socket.on("error", () => {}); socket.close(); }
+  try { return await run((value) => { connectionSignal.throwIfAborted(); if (stopped || socket.readyState !== WebSocket.OPEN) throw new MutationError(); socket.send(JSON.stringify(value)); }, receive, connectionSignal); }
+  finally { lifecycle.abort(); clearTimeout(timer); signal.removeEventListener("abort", stop); socket.removeListener("error", stop); socket.on("error", () => {}); socket.close(); }
 }
 
 /** Only existing rename/delete HTTP contracts are adapted; never a generic RPC/console proxy. */
 export async function sessionMutationResponse(method: string, path: string, body: Buffer | undefined,
   auth: Pick<HermesAuth, "websocketUrl" | "consoleWebsocketUrl" | "request">, signal: AbortSignal): Promise<Response | undefined> {
+  if (!path.startsWith("/api/sessions/")) return undefined;
   const url = new URL(path, "http://connector.local");
+  if (url.pathname !== path.split(/[?#]/, 1)[0] || url.hash) return undefined;
   const match = /^\/api\/sessions\/([A-Za-z0-9_.:-]{1,128})$/.exec(url.pathname);
   if (!match || !["DELETE", "PATCH"].includes(method)) return undefined;
+  if ([...url.searchParams.keys()].some((key) => url.searchParams.getAll(key).length !== 1)) return failure(true);
+  for (const key of ["expected_revision", "expected_generation"]) {
+    if (url.searchParams.has(key) && !queryCounter(url.searchParams.get(key)!)) return failure(true);
+  }
+  if (url.searchParams.has("request_id") && !requestId(url.searchParams.get("request_id"))) return failure(true);
   let profile = url.searchParams.get("profile") || "default";
   let title: string | undefined;
   if (method === "PATCH") {
@@ -63,7 +80,10 @@ export async function sessionMutationResponse(method: string, path: string, body
     try { value = JSON.parse(body?.toString() || "null"); } catch { return undefined; }
     if (!value || typeof value !== "object" || Array.isArray(value) || typeof value.title !== "string" ||
       !Object.keys(value).every((key) => ["title", "profile", "request_id", "expected_revision", "expected_generation"].includes(key))) return undefined;
-    if (value.profile !== undefined && typeof value.profile !== "string") return failure(true);
+    if (value.profile !== undefined && typeof value.profile !== "string" ||
+        value.request_id !== undefined && !requestId(value.request_id) ||
+        value.expected_revision !== undefined && !counter(value.expected_revision) ||
+        value.expected_generation !== undefined && !counter(value.expected_generation)) return failure(true);
     profile = (value.profile as string) || "default";
     title = value.title.trim();
     if (!title.trim() || title.length > 200 || /[\u0000-\u001f\u007f]/.test(title)) return failure(true);
@@ -74,7 +94,7 @@ export async function sessionMutationResponse(method: string, path: string, body
   if (pending.has(key)) return failure(true);
   pending.add(key);
   try {
-    return await localSessionSocket(auth, "/api/ws", profile, signal, async (send, receive) => {
+    return await localSessionSocket(auth, "/api/ws", profile, signal, async (send, receive, connectionSignal) => {
       let ready: Record<string, unknown> | undefined;
       for (let n = 0; n < 64; n++) {
         const frame = await receive();
@@ -87,7 +107,7 @@ export async function sessionMutationResponse(method: string, path: string, body
         // counter from an authenticated same-target snapshot; never replace a stale fence.
         if (method !== "DELETE" || url.searchParams.has("expected_generation") ||
             !url.searchParams.get("request_id") || !url.searchParams.has("expected_revision")) return undefined;
-        const snapshotResponse = await auth.request(`/api/sessions/${id}/mutation-snapshot?profile=${encodeURIComponent(profile)}`, { method: "GET", signal });
+        const snapshotResponse = await auth.request(`/api/sessions/${id}/mutation-snapshot?profile=${encodeURIComponent(profile)}`, { method: "GET", signal: connectionSignal });
         if (!snapshotResponse.ok) throw new MutationError();
         const snapshot = JSON.parse(await boundedResponseBody(snapshotResponse, 16 * 1024)) as Record<string, unknown>;
         const generation = snapshot.runtime_generation;
@@ -95,20 +115,41 @@ export async function sessionMutationResponse(method: string, path: string, body
         if (snapshot.session_id !== id || snapshot.exists !== true || !Number.isSafeInteger(generation) || Number(generation) < 0 ||
             snapshot.runtime_revision !== Number(url.searchParams.get("expected_revision"))) throw new MutationError(true);
         url.searchParams.set("expected_generation", String(generation));
-        return auth.request(url.pathname + url.search, { method: "DELETE", signal });
+        const result = await auth.request(url.pathname + url.search, { method: "DELETE", signal: connectionSignal });
+        // This connection owns the cancellation scope. Drain before disposing it so the
+        // caller does not inherit a Response whose body was just aborted by our cleanup.
+        const payload = await boundedResponseBody(result, 1024 * 1024);
+        return new Response(result.status === 204 ? null : payload, { status: result.status,
+          headers: { "content-type": result.headers.get("content-type") || "application/json", "cache-control": "no-store" } });
       }
       if (ready.session_authority !== undefined && ready.session_authority !== false) throw new MutationError(true);
       if (title !== undefined) {
+        // The curated command resolves aliases/prefixes. Prove the exact stored ID exists
+        // before allowing it to resolve anything; a missing target is not a rename alias.
+        const response = await auth.request(`/api/sessions/${id}/mutation-snapshot?profile=${encodeURIComponent(profile)}`, { method: "GET", signal: connectionSignal });
+        if (!response.ok) throw new MutationError(response.status >= 400 && response.status < 500 && response.status !== 408);
+        const snapshot = JSON.parse(await boundedResponseBody(response, 16 * 1024)) as Record<string, unknown>;
+        if (snapshot.session_id !== id || snapshot.exists !== true) throw new MutationError(true);
+        const expectedRevision = body ? (JSON.parse(body.toString()) as { expected_revision?: unknown }).expected_revision : undefined;
+        if (expectedRevision !== undefined && (!Number.isSafeInteger(expectedRevision) || Number(expectedRevision) < 0 ||
+            snapshot.runtime_revision !== expectedRevision)) throw new MutationError(true);
         const command = `sessions rename ${quote(id)} ${quote(title)}`;
-        return localSessionSocket(auth, "/api/console", profile, signal, async (sendConsole, receiveConsole) => {
+        return localSessionSocket(auth, "/api/console", profile, connectionSignal, async (sendConsole, receiveConsole) => {
           let sent = false, confirmed = false;
+          let confirmationId: number | undefined;
+          let acknowledgementId: number | undefined;
           for (let n = 0; n < 64; n++) {
             const frame = await receiveConsole();
             if (frame.type === "ready" && !sent) { sent = true; sendConsole({ type: "command", line: command }); }
-            else if (frame.type === "complete" && frame.status === "confirm_required" && frame.command === command && !confirmed) {
+            else if (frame.type === "complete" && frame.status === "confirm_required" && frame.command === command && sent && !confirmed && Number.isSafeInteger(frame.id)) {
+              confirmationId = Number(frame.id);
               confirmed = true; sendConsole({ type: "confirm", command });
+            } else if (frame.type === "output" && frame.command === command && confirmed && frame.stream === "stdout" &&
+                typeof frame.data === "string" && frame.data.trimEnd() === `Session '${id}' renamed to: ${title}` &&
+                Number.isSafeInteger(frame.id) && frame.id !== confirmationId) {
+              acknowledgementId = Number(frame.id);
             } else if (frame.type === "complete" && frame.command === command && sent) {
-              if (frame.status !== "ok" || !confirmed) throw new MutationError();
+              if (frame.status !== "ok" || !confirmed || acknowledgementId === undefined || frame.id !== acknowledgementId) throw new MutationError();
               return Response.json({ ok: true, session_id: id, title });
             }
           }

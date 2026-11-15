@@ -1213,3 +1213,9 @@ is not session.title (live-handle-only); it needs no resume or inference. Consol
 Connector-only: tunneled WebSockets still admit /api/ws only. Authority keeps fenced REST; a missing
 delete generation is filled only from an exact-target snapshot whose revision matches the caller.
 See HG_257_SESSION_OPERATIONS.md for command restrictions, future-mode limits and upgrade checks.
+
+HG-257 audit follow-up: stored rename preflights the exact ID via the official mutation-snapshot
+read; Console prefix/alias resolution is not target identity. Success requires the actual stdout
+`Session '<exact-id>' renamed to: <exact-title>` and matching command/completion IDs, not only an
+`ok` status. The isolated upgrade probe verifies that grammar and snapshot behavior. Parent mode
+connection loss cancels downstream work. Duplicate query keys and malformed fences fail before I/O.
