@@ -507,6 +507,7 @@ remain in `docs/ANDROID_SMOKE.md`; Web scope is being clarified against the appr
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.199 语音输入支持断网继续录音、原录音重试及本机恢复。
 - Version 0.1.198 优化聊天页发送按钮尺寸与空输入状态，保留48dp触达，改善深色视觉层次。
 - Version 0.1.197 统一聊天发送／停止按钮为中性灰黑与细上箭头，保持48dp；默认项目列表隐藏重复根路径。
 - Version 0.1.196 fixes grouped session ghost rows (HG-252) and updates MissionGo feedback SDK to
@@ -1287,7 +1288,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.198-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.199-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
