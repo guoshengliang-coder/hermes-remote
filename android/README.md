@@ -1420,3 +1420,14 @@ remains below the answer. Tapping status still opens a selectable snapshot.
 Both Android and Web share these rules; see `docs/DESIGN.md` and `docs/SMOKE_TEST.md`.
 
 HG-240 adds optional instance-owned model favorites and visibility for compatible Hermes runtimes. Old Hermes remains explicit independent mode. Previous account/local favorites require confirmation to import and remain intact; saved reasoning remains account-owned. See `../docs/INSTANCE_MODEL_PREFERENCES.md` for the paired upstream dependency, owner-only writes, conflict and rollout boundaries. Source implementation is not publication.
+
+
+## HG-255 voice network recovery (source, unpublished)
+
+Held foreground recording continues after a recognition/chat connection failure. Private no-backup
+PCM files preserve the original recording for retry; complete pending audio survives App restart,
+but restored/interrupted/limited audio only becomes draft text. The persistent VoiceRecoveryCard
+uses theme tokens and wrapping actions. Account invalidation clears audio; old writers cannot recreate
+it. Retention is 24 hours, bounded to 32 MiB, with no cloud storage or background recording. Long
+retries may take the original duration and cost another recognition request. See
+`../docs/HG_255_VOICE_RETRY.md` and `../docs/SMOKE_TEST.md` for verification and remaining device gates.

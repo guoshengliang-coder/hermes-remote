@@ -372,6 +372,8 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "等待识别结果超时，请重试或改用键盘。", "The final recognition result timed out. Retry or use the keyboard.")
         AppErrorCode.VOICE_EMPTY ->
             localized(language, "没有识别到文字，请重试或改用键盘。", "No speech was recognized. Retry or use the keyboard.")
+        AppErrorCode.VOICE_STORAGE_FAILED ->
+            localized(language, "无法完整保存录音，请检查设备存储。已保存的片段仍可转文字。", "The recording could not be saved completely. Check device storage. Saved audio can still be transcribed.")
         AppErrorCode.UNKNOWN ->
             localized(language, "出现未知错误，请重试。", "An unknown error occurred. Retry.")
 }

@@ -1640,7 +1640,9 @@ On iPhone Safari, Home Screen WebApp and Android, with a configured speech servi
    The limit notice is normal, with no error code. Empty recognition says no text was recognized.
 3. Release near 04:59: the independent eight-second final wait is available and normal release sends.
    Gesture cancel/edit, final-wait cancellation, background/foreground, lock screen, navigation,
-   sign-out and connection loss must release microphone/socket and retain only appropriate text.
+   and sign-out must release microphone/socket and retain only appropriate local content.
+   HG-255 supersedes connection loss: keep a held microphone recording locally until release,
+   then offer original-audio retry.
    Late release or duplicate/late final packets cannot send twice or write into another conversation.
 4. Disconnect -> HR-VOICE-003; final timeout -> HR-VOICE-004; provider recognition failure ->
    HR-VOICE-002; empty normal final -> HR-VOICE-005. Verify primary copy explains cause, actual
@@ -2305,3 +2307,33 @@ drag, normal vertical scrolling, and code/table local sideways scrolling. Tap th
 confirm their existing open/download action still works. Repeat in iPhone Safari/Home Screen Web App
 because the CSS is shared. Record actual device, browser and published Web bundle; desktop mobile
 viewports do not establish physical gesture, OEM text-scaling or installed-PWA acceptance.
+
+## HG-255 · Original-audio retry — physical/provider acceptance pending
+
+Use the Android App, Android Chrome, iPhone Safari and Home Screen Web App; record device, OS and
+browser. Start with typed text, an image and a file. Disconnect before the first ASR result and
+mid-sentence, then continue speaking distinct words until release. Capture must continue and the
+failure card must retain the whole recording. Restore connectivity: nothing sends until Retry send.
+Retry must recognize all words, combine draft/files once, and never open a new microphone. Repeat
+Retry rapidly; cancel a retry and deliver a delayed final: no duplicate or unexpected message.
+
+Disconnect after release and during the final wait. Keep the recording through timeout, leave/reopen
+and App/browser restart. Recovered audio offers only reviewed text and explicitly warns to re-add
+missing attachments. A message-send failure retries text/files without another ASR request. Check
+that an acknowledged voice send removes its recovery backup, while an unknown outcome requires
+reviewing history rather than blind automatic resend.
+
+Cancel intentionally: remove only that recording. Edit and automatic five-minute completion never
+send; verify the last packet and long replay are not cut off by the old 20-second UI backstop.
+Background/lock/system interruptions stop the mic and retain only confirmed captured audio. Switch
+conversation/Mac/account and revoke access: no late result can enter the new owner; sign-out clears
+local content. Exercise full/unavailable storage and expiry (including reopening after 24h), confirming
+HR-VOICE-006 and no false claim of complete retention. The host used for source verification has no
+attached physical device; JVM/DOM tests do not close these physical/provider acceptance gates.
+
+HG-255 audit additions: open the recording conversation in a second Web tab/view while speech is
+still being recorded; recovery/discard must be disabled and the first recording must continue.
+After a browser crash allow the writer lease to expire, recover only the saved prefix and reject
+late old-writer appends. On Android, a shortened saved file must not be labelled complete. Inject
+an early provider final during initialization/replay, a delayed old-chat handoff, and an IDB abort;
+none may cause incomplete auto-send, unlock a different chat, or an unhandled rejection.

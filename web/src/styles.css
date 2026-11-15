@@ -4507,6 +4507,19 @@ button.chat-workspace:disabled {
   color: var(--on-surface-variant);
 }
 
+.voice-recovery {
+  margin: 0 0.5rem 0.5rem;
+  padding: 0.75rem;
+  border-radius: 0.75rem;
+  background: var(--surface-container);
+  color: var(--on-surface);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.voice-recovery p { margin: 0 0 0.5rem; }
+.voice-recovery p + p { color: var(--on-surface-variant); font-size: 0.8125rem; }
+
 .composer-progress {
   display: flex;
   align-items: center;

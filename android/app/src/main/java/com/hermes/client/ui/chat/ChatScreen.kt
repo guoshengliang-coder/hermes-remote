@@ -117,7 +117,7 @@ import com.hermes.client.ui.localization.localizedMessage
  * run — a healthy finish lands in ~1-2s), so it only ever fires when the callbacks were lost,
  * which is exactly the hang this backstop exists for.
  */
-private const val VOICE_WAITING_BACKSTOP_MS = 20_000L
+internal const val VOICE_WAITING_BACKSTOP_MS = 20_000L
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -968,7 +968,27 @@ fun ChatScreen(
     var voiceElapsedMs by remember(sessionId) { mutableStateOf(0L) }
     var voiceSession by remember(sessionId) { mutableStateOf<DoubaoVoiceSession?>(null) }
     val voiceScope = androidx.compose.runtime.rememberCoroutineScope()
-    rememberVoiceSessionDisposer(sessionId, voiceSession)
+    val voiceNamespace = vm.chartNamespace()
+    val voiceRecordingKey = com.hermes.client.data.voice.VoiceRecordingStore.scope(voiceNamespace)
+    val currentVoiceKey by androidx.compose.runtime.rememberUpdatedState(voiceRecordingKey)
+    val voiceStore = remember(voiceNamespace) { com.hermes.client.data.voice.VoiceRecordingStore(context) }
+    var pendingVoice by remember(voiceNamespace) { mutableStateOf<com.hermes.client.data.voice.VoiceRecording?>(null) }
+    var recoveredVoice by remember(voiceNamespace) { mutableStateOf(false) }
+    var voiceStorageBusy by remember(voiceNamespace) { mutableStateOf(false) }
+    var voiceRecoveryLoaded by remember(voiceNamespace) { mutableStateOf(false) }
+    var voiceProblem by remember(voiceNamespace) { mutableStateOf<AppError?>(null) }
+    var voiceNotice by remember(voiceNamespace) { mutableStateOf("") }
+    LaunchedEffect(voiceStore, voiceRecordingKey) {
+        pendingVoice = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { voiceStore.list(voiceRecordingKey).firstOrNull() }.getOrNull() }
+        recoveredVoice = pendingVoice != null
+        voiceRecoveryLoaded = true
+        while (true) {
+            kotlinx.coroutines.delay(if (pendingVoice?.active == true) 2_000 else 60_000)
+            val live = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { voiceStore.list(voiceRecordingKey) }.getOrDefault(emptyList()) }
+            if (pendingVoice != null) pendingVoice = live.firstOrNull { it.id == pendingVoice?.id }
+        }
+    }
+    rememberVoiceSessionDisposer(voiceRecordingKey, voiceSession)
     fun voiceError(code: AppErrorCode, retained: Boolean? = null) {
         val retention = retained?.let {
             if (it) localized(language, "已识别的文字已放入输入框，请检查后发送。", "Recognized text is in the input. Review it before sending.")
@@ -992,8 +1012,8 @@ fun ChatScreen(
             voiceMode = true
         } else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
     }
-    fun submitVoice(text: String) {
-        if (preparingAttachments == 0 && vm.sendVoiceText(text, draft)) {
+    fun submitVoice(text: String, recording: com.hermes.client.data.voice.VoiceRecording? = null) {
+        if (preparingAttachments == 0 && vm.sendVoiceText(text, draft, recording?.let { saved -> { runCatching { voiceStore.remove(saved.id) }; Unit } })) {
             haptic.performHapticFeedback(HapticFeedbackType.Confirm)
             draft = ""
             vm.clearDraft()
@@ -1005,21 +1025,25 @@ fun ChatScreen(
             composerFocused = true
         }
     }
-    fun beginVoice() {
-        if (voiceSession != null || !connected || state.isGenerating || !sessionWritable ||
-            preparingAttachments > 0 || attachingSessions > 0) return
+    fun beginVoice(replay: com.hermes.client.data.voice.VoiceRecording? = null, retrySend: Boolean = false) {
+        if (voiceSession != null || replay?.active == true || !voiceRecoveryLoaded || voiceStorageBusy || !sessionWritable ||
+            (replay == null && (pendingVoice != null || !connected || state.isGenerating || preparingAttachments > 0 || attachingSessions > 0))) return
+        val originKey = voiceRecordingKey
+        val draftAtStart = draft
+        voiceProblem = null
+        voiceNotice = ""
         voiceTranscript = ""
         voiceZone = VoiceReleaseAction.SEND
-        voiceReleaseIntent = VoiceReleaseAction.SEND
+        voiceReleaseIntent = if (replay == null || retrySend && replay.complete && !replay.limited && !recoveredVoice) VoiceReleaseAction.SEND else VoiceReleaseAction.EDIT
         voiceTargets = null
-        voiceHeld = true
-        voiceWaiting = false
+        voiceHeld = replay == null
+        voiceWaiting = replay != null
         voiceStartedAt = android.os.SystemClock.elapsedRealtime()
         voiceElapsedMs = 0L
         voiceCaptureStartedAt = 0L
         lateinit var session: DoubaoVoiceSession
-        session = DoubaoVoiceSession(context, voiceScope, vm::voiceEndpoint) { event ->
-            if (voiceSession !== session) return@DoubaoVoiceSession
+        session = DoubaoVoiceSession(context, voiceScope, vm::voiceEndpoint, recordingScope = originKey, replay = replay, store = voiceStore) { event ->
+            if (voiceSession !== session || currentVoiceKey != originKey) return@DoubaoVoiceSession
             when (event) {
                 VoiceEvent.Started -> if (voiceHeld) {
                     voiceCaptureStartedAt = android.os.SystemClock.elapsedRealtime()
@@ -1031,55 +1055,83 @@ fun ChatScreen(
                     voiceElapsedMs = VOICE_RECORDING_LIMIT_MS
                     voiceReleaseIntent = VoiceReleaseAction.EDIT
                 }
+                is VoiceEvent.Degraded -> {
+                    val code = when (event.reason) {
+                        VoiceFailure.DISCONNECTED -> AppErrorCode.VOICE_DISCONNECTED
+                        VoiceFailure.RECOGNITION -> AppErrorCode.VOICE_RECOGNITION_FAILED
+                        else -> AppErrorCode.VOICE_UNAVAILABLE
+                    }
+                    voiceNotice = localized(language, "实时识别暂不可用，正在本机录音，可继续说。", "Live recognition is unavailable. Recording locally; keep talking.") + " " + code.value
+                }
+                is VoiceEvent.Progress -> voiceTranscript = localized(language,
+                    "正在重新识别：已发送 ${event.sentMs / 1000} / ${event.totalMs / 1000} 秒音频",
+                    "Recognizing again: ${event.sentMs / 1000} / ${event.totalMs / 1000}s of audio sent")
                 is VoiceEvent.Partial -> voiceTranscript = event.text
                 is VoiceEvent.Final -> {
                     voiceHeld = false
                     voiceWaiting = false
                     voiceSession = null
                     val text = event.text.trim()
-                    if (event.limited) {
-                        if (text.isNotBlank()) draft = appendDictation(draft, text)
-                        voiceMode = false
-                        composerFocused = true
-                        android.widget.Toast.makeText(context,
-                            if (text.isNotBlank()) localized(language, "已录满 5 分钟，文字已放入输入框。可继续补充或发送。", "The 5-minute recording limit was reached. Text is in the input; add more or send it.")
-                            else localized(language, "已录满 5 分钟，但没有识别到文字。请重试或改用键盘。", "The 5-minute recording limit was reached, but no speech was recognized. Retry or use the keyboard."),
-                            android.widget.Toast.LENGTH_LONG).show()
-                    } else if (text.isBlank()) {
-                        voiceError(AppErrorCode.VOICE_EMPTY, false)
-                    } else if (voiceMustKeepDraft(event, voiceReleaseIntent == VoiceReleaseAction.EDIT,
-                            vm.connectionState.value is ConnectionState.Connected
-                                && !vm.state.value.isGenerating && preparingAttachments == 0 && vm.attachingSessions.value == 0)) {
-                        draft = appendDictation(draft, text)
-                        voiceMode = false
-                        composerFocused = true
-                    } else if (botNoticeNeeded) {
-                        pendingVoiceText = text
-                        botNoticeOpen = true
-                    } else {
-                        submitVoice(text)
+                    val record = session.savedRecording
+                    val baseDraft = draft
+                    voiceStorageBusy = true
+                    voiceScope.launch {
+                        try {
+                            if (text.isBlank() && record != null) {
+                                pendingVoice = record
+                                voiceMode = false
+                                voiceProblem = AppError(AppErrorCode.VOICE_EMPTY, retryable = true)
+                                return@launch
+                            }
+                            if (record != null) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { voiceStore.handoff(record.id, appendDictation(baseDraft, text), baseDraft) }
+                            if (currentVoiceKey != originKey) return@launch
+                            pendingVoice = null
+                            voiceNotice = ""
+                            if (event.limited || voiceReleaseIntent == VoiceReleaseAction.EDIT || !sessionWritable ||
+                                vm.connectionState.value !is ConnectionState.Connected || vm.state.value.isGenerating ||
+                                preparingAttachments > 0 || vm.attachingSessions.value > 0 || draft != baseDraft || replay != null && draft != draftAtStart || record?.complete == false) {
+                                if (text.isNotBlank()) draft = appendDictation(draft, text)
+                                vm.persistVoiceDraft(draft)
+                                if (record != null) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { voiceStore.remove(record.id) }
+                                voiceMode = false
+                                composerFocused = true
+                                if (event.limited) voiceNotice = if (text.isBlank()) localized(language, "已录满 5 分钟，但没有识别到文字。", "The 5-minute limit was reached, but no speech was recognized.")
+                                    else localized(language, "已录满 5 分钟，文字已放入输入框。", "The 5-minute limit was reached. Text is in the input.")
+                            } else if (text.isBlank()) {
+                                voiceError(AppErrorCode.VOICE_EMPTY, false)
+                            } else if (botNoticeNeeded) {
+                                pendingVoiceText = text
+                                botNoticeOpen = true
+                            } else submitVoice(text, record)
+                        } catch (_: Exception) {
+                            if (currentVoiceKey == originKey) {
+                                pendingVoice = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { voiceStore.list(originKey).firstOrNull() }.getOrNull() }
+                                voiceProblem = AppError(AppErrorCode.VOICE_STORAGE_FAILED, retryable = true)
+                            }
+                        } finally { if (currentVoiceKey == originKey) voiceStorageBusy = false }
                     }
                 }
                 is VoiceEvent.Failed -> {
                     voiceHeld = false
                     voiceWaiting = false
                     voiceSession = null
-                    if (event.partialText.isNotBlank()) {
+                    pendingVoice = session.savedRecording
+                    recoveredVoice = replay != null && recoveredVoice
+                    val code = when (event.reason) {
+                        VoiceFailure.STORAGE -> AppErrorCode.VOICE_STORAGE_FAILED
+                        VoiceFailure.MICROPHONE, VoiceFailure.CONNECTION, VoiceFailure.TIMEOUT -> AppErrorCode.VOICE_UNAVAILABLE
+                        VoiceFailure.RECOGNITION -> AppErrorCode.VOICE_RECOGNITION_FAILED
+                        VoiceFailure.FINAL_TIMEOUT -> AppErrorCode.VOICE_FINAL_TIMEOUT
+                        VoiceFailure.DISCONNECTED -> AppErrorCode.VOICE_DISCONNECTED
+                    }
+                    voiceProblem = AppError(code, retryable = true)
+                    if (pendingVoice == null && event.partialText.isNotBlank()) {
                         draft = appendDictation(draft, event.partialText)
                         voiceMode = false
                         composerFocused = true
                     }
-                    voiceError(
-                        when (event.reason) {
-                            VoiceFailure.MICROPHONE -> AppErrorCode.VOICE_UNAVAILABLE
-                            VoiceFailure.RECOGNITION -> AppErrorCode.VOICE_RECOGNITION_FAILED
-                            VoiceFailure.FINAL_TIMEOUT -> AppErrorCode.VOICE_FINAL_TIMEOUT
-                            VoiceFailure.DISCONNECTED -> AppErrorCode.VOICE_DISCONNECTED
-                            VoiceFailure.CONNECTION -> AppErrorCode.VOICE_UNAVAILABLE
-                            VoiceFailure.TIMEOUT -> AppErrorCode.VOICE_UNAVAILABLE
-                        },
-                        event.partialText.isNotBlank(),
-                    )
+                    voiceNotice = if (pendingVoice != null) localized(language, "录音已保留，可重试，无需重新说。", "Recording kept. Retry without recording again.")
+                        else localized(language, "本次没有可保留的录音，请检查输入框内的文字。", "No audio could be kept. Check the text in the input.")
                 }
             }
         }
@@ -1110,10 +1162,22 @@ fun ChatScreen(
      */
     fun settleWaiting(notify: Boolean) {
         val retained = voiceTranscript.isNotBlank()
-        voiceSession?.cancel()
+        val session = voiceSession
+        session?.cancel(keepRecording = true)
         voiceSession = null
         voiceHeld = false
-        if (voiceTranscript.isNotBlank()) {
+        voiceWaiting = false
+        if (session?.savedRecording != null) {
+            val originKey = voiceRecordingKey
+            voiceStorageBusy = true
+            voiceScope.launch {
+                try {
+                    val saved = session.retainedRecording()
+                    if (currentVoiceKey == originKey) pendingVoice = saved
+                } finally { if (currentVoiceKey == originKey) voiceStorageBusy = false }
+            }
+            voiceMode = false
+        } else if (voiceTranscript.isNotBlank()) {
             draft = appendDictation(draft, voiceTranscript)
             voiceMode = false
             composerFocused = true
@@ -1128,9 +1192,20 @@ fun ChatScreen(
     // never beat a session that is merely slow to a normal finish.
     LaunchedEffect(voiceWaiting) {
         if (!voiceWaiting) return@LaunchedEffect
-        kotlinx.coroutines.delay(VOICE_WAITING_BACKSTOP_MS)
+        kotlinx.coroutines.delay(voiceSession?.waitingBudgetMs ?: VOICE_WAITING_BACKSTOP_MS)
         if (voiceSession != null) settleWaiting(notify = true)
     }
+
+    val voiceLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val stopVoiceOnHide by androidx.compose.runtime.rememberUpdatedState({ if (voiceSession != null) settleWaiting(notify = false) })
+    androidx.compose.runtime.DisposableEffect(voiceLifecycle) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) stopVoiceOnHide()
+        }
+        voiceLifecycle.lifecycle.addObserver(observer)
+        onDispose { voiceLifecycle.lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(sessionWritable) { if (!sessionWritable && voiceSession != null) settleWaiting(notify = false) }
 
     // HG-146: the recording clock, and the waveform it drives. Only while the finger is down;
     // it freezes on release so the waiting card keeps showing when the user let go.
@@ -1415,6 +1490,39 @@ fun ChatScreen(
                         }
                     }
                 }
+                if (voiceNotice.isNotBlank()) Text(voiceNotice, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(8.dp))
+                voiceProblem?.let { Text(it.localizedMessage(language), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(8.dp)) }
+                pendingVoice?.let { saved ->
+                    VoiceRecoveryCard(
+                        recording = saved, recovered = recoveredVoice, language = language,
+                        busy = voiceStorageBusy || voiceSession != null,
+                        canSend = connected && sessionWritable && !state.isGenerating && !saved.limited,
+                        onRetry = { beginVoice(saved, retrySend = true) },
+                        onTranscribe = {
+                            if (saved.text == null) beginVoice(saved)
+                            else {
+                                voiceStorageBusy = true
+                                voiceScope.launch {
+                                    try {
+                                        if (draft != saved.text) draft = if (draft == saved.baseText) saved.text else appendDictation(draft, saved.text)
+                                        vm.persistVoiceDraft(draft)
+                                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { voiceStore.remove(saved.id) }
+                                        pendingVoice = null; voiceMode = false; composerFocused = true
+                                    } catch (_: Exception) { voiceProblem = AppError(AppErrorCode.VOICE_STORAGE_FAILED, retryable = true) }
+                                    finally { voiceStorageBusy = false }
+                                }
+                            }
+                        },
+                        onDiscard = {
+                            voiceStorageBusy = true
+                            voiceScope.launch {
+                                try { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { voiceStore.remove(saved.id) }; pendingVoice = null; voiceProblem = null; voiceNotice = "" }
+                                catch (_: Exception) { voiceProblem = AppError(AppErrorCode.VOICE_STORAGE_FAILED, retryable = true) }
+                                finally { voiceStorageBusy = false }
+                            }
+                        },
+                    )
+                }
                 ComposerSurface(
                     expanded = sessionWritable && composerFocused,
                     modifier = Modifier.fillMaxWidth().heightIn(
@@ -1435,8 +1543,8 @@ fun ChatScreen(
                         VoiceComposerBar(
                             language = language,
                             holdLabel = localized(language, if (voiceHeld) "松开发送" else "按住说话", if (voiceHeld) "Release to send" else "Hold to talk"),
-                            holdEnabled = connected && !state.isGenerating && !voiceWaiting &&
-                                preparingAttachments == 0 && attachingSessions == 0,
+                            holdEnabled = voiceHeld || (connected && !state.isGenerating && !voiceWaiting && !voiceStorageBusy && voiceRecoveryLoaded && pendingVoice == null &&
+                                preparingAttachments == 0 && attachingSessions == 0),
                             keyboardEnabled = !voiceHeld && !voiceWaiting,
                             sessionWritable = sessionWritable,
                             isGenerating = state.isGenerating,
@@ -1758,7 +1866,7 @@ fun ChatScreen(
                 language = language,
                 held = voiceHeld,
                 waiting = voiceWaiting,
-                transcript = voiceTranscript,
+                transcript = listOf(voiceTranscript, voiceNotice).filter { it.isNotBlank() }.joinToString("\n"),
                 cancelZone = voiceZone == VoiceReleaseAction.CANCEL,
                 editZone = voiceZone == VoiceReleaseAction.EDIT,
                 elapsedMs = voiceElapsedMs,
@@ -2840,7 +2948,7 @@ private fun AttachmentActionCard(
 internal fun rememberVoiceSessionDisposer(sessionId: String, voiceSession: DoubaoVoiceSession?) {
     val current by androidx.compose.runtime.rememberUpdatedState(voiceSession)
     androidx.compose.runtime.DisposableEffect(sessionId) {
-        onDispose { current?.cancel() }
+        onDispose { current?.cancel(keepRecording = true) }
     }
 }
 
