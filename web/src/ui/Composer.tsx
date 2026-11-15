@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { Translate } from "../app/i18n";
 import {
   attachmentKind,
@@ -22,6 +22,8 @@ import { PromptLibrary, SavedPromptsSheet, SessionPicker } from "./ComposerSheet
 import { Sheet } from "./Sheet";
 import { paths } from "../api/gateway";
 import { allowMicrophone, voiceCaptureSupported } from "../chat/voiceCapture";
+import { VoiceJournal, VoiceRecordingStore, voiceRecordingActive, type VoiceRecording, type VoiceDeliveryReceipt } from "../chat/voiceRecordings";
+import { draftEpoch, loadDraft } from "../app/drafts";
 import { BrowserVoiceSession } from "../chat/voiceSession";
 import { appendVoiceText, type VoiceAction } from "../chat/voiceGesture";
 import { VoiceComposer } from "./VoiceComposer";
@@ -36,7 +38,7 @@ export interface ComposerProps {
   language: Language;
   generating: boolean;
   disabled: boolean;
-  onSend: (text: string, attachments: PendingAttachment[]) => void;
+  onSend: (text: string, attachments: PendingAttachment[], onDelivered?: VoiceDeliveryReceipt) => void;
   onInterrupt: () => void;
   /** Where unsent text is kept (app/drafts.ts); null keeps it in memory only. */
   draftKey?: string | null;
@@ -94,6 +96,29 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
   const [voiceNotice, setVoiceNotice] = useState("");
   const [requestingMic, setRequestingMic] = useState(false);
   const voice = useRef<BrowserVoiceSession | null>(null);
+  const voiceScope = draftKey ?? JSON.stringify([location.origin, app.account?.id ?? "", app.device?.deviceId ?? "", sessionId]);
+  const voiceOwner = useRef(voiceScope); voiceOwner.current = voiceScope;
+  const recordingStore = useMemo(() => new VoiceRecordingStore(), [voiceScope]);
+  const [pendingVoice, setPendingVoice] = useState<(VoiceRecording & { restored?: boolean }) | null>(null);
+  const [voiceSettling, setVoiceSettling] = useState(false);
+  const [voiceRecoveryLoaded, setVoiceRecoveryLoaded] = useState(false);
+  const journal = useRef<VoiceJournal | null>(null);
+  const interrupted = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    let active = true;
+    setPendingVoice(null);
+    setVoiceRecoveryLoaded(false);
+    if (typeof indexedDB !== "undefined") void recordingStore.list(voiceScope).then(records => {
+      if (active) setPendingVoice(records[0] ? { ...records[0], restored: true } : null);
+    }).catch(() => {}).finally(() => { if (active) setVoiceRecoveryLoaded(true); });
+    else setVoiceRecoveryLoaded(true);
+    const timer = setInterval(() => {
+      if (active && !voice.current) void recordingStore.list(voiceScope).then(records => {
+        if (active) setPendingVoice(current => { const next = current && records.find(r => r.id === current.id); return next ? { ...next, restored: current?.restored } : null; });
+      }).catch(() => {});
+    }, 5_000);
+    return () => { active = false; clearInterval(timer); };
+  }, [voiceScope, recordingStore]);
   const permissionEpoch = useRef(0);
   const intent = useRef<VoiceAction>("send");
   const latest = useRef({ disabled, blocked, generating, voiceReady, onSend, text, attachments, preparing, generatingCount });
@@ -111,8 +136,11 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
     }
   }
   function cancelVoice(keep = false) {
+    if (keep && voice.current && interrupted.current) { interrupted.current(); return; }
     const partial = voice.current?.cancel() ?? "";
     voice.current = null;
+    if (journal.current) void journal.current.discard().catch(() => {});
+    journal.current = null; interrupted.current = null;
     setVoicePhase("idle"); setVoiceRecording(false); setVoiceText("");
     if (keep && partial.trim()) { setText((draft) => appendVoiceText(draft, partial)); setVoiceMode(false); setFocused(true); }
   }
@@ -140,35 +168,142 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
     }
   }
   function beginVoice() {
-    if (voice.current || disabled || blocked || generating || !voiceReady || preparing || generatingCount > 0 || !app.device) return;
-    intent.current = "send"; setVoiceText(""); setVoiceRecording(false); setVoiceLimited(false); setVoicePhase("held"); setProblem(null); setVoiceNotice("");
+    if (voice.current || !voiceRecoveryLoaded || voiceSettling || pendingVoice || disabled || blocked || generating || !voiceReady || preparing || generatingCount > 0 || !app.device) return;
+    runVoice();
+  }
+  function runVoice(saved?: VoiceRecording, replay?: Uint8Array[], action: VoiceAction = "send") {
+    if (voice.current || blocked || !app.device) return;
+    const owner = voiceScope, epoch = draftEpoch(), before = latest.current.text;
+    const store = recordingStore;
+    const owns = () => voiceOwner.current === owner && epoch === draftEpoch();
+    intent.current = action;
+    if (saved) setVoiceMode(true);
+    setVoiceText(""); setVoiceRecording(false); setVoiceLimited(false); setVoicePhase(saved ? "waiting" : "held"); setProblem(null); setVoiceNotice("");
+    let writer: VoiceJournal | null = null;
+    let limited = false;
+    let finishing = false;
     const deviceId = app.device.deviceId;
-    const recording = new BrowserVoiceSession({
-      endpoint: async () => { await app.client.settled(); return paths.deviceVoice(deviceId); },
-      onEvent: (event) => {
-        if (voice.current !== recording) return;
-        if (event.kind === "recording") { setVoiceRecording(true); return; }
-        if (event.kind === "partial") { setVoiceText(event.text); return; }
-        if (event.kind === "waiting") { setVoicePhase("waiting"); setVoiceRecording(false); setVoiceLimited(event.limited ?? false); return; }
-        voice.current = null; setVoicePhase("idle"); setVoiceRecording(false); setVoiceText("");
-        const state = latest.current;
-        if (event.kind === "failed" || event.limited || intent.current === "edit" || state.disabled || state.blocked || state.generating || !state.voiceReady || state.preparing || state.generatingCount > 0) {
-          if (event.text.trim()) { setText((draft) => appendVoiceText(draft, event.text)); setVoiceMode(false); setFocused(true); }
-          if (event.kind === "failed") {
-            setProblem(event.error);
-            setVoiceNotice(event.text.trim() ? t("已识别的文字已放入输入框，请检查后发送。", "Recognized text is in the input. Review it before sending.") : t("本次没有可保留的文字。", "There is no text to keep from this recording."));
-          } else if (event.limited) {
-            setVoiceMode(false); setFocused(true);
-            setVoiceNotice(event.text.trim() ? t("已录满 5 分钟，文字已放入输入框。可继续补充或发送。", "The 5-minute recording limit was reached. Text is in the input; add more or send it.") : t("已录满 5 分钟，但没有识别到文字。请重试或改用键盘。", "The 5-minute recording limit was reached, but no speech was recognized. Retry or use the keyboard."));
+    const settle = (event: Extract<import("../chat/voiceSession").VoiceEvent, { kind: "failed" | "final" }>, record: VoiceRecording | null) => {
+      if (!owns()) return;
+      setVoiceSettling(false); setVoicePhase("idle"); setVoiceRecording(false); setVoiceText("");
+      if (event.kind === "failed") {
+        if (record) setPendingVoice(record);
+        else if (event.text.trim()) { setText(draft => appendVoiceText(draft, event.text)); setVoiceMode(false); setFocused(true); }
+        setProblem(event.error);
+        setVoiceNotice(record ? t("录音已保留，可重试，无需重新说。", "Recording kept. Retry without recording again.") : event.text.trim() ? t("已识别的文字已放入输入框，请检查后发送。", "Recognized text is in the input. Review it before sending.") : t("本次没有可保留的文字。", "There is no text to keep from this recording."));
+        return;
+      }
+      const state = latest.current;
+      if (record && !event.text.trim()) {
+        setPendingVoice(record); setVoiceMode(false);
+        setProblem(appError("HR-VOICE-005"));
+        setVoiceNotice(t("没有识别到文字；录音仍保留，可重试转文字。", "No speech was recognized. Audio is kept for another transcription attempt."));
+        return;
+      }
+      let message = appendVoiceText(state.text, event.text);
+      const keep = event.limited || intent.current === "edit" || !record?.complete && !!record || state.disabled || state.blocked || state.generating || !state.voiceReady || state.preparing || state.generatingCount > 0 || !!saved && state.text !== before;
+      const complete = () => {
+        if (!owns()) return;
+        const current = latest.current;
+        message = appendVoiceText(current.text, event.text);
+        const changed = current.text !== state.text || current.disabled || current.blocked || current.generating || !current.voiceReady || current.preparing || current.generatingCount > 0;
+        setPendingVoice(null);
+        if (keep || changed || !event.text.trim()) {
+          if (event.text.trim()) setText(message);
+          flushDraft(); setVoiceMode(false); setFocused(true);
+          if (event.limited) setVoiceNotice(event.text.trim() ? t("已录满 5 分钟，文字已放入输入框。可继续补充或发送。", "The 5-minute recording limit was reached. Text is in the input; add more or send it.") : t("已录满 5 分钟，但没有识别到文字。请重试或改用键盘。", "The 5-minute recording limit was reached, but no speech was recognized. Retry or use the keyboard."));
+          if (record) {
+            if (draftKey && loadDraft(draftKey) === message) void store.remove(record.id).catch(() => {});
+            else {
+              void store.handoff(record.id, message, current.text).catch(() => {});
+              setPendingVoice({ ...record, bytes: 0, text: message, baseText: current.text, restored: true }); setProblem(appError("HR-VOICE-006"));
+            }
           }
         } else {
-          // HG-196: final speech completes the same composer as typing. Read the latest stage,
-          // not the render captured when recording began, and never send on an empty final.
-          if (event.text.trim()) sendContent(appendVoiceText(state.text, event.text));
+          const delivered: VoiceDeliveryReceipt | undefined = record ? () => { void store.remove(record.id).catch(() => {}); } : undefined;
+          if (delivered && record && draftKey) delivered.onStored = id => {
+            // A lazy new chat acquired its durable ID. Keep an uncertain send recoverable there.
+            const parts = draftKey.split("\n");
+            if (parts[1] === "new") {
+              parts[1] = id;
+              const prefix = "\nscope:", at = draftKey.indexOf(prefix);
+              if (at >= 0) {
+                try {
+                  const scope = JSON.parse(draftKey.slice(at + prefix.length)) as unknown[];
+                  scope[4] = id; parts[2] = "scope:" + JSON.stringify(scope);
+                } catch { return; }
+              }
+              void store.relocate(record.id, parts.join("\n")).catch(() => {});
+            }
+          };
+          sendContent(message, delivered);
         }
+      };
+      // First persist a text recovery record. A send failure/reload can never destroy the only copy.
+      if (record) {
+        setVoiceSettling(true);
+        void store.handoff(record.id, message, state.text).then(() => { if (owns()) { setVoiceSettling(false); complete(); } }, () => {
+          if (owns()) { setVoiceSettling(false); setPendingVoice(record); setProblem(appError("HR-VOICE-006")); }
+        });
+      } else complete();
+    };
+    const recording = new BrowserVoiceSession({
+      endpoint: async () => { await app.client.settled(); return paths.deviceVoice(deviceId); },
+      ...(saved && replay ? { replay: { chunks: replay, limited: saved.limited } } : {}),
+      onAudio: pcm => {
+        writer ??= new VoiceJournal(store, owner, () => recording.storageFailed());
+        journal.current = writer; writer.append(pcm);
+      },
+      onEvent: event => {
+        if (voice.current !== recording || !owns()) return;
+        if (event.kind === "recording") { setVoiceRecording(true); return; }
+        if (event.kind === "partial") { setVoiceText(event.text); return; }
+        if (event.kind === "degraded") { setVoiceNotice(t("实时识别暂不可用，正在本机录音，可继续说。", "Live recognition is unavailable. Recording locally; keep talking.") + " " + event.error.code); return; }
+        if (event.kind === "progress") { setVoiceText(t(`正在重新识别：已发送 ${Math.floor(event.sentMs / 1000)} / ${Math.ceil(event.totalMs / 1000)} 秒音频`, `Recognizing again: ${Math.floor(event.sentMs / 1000)} / ${Math.ceil(event.totalMs / 1000)}s of audio sent`)); return; }
+        if (event.kind === "waiting") { finishing = true; limited = event.limited ?? false; setVoicePhase("waiting"); setVoiceRecording(false); setVoiceLimited(event.limited ?? false); return; }
+        voice.current = null; journal.current = null; interrupted.current = null;
+        if (writer) {
+          setVoiceSettling(true);
+          void writer.seal(event.kind === "final" || (event.kind === "failed" && !["HR-PERM-006", "HR-VOICE-006"].includes(event.error.code)), limited || event.kind === "final" && !!event.limited)
+            .then(record => settle(event, record), () => settle({ kind: "failed", text: event.text, error: appError("HR-VOICE-006") }, null));
+        } else settle(event, saved ?? null);
       },
     });
-    voice.current = recording; recording.start();
+    interrupted.current = () => {
+      const partial = recording.cancel();
+      voice.current = null; journal.current = null; interrupted.current = null;
+      setVoicePhase("idle"); setVoiceRecording(false); setVoiceText("");
+      if (writer) {
+        setVoiceSettling(true);
+        void writer.seal(finishing, limited).then(record => {
+          settle({ kind: "failed", text: partial, error: appError("HR-VOICE-003") }, record);
+          if (owns()) setProblem(null); // A deliberate pause/system interruption is not a network error.
+        }, () => settle({ kind: "failed", text: partial, error: appError("HR-VOICE-006") }, null));
+      } else if (saved) { setPendingVoice(saved); setVoiceMode(false); }
+      else if (partial.trim()) { setText(draft => appendVoiceText(draft, partial)); setVoiceMode(false); setFocused(true); }
+    };
+    journal.current = null; voice.current = recording; recording.start();
+  }
+  async function retryVoice(action: VoiceAction) {
+    if (!pendingVoice || voiceRecordingActive(pendingVoice) || voice.current || voiceSettling || blocked) return;
+    const saved = pendingVoice, owner = voiceScope, epoch = draftEpoch();
+    if (saved.text) {
+      const message = latest.current.text === saved.text || latest.current.text === saved.baseText ? saved.text : appendVoiceText(latest.current.text, saved.text);
+      setText(message); flushDraft(); setVoiceMode(false); setFocused(true);
+      if (draftKey && loadDraft(draftKey) === message) {
+        await recordingStore.remove(saved.id).catch(() => {});
+        if (voiceOwner.current === owner && epoch === draftEpoch()) setPendingVoice(null);
+      } else setProblem(appError("HR-VOICE-006"));
+      return;
+    }
+    setVoiceSettling(true);
+    try {
+      const chunks = await recordingStore.audio(saved.id);
+      if (voiceOwner.current !== owner || epoch !== draftEpoch()) return;
+      setVoiceSettling(false);
+      // Loading does not turn a restored recording into a send authorization.
+      runVoice(saved, chunks, saved.complete && !saved.restored ? action : "edit");
+    } catch { if (voiceOwner.current === owner) { setVoiceSettling(false); setProblem(appError("HR-VOICE-006")); } }
   }
   function releaseVoice(action: VoiceAction) {
     if (voicePhase === "waiting") return;
@@ -176,14 +311,14 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
     intent.current = action; voice.current?.finish();
   }
   useEffect(() => {
-    if (disabled || blocked || generating || !voiceReady) cancelVoice(true);
-  }, [disabled, blocked, generating, voiceReady]);
+    if (blocked) cancelVoice(true);
+  }, [blocked]);
   useEffect(() => {
     const hide = () => { if (document.visibilityState === "hidden") { cancelVoice(true); flushDraft(); } };
     const leave = () => { cancelVoice(true); flushDraft(); };
     document.addEventListener("visibilitychange", hide);
     window.addEventListener("pagehide", leave);
-    return () => { document.removeEventListener("visibilitychange", hide); window.removeEventListener("pagehide", leave); permissionEpoch.current++; voice.current?.cancel(); voice.current = null; };
+    return () => { document.removeEventListener("visibilitychange", hide); window.removeEventListener("pagehide", leave); permissionEpoch.current++; cancelVoice(true); };
   }, []);
   // Back leaves the conversation in two steps (HG-180). A focused text field owns a back step of
   // its own — the first back exits the input and returns to the browsing state; only the next back
@@ -198,7 +333,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
   useEffect(() => {
     if (keyRef.current === draftKey) return;
     keyRef.current = draftKey;
-    cancelVoice(); setVoiceNotice(""); permissionEpoch.current++; setRequestingMic(false); setVoiceMode(false); setFocused(false);
+    cancelVoice(true); setVoiceSettling(false); setVoiceNotice(""); permissionEpoch.current++; setRequestingMic(false); setVoiceMode(false); setFocused(false);
     setSheet(null); setPreparing(false); setGeneratingCount(0);
     setProblem(null);
   }, [draftKey]);
@@ -301,9 +436,10 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
 
   const canSend = !disabled && !preparing && generatingCount === 0 && (text.trim() !== "" || attachments.length > 0);
 
-  function sendContent(message: string) {
+  function sendContent(message: string, onDelivered?: VoiceDeliveryReceipt) {
     const state = latest.current;
-    state.onSend(message.trim(), state.attachments);
+    if (onDelivered) state.onSend(message.trim(), state.attachments, onDelivered);
+    else state.onSend(message.trim(), state.attachments);
     setText("");
     flushDraft();
     setAttachments([]); // preview URLs now belong to the sent bubble
@@ -386,7 +522,16 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
   return (
     <div class="composer-wrap">
       {sheets}
-      {problem ? <ErrorNotice error={problem} language={language} onRetry={problem.code === "HR-PERM-006" ? () => void enterVoice() : problem.code.startsWith("HR-VOICE-") ? () => { setProblem(null); setVoiceMode(true); } : undefined} onDismiss={() => setProblem(null)} variant="inline" /> : null}
+      {problem ? <ErrorNotice error={problem} language={language} onRetry={problem.code === "HR-PERM-006" ? () => void enterVoice() : problem.code.startsWith("HR-VOICE-") && !pendingVoice ? () => { setProblem(null); setVoiceMode(true); } : undefined} onDismiss={() => setProblem(null)} variant="inline" /> : null}
+      {pendingVoice ? <div class="voice-recovery" role="status">
+        <p>{voiceRecordingActive(pendingVoice) ? t("这段录音仍在录制，请在原页面松手后重试。", "This recording is still active. Release it in the original view first.") : pendingVoice.text ? t("上次语音文字已保留；请先核对发送记录，再恢复到输入框。", "Previous voice text kept. Check sent messages before restoring it.") : pendingVoice.complete ? t("完整录音已保留", "Complete recording kept") : t("录音已中止，已保存片段可转文字", "Recording interrupted. Saved audio can be transcribed")}{pendingVoice.bytes ? ` · ${Math.floor(pendingVoice.bytes / 32000)}s` : ""}</p>
+        <p>{t("仅本机保留，24 小时后清理。恢复后请检查文字并重新添加缺失附件。", "Kept on this device for 24 hours. Review restored text and re-add missing attachments.")}</p>
+        <div class="error-actions">
+          {pendingVoice.complete && !pendingVoice.limited && !pendingVoice.restored && !pendingVoice.text ? <button type="button" class="text-button" disabled={voiceRecordingActive(pendingVoice) || voiceSettling || voicePhase !== "idle" || disabled || !voiceReady || generating} onClick={() => void retryVoice("send")}>{t("重试发送", "Retry send")}</button> : null}
+          <button type="button" class="text-button" disabled={voiceRecordingActive(pendingVoice) || voiceSettling || voicePhase !== "idle"} onClick={() => void retryVoice("edit")}>{pendingVoice.text ? t("恢复文字", "Restore text") : t("转文字", "Transcribe")}</button>
+          <button type="button" class="text-button" disabled={voiceRecordingActive(pendingVoice) || voiceSettling || voicePhase !== "idle"} onClick={() => { const saved = pendingVoice; void recordingStore.remove(saved.id).then(() => { setPendingVoice(null); setProblem(null); setVoiceNotice(""); }, () => setProblem(appError("HR-VOICE-006"))); }}>{t("丢弃", "Discard")}</button>
+        </div>
+      </div> : null}
       {voiceNotice ? <p class="composer-progress" role="status">{voiceNotice}</p> : null}
       {attachments.length ? (
         <div class="attachment-strip">
@@ -458,7 +603,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
         ))}
         {voiceMode ? <>
           <button type="button" class="icon-button composer-voice" aria-label={t("切换键盘输入", "Switch to keyboard")} disabled={voicePhase !== "idle"} onClick={() => { cancelVoice(); setVoiceMode(false); setFocused(true); area.current?.focus(); }}><KeyboardIcon /></button>
-          <VoiceComposer t={t} phase={voicePhase} recording={voiceRecording} limited={voiceLimited} feedbackEnabled={app.voiceFeedback === "on"} text={voiceText} disabled={disabled || generating || !voiceReady || preparing || generatingCount > 0} onBegin={beginVoice} onRelease={releaseVoice} onInterrupted={() => cancelVoice(true)} onCancelWait={() => cancelVoice(true)} />
+          <VoiceComposer t={t} phase={voicePhase} recording={voiceRecording} limited={voiceLimited} feedbackEnabled={app.voiceFeedback === "on"} text={voiceText} notice={voiceNotice} disabled={voicePhase === "idle" && (disabled || generating || !voiceReady || preparing || generatingCount > 0 || voiceSettling || !voiceRecoveryLoaded || !!pendingVoice)} onBegin={beginVoice} onRelease={releaseVoice} onInterrupted={() => cancelVoice(true)} onCancelWait={() => cancelVoice(true)} />
           {generating ? sendOrStop() : addButton()}
         </> : <>
         {!focused && voiceAvailable ? <button type="button" class="icon-button composer-voice" aria-label={t("切换语音输入", "Switch to voice input")} disabled={disabled || requestingMic} onClick={() => void enterVoice()}>{requestingMic ? <span class="spinner tiny" /> : <MicIcon />}</button> : null}

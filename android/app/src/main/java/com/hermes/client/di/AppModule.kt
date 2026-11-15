@@ -181,6 +181,7 @@ object AppModule {
         api,
         beforeSignOut = { connection -> push.get().unregisterForSignOut(connection) },
         modelCache = modelCache,
+        clearVoiceRecordings = { com.hermes.client.data.voice.VoiceRecordingStore(context).clear() },
         profileAvatars = com.hermes.client.data.auth.AccountProfileAvatarCache(java.io.File(context.filesDir, "account-profile-cache")),
     )
 

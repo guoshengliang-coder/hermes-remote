@@ -199,7 +199,7 @@ it.each(["cancel", "edit", "failed", "offline", "generating", "empty"] as const)
     expect(h.host.querySelector(".attachment-file")!.textContent).toContain("notes.txt");
     if (h.host.querySelector('.voice-hold')) act(() => h.host.querySelector<HTMLButtonElement>('[aria-label="切换键盘输入"]')!.click());
     const expected = outcome === "edit" ? "已有草稿\n最终语音" : outcome === "failed" ? "已有草稿\n临时语音"
-      : outcome === "offline" || outcome === "generating" ? "已有草稿\n半截" : "已有草稿";
+      : outcome === "offline" || outcome === "generating" ? "已有草稿\n最终语音" : "已有草稿";
     expect(h.host.querySelector("textarea")!.value).toBe(expected);
   },
 );

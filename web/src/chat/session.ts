@@ -533,7 +533,7 @@ export class ChatSession {
    * Upload and attach every pending attachment (images: image.attach; files: file.attach, whose
    * ref_text lines are appended to the prompt — Android's flow), then prompt.submit.
    */
-  async send(key: string, text: string, attachments: readonly PendingAttachment[]): Promise<void> {
+  async send(key: string, text: string, attachments: readonly PendingAttachment[]): Promise<boolean> {
     let submittedRevision: number | null = null;
     let previousRunning: boolean | null = null;
     this.submitting = true;
@@ -564,6 +564,7 @@ export class ChatSession {
       });
       this.storedRowCount = null;
       this.o.dispatch({ type: "user-delivered", key, startRun: false });
+      return true;
     } catch (error) {
       if (submittedRevision !== null && submittedRevision === this.runRevision) {
         this.running = previousRunning;
@@ -578,6 +579,7 @@ export class ChatSession {
       } else {
         this.o.dispatch({ type: "user-failed", key, error: this.submitError(error) });
       }
+      return false;
     } finally {
       this.submitting = false;
       this.reconcileRun();

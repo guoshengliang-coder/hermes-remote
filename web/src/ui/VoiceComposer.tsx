@@ -12,13 +12,14 @@ export interface VoiceComposerProps {
   limited?: boolean;
   feedbackEnabled: boolean;
   text: string;
+  notice?: string;
   disabled: boolean;
   onBegin: () => void;
   onRelease: (action: VoiceAction) => void;
   onInterrupted: () => void;
   onCancelWait: () => void;
 }
-export function VoiceComposer({ t, phase, recording, limited, feedbackEnabled, text, disabled, onBegin, onRelease, onInterrupted, onCancelWait }: VoiceComposerProps) {
+export function VoiceComposer({ t, phase, recording, limited, feedbackEnabled, text, notice, disabled, onBegin, onRelease, onInterrupted, onCancelWait }: VoiceComposerProps) {
   const [zone, setZone] = useState<VoiceAction>("send");
   const [elapsed, setElapsed] = useState(0);
   const gesture = useRef<{ id: number | "keyboard"; started: number; touchId?: number; key?: string } | null>(null);
@@ -182,6 +183,7 @@ export function VoiceComposer({ t, phase, recording, limited, feedbackEnabled, t
           <div class="voice-wave" aria-hidden="true">{Array.from({ length: 21 }, (_, i) => <i key={i} style={{ height: `${12 + 32 * Math.abs(Math.sin(i * 1.7 + elapsed / 400))}px` }} />)}</div>
           {phase === "held" && elapsed >= VOICE_RECORDING_LIMIT_MS - 15_000 ? <p role="status">{t(`还可录 ${Math.ceil((VOICE_RECORDING_LIMIT_MS - elapsed) / 1000)} 秒，到时转为草稿`, `Remaining: ${Math.ceil((VOICE_RECORDING_LIMIT_MS - elapsed) / 1000)}s; then save to draft`)}</p> : null}
           <p class="voice-transcript" role="status">{text || t("正在聆听…", "Listening…")}</p>
+          {notice ? <p role="status">{notice}</p> : null}
         </div>
         <div class="voice-targets">
           <div><button ref={cancel} type="button" class={`voice-target${zone === "cancel" ? " selected cancel" : ""}`} onClick={() => phase === "waiting" ? onCancelWait() : release("cancel")} aria-label={t("取消录音", "Cancel recording")}><CloseIcon size={28} /></button><span>{t("移到这里取消", "Slide here to cancel")}</span></div>

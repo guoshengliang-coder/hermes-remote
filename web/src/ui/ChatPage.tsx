@@ -7,6 +7,7 @@ import { draftKey } from "../app/drafts";
 import { defaultProjectPath, rememberDefaultProject } from "../app/localPrefs";
 import { isDefaultProjectPath, projectLabelOfPath } from "../app/projects";
 import { explicitProfile } from "../app/profile";
+import type { VoiceDeliveryReceipt } from "../chat/voiceRecordings";
 import { isBotSession } from "../app/sources";
 import { navigate, returnFromChat } from "../app/router";
 import { useApp } from "../app/store";
@@ -129,7 +130,8 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
   const [userMenu, setUserMenu] = useState<ChatItem | null>(null);
   const [sourceItem, setSourceItem] = useState<ChatItem | null>(null);
   const [seed, setSeed] = useState<{ text: string; nonce: number; append?: boolean; attachments?: PendingAttachment[] } | null>(null);
-  const [botNotice, setBotNotice] = useState<{ text: string; attachments: PendingAttachment[] } | null>(null);
+  const [botNotice, setBotNotice] = useState<{ text: string; attachments: PendingAttachment[]; onDelivered?: VoiceDeliveryReceipt } | null>(null);
+  const creatingVoiceReceipts = useRef(new WeakMap<ChatSession, Set<VoiceDeliveryReceipt>>());
   // Web batch 4
   const [manage, setManage] = useState<"archive" | "move" | null>(null);
   const [modelOpen, setModelOpen] = useState(false);
@@ -219,6 +221,8 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
       dispatch: action => { if (sessionRef.current === session) dispatch(action); },
       onStored: (id) => {
         if (sessionRef.current !== session) return;
+        for (const receipt of creatingVoiceReceipts.current.get(session) ?? []) receipt.onStored?.(id);
+        creatingVoiceReceipts.current.delete(session);
         setStoredId(id);
         navigate({ name: "chat", sessionId: id }, { replace: true });
       },
@@ -455,13 +459,14 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
     return () => observer.disconnect();
   }, []);
 
-  function send(text: string, attachments: PendingAttachment[], confirmed = false) {
+  const voiceDeliveries = useRef(new Map<string, VoiceDeliveryReceipt>());
+  function send(text: string, attachments: PendingAttachment[], confirmed = false, onDelivered?: VoiceDeliveryReceipt) {
     const session = sessionRef.current;
     if (!session) return;
     // First message into a bot conversation: say once, per channel, that it stays in Hermes (§5.16).
     const bot = storedId ? app.sessions.find((s) => s.id === storedId) : undefined;
     if (!confirmed && bot && isBotSession(bot) && !botNoticeSeen(bot.source!)) {
-      setBotNotice({ text, attachments });
+      setBotNotice({ text, attachments, onDelivered });
       return;
     }
     const key = `l-${++localSeq}`;
@@ -475,14 +480,23 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
       localFiles: attachments.filter((a) => a.kind === "file").map((a) => a.name),
       nowMs: Date.now(),
     });
-    void session.send(key, text, attachments);
+    if (onDelivered) voiceDeliveries.current.set(key, onDelivered);
+    if (onDelivered && !session.storedSessionId) {
+      const receipts = creatingVoiceReceipts.current.get(session) ?? new Set<VoiceDeliveryReceipt>();
+      receipts.add(onDelivered); creatingVoiceReceipts.current.set(session, receipts);
+    }
+    void session.send(key, text, attachments).then(delivered => {
+      if (delivered) { voiceDeliveries.current.get(key)?.(); voiceDeliveries.current.delete(key); }
+    });
   }
 
   function retry(item: ChatItem) {
     const session = sessionRef.current;
     if (!session) return;
     dispatch({ type: "user-retry", key: item.key });
-    void session.send(item.key, item.text, pendingFiles.current.get(item.key) ?? []);
+    void session.send(item.key, item.text, pendingFiles.current.get(item.key) ?? []).then(delivered => {
+      if (delivered) { voiceDeliveries.current.get(item.key)?.(); voiceDeliveries.current.delete(item.key); }
+    });
   }
 
   function answer(plan: AnswerPlan) {
@@ -865,7 +879,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
           generating={state.generating}
           disabled={state.terminal || !device}
           voiceReady={state.connection === "ready"}
-          onSend={send}
+          onSend={(text, files, onDelivered) => send(text, files, false, onDelivered)}
           onInterrupt={() => void sessionRef.current?.interrupt()}
           draftKey={device ? draftKey(device.deviceId, storedId, conversationScope(app.account?.id, device.deviceId, profile, storedId)) : null}
           sessionId={storedId}
@@ -1049,7 +1063,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
                 markBotNoticeSeen(botRow.source!);
                 const pending = botNotice;
                 setBotNotice(null);
-                send(pending.text, pending.attachments, true);
+                send(pending.text, pending.attachments, true, pending.onDelivered);
               }}
             >
               {t("知道了，发送", "Got it, send")}
