@@ -171,3 +171,11 @@ test("a non-2xx is reported with its status, and a dead port as unreachable", as
     { kind: "unreachable" },
   );
 });
+
+test("console ticket entry is Connector-only and cannot widen tunnel paths", async () => {
+  const auth = new HermesAuth({ baseUrl: "http://127.0.0.1:9119", sessionToken: "test-only-token" });
+  await assert.rejects(auth.websocketUrl("/api/console"), /unsupported WebSocket path/);
+  const url = new URL(await auth.consoleWebsocketUrl());
+  assert.equal(url.pathname, "/api/console");
+  assert.equal(url.searchParams.get("token"), "test-only-token");
+});

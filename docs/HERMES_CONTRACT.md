@@ -1203,3 +1203,13 @@ patch, wire-version change or new Mac credential exposure is part of this work.
 ## HG-240 · Optional instance model preferences
 
 `GET/POST /api/model/preferences` is an optional new upstream capability implemented in the companion Hermes source change, not an assumption about released Hermes. Its exact v1 tuple, string revision and field-CAS contract lives in `INSTANCE_MODEL_PREFERENCES.md`. GET 404/405 means explicit Legacy; other errors must not enable a false-success local writer. Never make this endpoint a required startup route for older supported Hermes. Clients do not issue model.set/config.set while synchronizing preferences.
+
+## HG-257 related operations (2026-11-16)
+
+Installed v0.22.5 has the same owner checks for REST rename/delete; DELETE also requires
+expected_generation. Connector adapts exact existing DELETE and title-only PATCH in standalone
+mode to official durable session.delete and the curated Console sessions rename command. The latter
+is not session.title (live-handle-only); it needs no resume or inference. Console path access remains
+Connector-only: tunneled WebSockets still admit /api/ws only. Authority keeps fenced REST; a missing
+delete generation is filled only from an exact-target snapshot whose revision matches the caller.
+See HG_257_SESSION_OPERATIONS.md for command restrictions, future-mode limits and upgrade checks.

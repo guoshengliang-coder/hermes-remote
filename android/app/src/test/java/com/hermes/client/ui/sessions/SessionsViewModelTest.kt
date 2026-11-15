@@ -514,12 +514,14 @@ class SessionsViewModelTest {
 
         vm.rename(session("s1", "mine", profile = "personal"), "new")
         advanceUntilIdle()
-        assertEquals("HR-SESS-023", vm.rowMutationFailed.value?.code?.value)
+        assertEquals("HR-SESS-028", vm.rowMutationFailed.value?.code?.value)
+        assertFalse(vm.rowMutationFailed.value!!.retryable)
 
         vm.clearRowMutationFailed()
         vm.delete(session("s1", "mine", profile = "personal"))
         advanceUntilIdle()
-        assertEquals("HR-SESS-024", vm.rowMutationFailed.value?.code?.value)
+        assertEquals("HR-SESS-027", vm.rowMutationFailed.value?.code?.value)
+        assertFalse(vm.rowMutationFailed.value!!.retryable)
     }
 
     // T3: opening a session from another profile must switch the active profile first, so the

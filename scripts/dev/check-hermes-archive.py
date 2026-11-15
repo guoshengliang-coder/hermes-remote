@@ -133,6 +133,17 @@ def main():
                     # Record the upstream semantic limitation; it may legitimately be fixed later.
                     check("REST baseline:" + source, status == 200 if source != "hermes_remote" else status in (200, 404),
                         {"status": status, "reason": reason})
+                    for operation, payload in (("sidebar", {"title": "REST rename " + source}), ("delete", {})):
+                        target = "rest-" + operation + "-" + source
+                        db.create_session(target, source=source)
+                        try:
+                            await _mutate_session_request(request, None, target, request_id="edit-" + target,
+                                expected_revision=0, expected_generation=0 if operation == "delete" else None, operation=operation, payload=payload)
+                            status, reason = 200, None
+                        except HTTPException as failure:
+                            status, reason = failure.status_code, failure.detail
+                        check("REST " + operation + ":" + source, status == 200 if source != "hermes_remote" else status in (200, 404),
+                            {"status": status, "reason": reason})
                     sid = "rpc-" + source
                     db.create_session(sid, source=source)
                     db.append_message(sid, role="user", content="synthetic retained message")
@@ -174,6 +185,52 @@ def main():
                 finally:
                     db.set_session_archived = original_archive
                     original_archive(sid, False)
+                # Exercise the curated official command; do not synthesize a live conversation.
+                import shlex
+                from contextlib import contextmanager
+                from hermes_cli import console_engine
+                @contextmanager
+                def same_fixture_store(*_args, **_kwargs):
+                    yield db
+                console_engine._session_db = same_fixture_store
+                engine = console_engine.HermesConsoleEngine()
+                unusual_title = "名字 ' 和双引号 \" 标题"
+                command = "sessions rename " + shlex.quote(sid) + " " + shlex.quote(unusual_title)
+                before_messages = db.get_messages(sid)
+                result = engine.execute(command, confirmed=True)
+                check("official curated rename accepts only quoted title", result.status == "ok"
+                    and db.get_session(sid)["title"] == unusual_title and db.get_messages(sid) == before_messages,
+                    {"status": result.status, "output": result.output, "command_identity_preserved": result.command == command})
+                check("console command identity preserved", result.command == command)
+                refused = engine.execute("sessions rename " + shlex.quote(sid) + " " + shlex.quote("$(cmd); delete all"), confirmed=True)
+                check("console rejects shell syntax without changing title", refused.status == "error"
+                    and db.get_session(sid)["title"] == unusual_title)
+
+                for source in ("hermes_remote", "desktop", "tui"):
+                    target = "delete-" + source
+                    db.create_session(target, source=source)
+                    db.append_message(target, role="user", content="synthetic delete")
+                    reply = await ws._dispatch_request(None, {"id": 2, "method": "session.delete", "params": {
+                        "session_id": target, "profile": "default"}}, "session.delete", transport)
+                    check("official delete:" + source, reply.get("result", {}).get("deleted") == target
+                        and db.get_session(target) is None, reply)
+                server._sessions["delete-live-guard"] = {"session_key": sid}
+                try:
+                    reply = server.handle_request({"id": 4, "method": "session.delete", "params": {"session_id": sid, "profile": "default"}})
+                    check("delete refuses a live session", reply.get("error", {}).get("code") == 4023 and db.get_session(sid) is not None, reply)
+                finally:
+                    server._sessions.pop("delete-live-guard", None)
+                reply = server.handle_request({"id": 5, "method": "session.delete", "params": {"session_id": sid, "profile": "secondary"}})
+                with SessionDB(db_path=secondary / "state.db") as other:
+                    check("delete same-id profile isolation", reply.get("result", {}).get("deleted") == sid
+                        and other.get_session(sid) is None and db.get_session(sid) is not None, reply)
+                target_dir = home / "new-workspace"
+                target_dir.mkdir()
+                server.git_probe = SimpleNamespace(branch=lambda _path: None, common_repo_root=lambda _path: None)
+                reply = server.handle_request({"id": 3, "method": "session.workspace.move", "params": {
+                    "session_key": sid, "cwd": str(target_dir), "profile": "default"}})
+                check("official stored workspace move", reply.get("result", {}).get("cwd") == str(target_dir)
+                    and db.get_session(sid)["cwd"] == str(target_dir), reply)
                 authority.sessions[sid] = LiveSession(None, "fixture-route")
                 connection = AuthorityConnection(authority, transport, {"user_id": "fixture-owner"})
                 try:

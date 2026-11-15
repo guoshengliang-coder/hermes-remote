@@ -793,7 +793,7 @@ class SessionsViewModel @Inject constructor(
         if (failure is kotlinx.coroutines.CancellationException) return
         _rowMutationFailed.value = if (stage == "archive" || stage == "unarchive")
             com.hermes.client.data.repository.archiveFailure(failure)
-        else AppError(code, retryable = true, technicalCause = failure.message, stage = stage)
+        else com.hermes.client.data.repository.sessionMutationFailure(failure)
     }
 
     /** Pin/unpin keyed by the session's OWN profile, so it works regardless of the active one. */

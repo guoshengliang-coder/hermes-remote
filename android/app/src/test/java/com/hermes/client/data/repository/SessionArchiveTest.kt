@@ -90,7 +90,7 @@ class SessionArchiveTest {
         } catch (e: SessionArchiveFailure) { assertEquals(AppErrorCode.ARCHIVE_INCOMPATIBLE, e.error.code) }
     }
     @Test fun error_contract_and_redaction() {
-        for (code in listOf(AppErrorCode.ARCHIVE_INCOMPATIBLE, AppErrorCode.SESSION_ARCHIVE_UNCONFIRMED, AppErrorCode.SESSION_ARCHIVE_REFUSED)) {
+        for (code in listOf(AppErrorCode.SESSION_MUTATION_UNCONFIRMED, AppErrorCode.SESSION_MUTATION_REFUSED, AppErrorCode.ARCHIVE_INCOMPATIBLE, AppErrorCode.SESSION_ARCHIVE_UNCONFIRMED, AppErrorCode.SESSION_ARCHIVE_REFUSED)) {
             val error = AppError(code, false, "Authorization: Bearer private-secret cookie=private-cookie", "session_archive")
             assertNotEquals(error.localizedSummary(AppLanguage.ZH), error.localizedSummary(AppLanguage.EN))
             assertFalse(error.retryable)

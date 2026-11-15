@@ -54,3 +54,9 @@ export async function archiveWithBackend(ops: ArchiveOperations): Promise<void> 
     throw failure;
   }
 }
+
+export function sessionMutationFailure(error: unknown): AppError {
+  const archived = archiveFailure(error);
+  return appError(archived.code === "HR-SESS-026" ? "HR-SESS-028" : "HR-SESS-027",
+    error instanceof Error ? error.message : String(error));
+}

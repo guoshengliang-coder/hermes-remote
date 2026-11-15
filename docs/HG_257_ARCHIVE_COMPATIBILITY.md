@@ -1,5 +1,9 @@
 # HG-257 — archive compatibility without changing Hermes
 
+2026-11-16: user-authorized related-operation repairs now supplement the original archive-only
+scope; see [HG_257_SESSION_OPERATIONS.md](HG_257_SESSION_OPERATIONS.md). The historical checks
+and scope statements below describe the preceding delivery, not the new delete/rename implementation.
+
 ## Failure and supported paths
 
 Verified upstream: v0.22.5, `bf0203a794a07aac3ff764972ab9087baa4e4f4e`.

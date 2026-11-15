@@ -586,7 +586,7 @@ class SessionRepository(
     // fences every session write (upstream change 2026-10-16): without a fresh request id and
     // the row's runtime revision the answer is 409 client_upgrade_required and nothing changes —
     // the silent archive no-op of HG-250. A concurrent edit answers 409 revision_conflict; the
-    // fresh fence is not in that response, so the row is re-read and the write retried once.
+    // intent is surfaced to the user without automatically replaying any session mutation.
     suspend fun rename(sessionId: String, title: String, profile: String?, deviceId: String? = null) =
         mutateFenced(sessionId, profile, deviceId) { requestId, revision ->
             rest.patchSession(sessionId, title = title, profile = profile, deviceId = deviceId,
@@ -656,24 +656,21 @@ class SessionRepository(
         deviceId: String?,
         write: suspend (requestId: String, expectedRevision: Int) -> Unit,
     ) {
-        val initial = cachedSession(sessionId, profile, deviceId)?.runtimeRevision ?: 0
-        try {
-            write(java.util.UUID.randomUUID().toString(), initial)
-        } catch (conflict: HermesApiException) {
-            if (conflict.code != 409 || conflict.message != "revision_conflict") throw conflict
-            write(java.util.UUID.randomUUID().toString(), freshRevision(sessionId, profile, deviceId))
+        val context = accountSessions?.routingContext()
+        val targetContext = context?.let { if (deviceId != null) it.copy(deviceId = deviceId) else it }
+        val key = "${routeKey(targetContext)}:${profile?.takeIf { it.isNotBlank() } ?: "default"}:$sessionId"
+        if (!archiveInFlight.add(key)) throw SessionArchiveFailure(AppError(
+            AppErrorCode.SESSION_MUTATION_REFUSED, false, stage = "session_mutation"))
+        fun current() {
+            if (routeKey(context) != routeKey(accountSessions?.routingContext())) throw kotlinx.coroutines.CancellationException("Session mutation route changed")
         }
+        try {
+            current()
+            val initial = cachedSession(sessionId, profile, deviceId)?.runtimeRevision ?: 0
+            write(java.util.UUID.randomUUID().toString(), initial)
+            current()
+        } finally { archiveInFlight.remove(key) }
     }
-
-    /** The fence the conflict refused; from the list row the caller's cache copy was stale on. */
-    private suspend fun freshRevision(sessionId: String, profile: String?, deviceId: String?): Int {
-        runCatching { listAllProfiles() }
-        cachedSession(sessionId, profile, deviceId)?.let { return it.runtimeRevision ?: 0 }
-        // An archived row never appears in the active list; the archived page's unarchive needs it.
-        return runCatching { archivedAllProfiles() }.getOrNull()
-            ?.firstOrNull { it.id == sessionId }?.runtimeRevision ?: 0
-    }
-
 
     // ── Filesystem, for the project folder picker ───────────────────────────────────────────
     // Thin passthroughs: the picker needs the Mac's directory tree, and this repository already

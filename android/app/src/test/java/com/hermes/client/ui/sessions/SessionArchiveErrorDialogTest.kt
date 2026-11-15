@@ -24,13 +24,13 @@ import org.robolectric.annotation.GraphicsMode
 @OptIn(ExperimentalRoborazziApi::class)
 class SessionArchiveErrorDialogTest {
     @get:Rule val compose = createComposeRule()
-    private fun show(language: AppLanguage, dark: Boolean, fontScale: Float = 1f) {
+    private fun show(language: AppLanguage, dark: Boolean, fontScale: Float = 1f, code: AppErrorCode = AppErrorCode.SESSION_ARCHIVE_UNCONFIRMED) {
         var reads = 0
         compose.setContent {
             val density = androidx.compose.ui.platform.LocalDensity.current
             CompositionLocalProvider(LocalAppLanguage provides language, androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density, fontScale)) {
                 HermesTheme(darkTheme = dark) {
-                    SessionArchiveErrorDialog(AppError(AppErrorCode.SESSION_ARCHIVE_UNCONFIRMED, false,
+                    SessionArchiveErrorDialog(AppError(code, false,
                         "Authorization: Bearer private-secret", "session_archive"), {}, { reads++ })
                 }
             }
@@ -39,13 +39,17 @@ class SessionArchiveErrorDialogTest {
         val refresh = if (language == AppLanguage.ZH) "刷新状态" else "Refresh state"
         compose.onNodeWithText(details).performClick()
         compose.onAllNodes(hasText("private-secret", substring = true)).assertCountEquals(0)
-        compose.onNodeWithText("code=HR-SESS-025", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("code=${code.value}", substring = true).assertIsDisplayed()
         compose.onNodeWithText(if (language == AppLanguage.ZH) "重试" else "Retry").assertDoesNotExist()
-        val target = File("build/outputs/hg257/archive-error-${language.name}-$dark.png").apply { parentFile?.mkdirs() }
+        val target = File("build/outputs/hg257/archive-error-${language.name}-$dark-${code.value}.png").apply { parentFile?.mkdirs() }
         compose.onNode(isDialog()).captureRoboImage(target.absolutePath,
             roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record))
         compose.onNodeWithText(refresh).performClick()
         assertEquals(1, reads)
+    }
+    @Test fun mutation_error_has_generic_title_and_read_only_refresh() {
+        show(AppLanguage.ZH, false, code = AppErrorCode.SESSION_MUTATION_UNCONFIRMED)
+        compose.onNodeWithText("会话操作").assertIsDisplayed()
     }
     @Test fun chinese_light() = show(AppLanguage.ZH, false)
     @Test fun english_dark() = show(AppLanguage.EN, true)

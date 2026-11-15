@@ -17,6 +17,7 @@ import com.hermes.client.ui.localization.localized
 import com.hermes.client.ui.localization.localizedMessage
 
 internal fun isArchiveFailure(error: AppError): Boolean = error.code in setOf(
+    AppErrorCode.SESSION_MUTATION_UNCONFIRMED, AppErrorCode.SESSION_MUTATION_REFUSED,
     AppErrorCode.ARCHIVE_INCOMPATIBLE, AppErrorCode.SESSION_ARCHIVE_UNCONFIRMED,
     AppErrorCode.SESSION_ARCHIVE_REFUSED,
 )
@@ -28,7 +29,8 @@ fun SessionArchiveErrorDialog(error: AppError, onDismiss: () -> Unit, onRefresh:
     var details by remember(error) { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(localized(language, "归档状态", "Archive state")) },
+        title = { Text(if (error.code in setOf(AppErrorCode.SESSION_MUTATION_UNCONFIRMED, AppErrorCode.SESSION_MUTATION_REFUSED))
+            localized(language, "会话操作", "Session operation") else localized(language, "归档状态", "Archive state")) },
         text = {
             Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
                 Text(error.localizedMessage(language))

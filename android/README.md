@@ -1,3 +1,7 @@
+HG-257 follow-up checks and repairs related session actions; rename/delete now require the
+Connector-side official-interface adapter. See `../docs/HG_257_SESSION_OPERATIONS.md` for fences,
+Console title restrictions, compatibility tests and remaining physical acceptance. No release is allocated.
+
 HG-257 adds archive/restore adaptation for the Mac's current Hermes runtime: official standalone
 RPC versus authority-fenced REST, current-handshake/route guards, explicit refusal/unknown outcomes
 and read-only reconciliation. The Web browser permission is capability-gated by the new Gateway.

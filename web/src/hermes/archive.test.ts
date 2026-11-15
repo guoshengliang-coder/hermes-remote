@@ -64,7 +64,7 @@ describe("archive upgrade contract", () => {
     expect(ops.rpc).not.toHaveBeenCalled(); expect(ops.rest).not.toHaveBeenCalled();
   });
   it("registered failures are bilingual, non-retryable and redact diagnostics", () => {
-    for (const code of ["HR-SESS-025", "HR-SESS-026", "HR-COMPAT-004"] as const) {
+    for (const code of ["HR-SESS-027", "HR-SESS-028", "HR-SESS-025", "HR-SESS-026", "HR-COMPAT-004"] as const) {
       const error = appError(code, "Authorization: Bearer private-secret cookie=private-cookie");
       expect(localized(error, "zh")).not.toBe(localized(error, "en"));
       expect(error.retryable).toBe(false); expect(diagnostics(error)).not.toMatch(/private-secret|private-cookie/);

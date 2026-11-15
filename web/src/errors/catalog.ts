@@ -75,6 +75,8 @@ export const CATALOG = {
   "HR-COMPAT-004": { zh: "无法确认这台 Mac 的归档接口兼容性，请重新连接后查看。", en: "Archive compatibility on this Mac could not be established. Reconnect and check again.", retryable: false, action: "reconnect" },
   "HR-SESS-025": { zh: "归档状态尚未确认，请刷新列表核对后再操作。", en: "The archive state is unconfirmed. Refresh the list before another action.", retryable: false, action: "details" },
   "HR-SESS-026": { zh: "当前无法更改归档状态，请查看详情并刷新列表。", en: "The archive state cannot be changed now. View details and refresh the list.", retryable: false, action: "details" },
+  "HR-SESS-027": { zh: "操作结果尚未确认，请刷新列表核对后再操作。", en: "The operation outcome is unconfirmed. Refresh the list before another action.", retryable: false, action: "details" },
+  "HR-SESS-028": { zh: "当前无法更改会话，请查看详情并刷新列表。", en: "The session cannot be changed now. View details and refresh the list.", retryable: false, action: "details" },
   "HR-SEARCH-001": { zh: "消息搜索失败，请重试。", en: "Message search failed. Retry.", retryable: true, action: "retry" },
   "HR-MEDIA-004": { zh: "无法打开这张图片，可能已损坏或过大。请换一张再试。", en: "Couldn't open this image — it may be damaged or too large. Try a different one.", retryable: true, action: "retry" },
   "HR-MEDIA-005": { zh: "编辑结果保存失败，请重试；你的修改仍在屏幕上。", en: "Couldn't save the edited image. Retry — your edits are still on screen.", retryable: true, action: "retry" },

@@ -2359,3 +2359,14 @@ must advertise session-archive-rpc before Web uses the new RPC):
 
 Record source commit/runtime mode and actual client versions. L1 handler, contract and dialog
 screenshots do not prove real phone, browser-cookie, Connector-network or cross-client acceptance.
+
+### HG-257 related session actions follow-up
+
+In a disposable profile, check Android and Web rename/delete alongside archive/restore and project
+move. Use GO-source history and default/nondefault profiles; same-ID rows in another profile must
+remain untouched. Refuse active-session deletion. Rename Unicode/apostrophe titles; Console shell
+syntax must refuse without reporting success. Try conflict, sign-out, Mac change and lost completion;
+no mutation retries automatically. In authority mode retain REST ownership and verify generation
+snapshot matching; a stale revision never becomes a refreshed deletion fence. Copy/share/export and
+local pins keep their existing behavior. Verify Connector installation as well as app/Web versions.
+These real-device/browser checks have not been executed against production in this session.
