@@ -51,15 +51,19 @@ class ComposerActionDeviceTest {
                         Surface {
                             Column(Modifier.systemBarsPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                                 Text("HG-254 · ${if (dark) "深色" else "浅色"}")
-                                ComposerActionButton(false, true, AppLanguage.ZH, { sends++ })
-                                ComposerActionButton(true, true, AppLanguage.ZH, { stops++ })
-                                ComposerActionButton(false, false, AppLanguage.ZH, { sends++ }, Modifier.onGloballyPositioned {
-                                    // Android accessibility may omit disabled actions; use their actual layout bounds.
-                                    val b = it.boundsInWindow()
-                                    val offset = IntArray(2).also { host.window.decorView.getLocationOnScreen(it) }
-                                    disabledBounds.set(Rect(b.left.toInt() + offset[0], b.top.toInt() + offset[1],
-                                        b.right.toInt() + offset[0], b.bottom.toInt() + offset[1]))
-                                })
+                                ComposerSurface(expanded = true) {
+                                    Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                        ComposerActionButton(false, true, AppLanguage.ZH, { sends++ })
+                                        ComposerActionButton(true, true, AppLanguage.ZH, { stops++ })
+                                        ComposerActionButton(false, false, AppLanguage.ZH, { sends++ }, Modifier.onGloballyPositioned {
+                                            // Android accessibility may omit disabled actions; use their actual layout bounds.
+                                            val b = it.boundsInWindow()
+                                            val offset = IntArray(2).also { host.window.decorView.getLocationOnScreen(it) }
+                                            disabledBounds.set(Rect(b.left.toInt() + offset[0], b.top.toInt() + offset[1],
+                                                b.right.toInt() + offset[0], b.bottom.toInt() + offset[1]))
+                                        })
+                                    }
+                                }
                             }
                         }
                     }
@@ -84,13 +88,15 @@ class ComposerActionDeviceTest {
                 screenshot = checkNotNull(automation.takeScreenshot())
             }
             assertEquals(fill, screenshot.getPixel(send.centerX(), send.centerY() + (16 * density).toInt()))
-            assertEquals(if (dark) 0xFF0F1217.toInt() else 0xFFFAF9F5.toInt(),
+            assertColorNear(if (dark) 0xFF1A1D21.toInt() else 0xFFFAF9F6.toInt(),
+                screenshot.getPixel(send.centerX(), send.top + 1))
+            assertColorNear(if (dark) 0xFF25282B.toInt() else 0xFFECEBE8.toInt(),
                 screenshot.getPixel(disabled.centerX(), disabled.centerY() + (16 * density).toInt()))
             val uri = instrumentation.targetContext.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                 ContentValues().apply {
-                    put(MediaStore.Images.Media.DISPLAY_NAME, "hg254-${if (dark) "dark" else "light"}.png")
+                    put(MediaStore.Images.Media.DISPLAY_NAME, "hg254-refined-${if (dark) "dark" else "light"}.png")
                     put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/HermesGo-hg254")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/HermesGo-hg254-refined")
                 })
             assertNotNull(uri)
             instrumentation.targetContext.contentResolver.openOutputStream(uri!!)!!.use {
@@ -99,9 +105,10 @@ class ComposerActionDeviceTest {
             screenshot.recycle()
             val beforeSend = sends
             val beforeStop = stops
-            tap(send)
+            tap(send, edge = true)
             tap(stop)
             tap(disabled)
+            tap(disabled, edge = true)
             instrumentation.waitForIdleSync()
             assertEquals(beforeSend + 1, sends)
             assertEquals(beforeStop + 1, stops)
@@ -130,10 +137,17 @@ class ComposerActionDeviceTest {
         return null
     }
 
-    private fun tap(bounds: Rect) {
+    private fun assertColorNear(expected: Int, actual: Int) {
+        for (shift in listOf(0, 8, 16, 24)) {
+            org.junit.Assert.assertTrue("expected=${expected.toUInt().toString(16)} actual=${actual.toUInt().toString(16)}",
+                kotlin.math.abs(((expected ushr shift) and 255) - ((actual ushr shift) and 255)) <= 1)
+        }
+    }
+
+    private fun tap(bounds: Rect, edge: Boolean = false) {
         val start = SystemClock.uptimeMillis()
         for ((eventTime, action) in listOf(start to MotionEvent.ACTION_DOWN, start + 80 to MotionEvent.ACTION_UP)) {
-            MotionEvent.obtain(start, eventTime, action, bounds.centerX().toFloat(), bounds.centerY().toFloat(), 0).apply {
+            MotionEvent.obtain(start, eventTime, action, if (edge) bounds.left + 1f else bounds.centerX().toFloat(), bounds.centerY().toFloat(), 0).apply {
                 source = InputDevice.SOURCE_TOUCHSCREEN
                 check(automation.injectInputEvent(this, true))
                 recycle()

@@ -100,6 +100,16 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
   latest.current = { disabled, blocked, generating, voiceReady, onSend, text, attachments, preparing, generatingCount };
   const voiceAvailable = app.features.has("voice-input") && voiceCaptureSupported();
   function collapse() { area.current?.blur(); setFocused(false); }
+  function retainDisabledActionPress(event: Event) {
+    if (event.target instanceof Element && event.target.closest('.send-button:disabled')) {
+      // WebKit can synthesize a compatibility click on the nearest enabled control (Add).
+      // An inert action must neither blur the draft nor be retargeted to its neighbour.
+      event.preventDefault();
+      // Default prevention keeps focus here; do not leave a flag that could swallow a later
+      // unrelated/programmatic blur after the inert press has ended.
+      pressedInside.current = false;
+    }
+  }
   function cancelVoice(keep = false) {
     const partial = voice.current?.cancel() ?? "";
     voice.current = null;
@@ -314,10 +324,14 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
     </button>
   );
   const sendOrStop = () => generating ? (
-    <button type="button" class="send-button stop" aria-label={t("停止", "Stop")} onClick={onInterrupt}><StopIcon /></button>
+    <button type="button" class="send-button stop" aria-label={t("停止", "Stop")} onClick={onInterrupt}>
+      <span class="send-button-disc" aria-hidden="true"><StopIcon /></span>
+    </button>
   ) : (
     <button type="button" class="send-button" aria-label={t("发送", "Send")} disabled={!canSend} onClick={send}>
-      {preparing ? <span class="spinner tiny" aria-hidden="true" /> : <SendIcon />}
+      <span class="send-button-disc" aria-hidden="true">
+        {preparing ? <span class="spinner tiny" aria-hidden="true" /> : <SendIcon />}
+      </span>
     </button>
   );
   const sheets = (
@@ -416,7 +430,10 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
       <div
         ref={composer}
         class={`composer${focused && !voiceMode ? " expanded" : ""}${voiceMode ? " voice-mode" : ""}`}
-        onPointerDown={() => { pressedInside.current = true; }}
+        // WebKit may suppress bubbling on disabled buttons; capture must run before blur
+        // can replace that same slot with the compact attachment action under the finger.
+        onPointerDownCapture={(event) => { pressedInside.current = true; retainDisabledActionPress(event); }}
+        onTouchStartCapture={retainDisabledActionPress}
       >
         {[
           { ref: camera, accept: "image/*", capture: "environment" as const, multiple: false },

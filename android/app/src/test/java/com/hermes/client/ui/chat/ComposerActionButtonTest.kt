@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
@@ -18,6 +19,9 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.click
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.RoborazziTaskType
@@ -41,11 +45,17 @@ import org.robolectric.annotation.GraphicsMode
 class ComposerActionButtonTest {
     @get:Rule val compose = createComposeRule()
 
-    private fun action(stop: Boolean, enabled: Boolean, language: AppLanguage, dark: Boolean = false, click: () -> Unit) {
+    private fun action(stop: Boolean, enabled: Boolean, language: AppLanguage, dark: Boolean = false, nested: Boolean = false, click: () -> Unit) {
         compose.setContent {
             HermesTheme(darkTheme = dark) {
                 Surface {
-                    ComposerActionButton(stop, enabled, language, click, Modifier.testTag("action"))
+                    if (nested) {
+                        ComposerSurface(expanded = true, modifier = Modifier.testTag("composer-surface")) {
+                            Column(Modifier.padding(8.dp)) {
+                                ComposerActionButton(stop, enabled, language, click, Modifier.testTag("action"))
+                            }
+                        }
+                    } else ComposerActionButton(stop, enabled, language, click, Modifier.testTag("action"))
                 }
             }
         }
@@ -78,23 +88,59 @@ class ComposerActionButtonTest {
         action(false, true, AppLanguage.ZH, dark = true) {}
         val pixels = actionPixels()
         // A 1dp ring is smaller than the whole contact sheet's screenshot threshold.
-        assertEquals(0xFF3A4049.toInt(), pixels.getRGB(pixels.width / 2, 1))
+        // The disc is 44dp, centred inside the original 48dp touch slot.
+        assertEquals(0xFF0F1217.toInt(), pixels.getRGB(pixels.width / 2, 1))
+        assertEquals(0xFF3A4049.toInt(), pixels.getRGB(pixels.width / 2, pixels.height / 24 + 1))
         assertEquals(0xFFFFFFFF.toInt(), pixels.getRGB(pixels.width / 2, pixels.height / 2))
         assertEquals(0xFF1E232B.toInt(), pixels.getRGB(pixels.width / 2, pixels.height - 12))
     }
 
-    @Test fun disabledDarkActionHasNeitherDiscNorHairline() {
+    @Test fun disabledDarkActionHasAQuietDiscWithoutTheEnabledHairline() {
         action(false, false, AppLanguage.ZH, dark = true) {}
         val pixels = actionPixels()
         assertEquals(0xFF0F1217.toInt(), pixels.getRGB(pixels.width / 2, 1))
-        assertEquals(0xFF0F1217.toInt(), pixels.getRGB(pixels.width / 2, pixels.height - 12))
+        val quiet = pixels.getRGB(pixels.width / 2, pixels.height - 12)
+        // 8% secondary ink over the page, allowing one byte of native alpha rounding.
+        assertColorNear(0xFF1B1E22.toInt(), quiet)
+        assertColorNear(0xFF85837E.toInt(), pixels.getRGB(pixels.width / 2, pixels.height / 2))
     }
 
-    private fun actionPixels(): java.awt.image.BufferedImage {
+    @Test fun theTransparentTwoDpRimStillSendsExactlyOnce() {
+        var sends = 0
+        action(false, true, AppLanguage.ZH) { sends++ }
+        compose.onNodeWithContentDescription("发送").performTouchInput { click(Offset(1f, height / 2f)) }
+        assertEquals(1, sends)
+    }
+
+    @Test fun appDarkInsideTheRealComposerKeepsItsTonalLayerAndEnabledActionPaint() {
+        action(false, true, AppLanguage.ZH, dark = true, nested = true) {}
+        val container = actionPixels("composer-surface")
+        assertColorNear(0xFF1A1D21.toInt(), container.getRGB(container.width / 2, 10))
+        val pixels = actionPixels()
+        assertColorNear(0xFF1A1D21.toInt(), pixels.getRGB(pixels.width / 2, 1))
+        assertEquals(0xFF3A4049.toInt(), pixels.getRGB(pixels.width / 2, pixels.height / 24 + 1))
+        assertEquals(0xFF1E232B.toInt(), pixels.getRGB(pixels.width / 2, pixels.height - 12))
+    }
+
+    @Test fun theQuietDiscRemainsVisibleInsideTheRealDarkComposer() {
+        action(false, false, AppLanguage.ZH, dark = true, nested = true) {}
+        val pixels = actionPixels()
+        assertColorNear(0xFF1A1D21.toInt(), pixels.getRGB(pixels.width / 2, 1))
+        assertColorNear(0xFF25282B.toInt(), pixels.getRGB(pixels.width / 2, pixels.height - 12))
+    }
+
+    private fun assertColorNear(expected: Int, actual: Int) {
+        for (shift in listOf(0, 8, 16, 24)) {
+            val delta = kotlin.math.abs(((expected ushr shift) and 255) - ((actual ushr shift) and 255))
+            org.junit.Assert.assertTrue("expected=${expected.toUInt().toString(16)} actual=${actual.toUInt().toString(16)}", delta <= 1)
+        }
+    }
+
+    private fun actionPixels(tag: String = "action"): java.awt.image.BufferedImage {
         val file = File.createTempFile("composer-pixels-", ".png")
         try {
             // Use the native Robolectric renderer, not the device-only PixelCopy path.
-            compose.onNodeWithTag("action").captureRoboImage(file.absolutePath,
+            compose.onNodeWithTag(tag).captureRoboImage(file.absolutePath,
                 roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record))
             return checkNotNull(ImageIO.read(file))
         } finally {
@@ -110,19 +156,24 @@ class ComposerActionButtonTest {
                 CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
                     Surface {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("发送 / 停止 / 空草稿")
-                            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                ComposerActionButton(false, true, AppLanguage.ZH, {})
-                                ComposerActionButton(true, true, AppLanguage.ZH, {})
-                                ComposerActionButton(false, false, AppLanguage.ZH, {})
+                            Text("44 圆底 / 48 点击区域")
+                            ComposerSurface(expanded = true, modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Text("发送 / 停止 / 空草稿", Modifier.padding(8.dp))
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        ComposerActionButton(false, true, AppLanguage.ZH, {})
+                                        ComposerActionButton(true, true, AppLanguage.ZH, {})
+                                        ComposerActionButton(false, false, AppLanguage.ZH, {})
+                                    }
+                                }
                             }
                             Text("语音输入 · 生成中")
-                            VoiceComposerBar(
+                            ComposerSurface(expanded = false) { VoiceComposerBar(
                                 language = AppLanguage.ZH, holdLabel = "按住说话", holdEnabled = false,
                                 keyboardEnabled = true, sessionWritable = true, isGenerating = true,
                                 targets = null, onKeyboard = {}, onDown = {}, onZone = {},
                                 onRelease = {}, onAdd = {}, onStop = {},
-                            )
+                            ) }
                         }
                     }
                 }

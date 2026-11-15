@@ -1415,11 +1415,8 @@ fun ChatScreen(
                         }
                     }
                 }
-                Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    shape = RoundedCornerShape(if (sessionWritable && composerFocused) 28.dp else 30.dp),
-                    tonalElevation = 1.dp,
-                    shadowElevation = 7.dp,
+                ComposerSurface(
+                    expanded = sessionWritable && composerFocused,
                     modifier = Modifier.fillMaxWidth().heightIn(
                         min = when {
                             !sessionWritable -> 84.dp

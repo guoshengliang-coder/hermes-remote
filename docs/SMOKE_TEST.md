@@ -2260,12 +2260,15 @@ Use an isolated Hermes home and the paired upstream backend/Desktop build plus c
 
 ## HG-254 · Web composer physical acceptance
 
-The production-component browser harness verifies light/dark colours, 48px/24px geometry,
+The production-component browser harness verifies light/dark colours, 48px target / 44px disc / 24px icon geometry,
 mouse/touch actions, disabled/preparing, keyboard/IME, focus and 1.3x text. Desktop WebKit is not
 physical iPhone/PWA acceptance: actual safe-area, keyboard and finger interaction still require
 iPhone Safari/Home Screen Web App and Android Chrome checks. Confirm send/stop stay in their
 existing slot in compact, expanded and voice modes, the dark hairline is visible, long model
-labels cannot squeeze the action, and empty/preparing states cannot send. Name the actual device,
+labels cannot squeeze the action, and empty/preparing states show a quiet disc and cannot send.
+Tap the 2px rim and disabled slot on physical Safari: an inert touch must not open the neighbouring
+attachment sheet; a later outside/programmatic blur must still collapse the composer normally.
+Check the complete dark composer uses #1A1D21 locally without recolouring other pages. Name the actual device,
 browser and product release. No live microphone/provider or production conversation is exercised
 by the synthetic harness. See `HG_254_COMPOSER_ACTION.md`.
 
