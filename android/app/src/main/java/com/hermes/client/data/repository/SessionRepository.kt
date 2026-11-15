@@ -1,5 +1,8 @@
 package com.hermes.client.data.repository
 
+import com.hermes.client.data.error.AppError
+import com.hermes.client.data.error.AppErrorCode
+import kotlinx.serialization.json.jsonObject
 import com.hermes.client.data.network.HermesApiException
 import com.hermes.client.data.network.HermesRestApi
 import com.hermes.client.data.network.MessageDto
@@ -52,6 +55,7 @@ class SessionRepository(
     private val accountSessions: AccountSessionManager? = null,
     private val conversationDevices: ConversationDeviceStore? = null,
     private val files: ChatFileRepository? = null,
+    private val archiveClient: com.hermes.client.data.network.HermesGatewayClient? = null,
 ) {
     /**
      * Every non-archived, non-empty, non-internal session on the current route, WITHOUT the
@@ -575,6 +579,8 @@ class SessionRepository(
     private fun routeKey(context: AccountRoutingContext?): String =
         context?.let { "${it.accountId}:${it.deviceId}" } ?: "legacy"
 
+    private val archiveInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
     // All mutations carry the session's profile so the gateway hits the right per-profile DB
     // (otherwise the call 404s and the change silently no-ops). Hermes ≥ 0.22.5 additionally
     // fences every session write (upstream change 2026-10-16): without a fresh request id and
@@ -591,9 +597,50 @@ class SessionRepository(
         archived: Boolean,
         profile: String?,
         deviceId: String? = null,
-    ) = mutateFenced(sessionId, profile, deviceId) { requestId, revision ->
-        rest.patchSession(sessionId, archived = archived, profile = profile, deviceId = deviceId,
-            requestId = requestId, expectedRevision = revision)
+    ) {
+        val context = accountSessions?.routingContext()
+        val canonicalProfile = profile?.takeIf { it.isNotBlank() } ?: "default"
+        val key = "${routeKey(context)}:$canonicalProfile:$sessionId"
+        if (!archiveInFlight.add(key)) throw SessionArchiveFailure(AppError(
+            AppErrorCode.SESSION_ARCHIVE_REFUSED, false, "archive already in progress", "session_archive"))
+        fun requireRoute() {
+            if (routeKey(context) != routeKey(accountSessions?.routingContext()) ||
+                (deviceId != null && context?.deviceId != deviceId)) {
+                throw kotlinx.coroutines.CancellationException("Archive device route changed")
+            }
+        }
+        try {
+            requireRoute()
+            val client = archiveClient ?: throw SessionArchiveFailure(AppError(
+                AppErrorCode.ARCHIVE_INCOMPATIBLE, false, stage = "archive_backend"))
+            val backend = client.archiveBackend()
+            requireRoute()
+            archiveWithBackend(backend.mode, sessionId, archived,
+                rpc = {
+                    requireRoute()
+                    client.callArchive(backend, kotlinx.serialization.json.buildJsonObject {
+                        put("session_id", kotlinx.serialization.json.JsonPrimitive(sessionId))
+                        put("archived", kotlinx.serialization.json.JsonPrimitive(archived))
+                        if (!profile.isNullOrBlank()) put("profile", kotlinx.serialization.json.JsonPrimitive(profile))
+                    }).jsonObject
+                },
+                rest = {
+                    requireRoute()
+                    mutateFenced(sessionId, profile, deviceId) { requestId, revision ->
+                        requireRoute()
+                        rest.patchSession(sessionId, archived = archived, profile = profile, deviceId = deviceId,
+                            requestId = requestId, expectedRevision = revision)
+                    }
+                },
+                read = {
+                    requireRoute()
+                    // Fresh uncached pages AFTER the ambiguous write, pinned to its original Mac.
+                    loadSessionPages(context, emptySet(), archivedOnly = archived)
+                        .firstOrNull { it.id == sessionId && (it.profile?.takeIf { it.isNotBlank() } ?: "default") == canonicalProfile }?.archived
+                },
+            )
+            requireRoute()
+        } finally { archiveInFlight.remove(key) }
     }
     suspend fun delete(sessionId: String, profile: String?, deviceId: String? = null) {
         mutateFenced(sessionId, profile, deviceId) { requestId, revision ->

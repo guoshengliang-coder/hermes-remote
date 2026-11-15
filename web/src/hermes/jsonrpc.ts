@@ -49,7 +49,7 @@ export function serverEventFrom(params: JsonObject): ServerEvent {
     }
     if (sessionId) break;
   }
-  return { type, sessionId, payload };
+  return { type, sessionId, payload, ...(type === "gateway.ready" && (!params.payload || typeof params.payload !== "object" || Array.isArray(params.payload)) ? { payloadIsObject: false } : {}) };
 }
 
 /** A WebSocket message may carry several newline-separated frames. */

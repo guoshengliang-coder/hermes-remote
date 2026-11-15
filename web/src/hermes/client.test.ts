@@ -67,6 +67,23 @@ function readyAdvertised(ws: FakeWebSocket) {
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
+describe("archive backend belongs only to this handshake", () => {
+  it("learns authority before readiness and forgets it after close", async () => {
+    const { socket, ws } = setup();
+    const mode = socket.archiveBackend();
+    ws().receive({ jsonrpc: "2.0", method: "event", params: { type: "gateway.ready", payload: { session_authority: true } } });
+    expect(await mode).toBe("authority");
+    socket.close();
+    await expect(socket.archiveBackend()).rejects.toMatchObject({ kind: "not-connected" });
+  });
+  it("a malformed ready payload cannot become legacy via payload normalization", async () => {
+    const { socket, ws } = setup();
+    ws().receive({ jsonrpc: "2.0", method: "event", params: { type: "gateway.ready", payload: null } });
+    expect(await socket.archiveBackend()).toBe("unknown");
+    socket.close();
+  });
+});
+
 describe("HermesSocket handshake", () => {
   it("sends client.capabilities as the first frame after gateway.ready, before gated RPCs", async () => {
     const { socket, ws } = setup();

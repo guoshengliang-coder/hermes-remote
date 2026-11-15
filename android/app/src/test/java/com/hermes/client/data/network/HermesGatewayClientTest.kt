@@ -105,6 +105,44 @@ class HermesGatewayClientTest {
         okHttp.connectionPool.evictAll()
     }
 
+
+    @Test fun archive_mode_is_bound_to_the_handshake_and_old_generations_cannot_write() = runTest {
+        withContext(Dispatchers.IO) {
+            val mutations = java.util.concurrent.atomic.AtomicInteger()
+            val upgrades = java.util.concurrent.atomic.AtomicInteger()
+            for (authority in listOf(false, true)) {
+                serverRule.server.enqueue(MockResponse.Builder().webSocketUpgrade(object : WebSocketListener() {
+                    override fun onOpen(webSocket: WebSocket, response: Response) {
+                        upgrades.incrementAndGet()
+                        webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"session_authority":$authority}}}""")
+                    }
+                    override fun onMessage(webSocket: WebSocket, text: String) {
+                        if (text.contains("session.archive")) mutations.incrementAndGet()
+                    }
+                }).build())
+            }
+            val (client, http) = makeClientAndHttp(serverRule.server)
+            try {
+                client.connect()
+                val before = client.archiveBackend()
+                assertEquals(SessionArchiveMode.LEGACY, before.mode)
+                client.reconnectNow()
+                awaitUpgrades(upgrades, 2)
+                val after = client.archiveBackend()
+                assertEquals(SessionArchiveMode.AUTHORITY, after.mode)
+                assertTrue(after.generation > before.generation)
+                try {
+                    client.callArchive(before, kotlinx.serialization.json.buildJsonObject {
+                        put("session_id", kotlinx.serialization.json.JsonPrimitive("s"))
+                        put("archived", kotlinx.serialization.json.JsonPrimitive(true))
+                    })
+                    org.junit.Assert.fail("stale connection must not write")
+                } catch (_: GatewayRequestNotSentException) { }
+                assertEquals(0, mutations.get())
+            } finally { tearDownClient(client, http) }
+        }
+    }
+
     private companion object {
         const val GATEWAY_READY_FRAME =
             """{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{}}}"""

@@ -384,6 +384,7 @@ object AppModule {
     @Singleton
     fun provideSessionRepository(
         rest: HermesRestApi,
+        archiveClient: HermesGatewayClient,
         scope: CoroutineScope,
         accountSessions: AccountSessionManager,
         conversationDevices: ConversationDeviceStore,
@@ -397,6 +398,7 @@ object AppModule {
             conversationDevices = conversationDevices,
             transcripts = transcripts,
             files = files,
+            archiveClient = archiveClient,
         )
 
     @Provides

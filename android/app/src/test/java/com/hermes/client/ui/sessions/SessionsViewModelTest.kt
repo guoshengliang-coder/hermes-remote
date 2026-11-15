@@ -498,7 +498,8 @@ class SessionsViewModelTest {
         advanceUntilIdle()
 
         val failure = vm.rowMutationFailed.value
-        assertEquals("HR-SESS-008", failure?.code?.value)
+        assertEquals("HR-SESS-026", failure?.code?.value)
+        assertFalse(vm.rowMutationFailed.value!!.retryable)
         vm.clearRowMutationFailed()
         assertNull(vm.rowMutationFailed.value)
     }

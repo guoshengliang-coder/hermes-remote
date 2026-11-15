@@ -31,7 +31,11 @@ class SessionRepositoryTest {
     private val rest = mockk<HermesRestApi>()
     // Supervisor + Unconfined mirrors the injected app scope: a failed fetch must not take the
     // scope down with it, and the shared work runs eagerly so the coalescing is deterministic.
-    private val repo = SessionRepository(rest, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))
+    private val archiveClient = mockk<com.hermes.client.data.network.HermesGatewayClient> {
+        coEvery { archiveBackend() } returns com.hermes.client.data.network.ArchiveBackendSnapshot(
+            1, com.hermes.client.data.network.SessionArchiveMode.AUTHORITY)
+    }
+    private val repo = SessionRepository(rest, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined), archiveClient = archiveClient)
 
     private fun dto(id: String, source: String?, msgs: Int, archived: Boolean = false) =
         SessionDto(sessionId = id, source = source, messageCount = msgs, archived = archived, profile = "personal")
@@ -422,7 +426,7 @@ class SessionRepositoryTest {
         var caught: Throwable? = null
         try {
             repo.archive("s1", archived = true, "personal")
-        } catch (expected: com.hermes.client.data.network.HermesApiException) {
+        } catch (expected: SessionArchiveFailure) {
             caught = expected
         }
         assertNotNull("the 404 must surface to the caller", caught)
@@ -430,4 +434,40 @@ class SessionRepositoryTest {
             rest.patchSession(any(), any(), any(), any(), any(), any(), any())
         }
     }
+    @Test fun legacy_archive_uses_the_original_stored_id_without_resume_or_rest() = runTest {
+        val backend = com.hermes.client.data.network.ArchiveBackendSnapshot(3,
+            com.hermes.client.data.network.SessionArchiveMode.LEGACY)
+        coEvery { archiveClient.archiveBackend() } returns backend
+        coEvery { archiveClient.callArchive(backend, any()) } returns kotlinx.serialization.json.buildJsonObject {
+            put("archived", kotlinx.serialization.json.JsonPrimitive(true))
+            put("session_key", kotlinx.serialization.json.JsonPrimitive("s1"))
+        }
+        repo.archive("s1", true, "personal")
+        coVerify(exactly = 1) { archiveClient.callArchive(backend, match {
+            it["session_id"].toString() == "\"s1\"" && it["profile"].toString() == "\"personal\""
+        }) }
+        coVerify(exactly = 0) { rest.patchSession(any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test fun in_flight_inverse_archive_is_not_queued() = runTest {
+        val backend = com.hermes.client.data.network.ArchiveBackendSnapshot(3,
+            com.hermes.client.data.network.SessionArchiveMode.LEGACY)
+        val reply = CompletableDeferred<kotlinx.serialization.json.JsonElement>()
+        val entered = CompletableDeferred<Unit>()
+        coEvery { archiveClient.archiveBackend() } returns backend
+        coEvery { archiveClient.callArchive(backend, any()) } coAnswers { entered.complete(Unit); reply.await() }
+        val first = async { repo.archive("s1", true, "personal") }
+        entered.await()
+        try { repo.archive("s1", false, "personal"); org.junit.Assert.fail("must not queue") }
+        catch (error: SessionArchiveFailure) {
+            assertEquals(com.hermes.client.data.error.AppErrorCode.SESSION_ARCHIVE_REFUSED, error.error.code)
+        }
+        reply.complete(kotlinx.serialization.json.buildJsonObject {
+            put("archived", kotlinx.serialization.json.JsonPrimitive(true))
+            put("session_key", kotlinx.serialization.json.JsonPrimitive("s1"))
+        })
+        first.await()
+        coVerify(exactly = 1) { archiveClient.callArchive(any(), any()) }
+    }
+
 }

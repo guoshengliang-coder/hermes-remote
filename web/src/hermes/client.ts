@@ -1,3 +1,4 @@
+import { archiveMode, type ArchiveMode } from "./archive";
 import { encodeRequest, encodeServerError, parseMessage, serverEventFrom } from "./jsonrpc";
 import { clientCapabilities, WEB_TUNNEL_METHODS } from "./params";
 import type {
@@ -118,6 +119,11 @@ export function defaultWebSocketFactory(url: string): WebSocketLike {
 export class HermesSocket {
   private ws: WebSocketLike | null = null;
   private state: "idle" | "connecting" | "ready" | "closed" = "idle";
+  private _archiveMode: ArchiveMode = "unknown";
+  async archiveBackend(): Promise<ArchiveMode> {
+    await this.awaitReady("archive backend");
+    return this._archiveMode;
+  }
   private nextId = 1;
   private readonly pending = new Map<number, PendingCall>();
   private readyWaiters: Array<{ resolve: () => void; reject: (e: HermesSocketError) => void }> = [];
@@ -306,7 +312,10 @@ export class HermesSocket {
           break;
         }
         case "event":
-          if (msg.event.type === "gateway.ready") this.onReady();
+          if (msg.event.type === "gateway.ready") {
+            this._archiveMode = msg.event.payloadIsObject === false ? "unknown" : archiveMode(msg.event.payload);
+            this.onReady();
+          }
           this.emit("event", msg.event);
           break;
         case "request":
@@ -403,6 +412,7 @@ export class HermesSocket {
   private onClosed(code: number, reason: string, cause: ClosedInfo["cause"]): void {
     if (this.state === "closed") return;
     this.state = "closed";
+    this._archiveMode = "unknown";
     if (this.handshakeTimer) clearTimeout(this.handshakeTimer);
     this.handshakeTimer = null;
     if (this.ws) {

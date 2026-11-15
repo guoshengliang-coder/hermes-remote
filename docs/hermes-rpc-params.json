@@ -290,6 +290,15 @@
         "profile",
         "result"
       ]
+    },
+    "session.archive": {
+      "model": "SessionArchiveParams",
+      "keys": [
+        "session_id",
+        "session_key",
+        "archived",
+        "profile"
+      ]
     }
   },
   "absent_upstream": {

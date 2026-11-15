@@ -181,6 +181,7 @@ export function browserRouteBodyAllowed(route: BrowserRoute, headers: IncomingHt
 export const WEB_DEVICE_FEATURES = [
   "instance-model-preferences",
   "session-manage",
+  "session-archive-rpc",
   "session-delete",
   "workspace-move",
   "model-select",

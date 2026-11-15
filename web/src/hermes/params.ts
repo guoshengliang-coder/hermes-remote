@@ -15,6 +15,7 @@ export const WEB_TUNNEL_METHODS: ReadonlySet<string> = new Set([
   "client.capabilities",
   "session.create",
   "session.resume",
+  "session.archive",
   "prompt.submit",
   "session.interrupt",
   "image.attach",
@@ -143,4 +144,9 @@ export function sessionAccess(storedSessionId: string, profile?: string | null, 
   const params = withProfile({ session_id: storedSessionId }, profile);
   if (nonBlank(liveSessionId)) params.live_session_id = liveSessionId;
   return { method: "session.access", params };
+}
+
+/** Official legacy archive flag: explicit boolean, durable ID, and the owning profile. */
+export function sessionArchive(sessionId: string, archived: boolean, profile?: string | null): RpcCall {
+  return { method: "session.archive", params: { session_id: sessionId, archived, ...(profile?.trim() ? { profile: profile.trim() } : {}) } };
 }

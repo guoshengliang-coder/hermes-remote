@@ -1,4 +1,11 @@
 HG-256 bounds file cards by both their parent width and the existing 22rem cap. Long filenames
+
+HG-257 adds archive/restore adaptation for the Mac's current Hermes runtime: official standalone
+RPC versus authority-fenced REST, current-handshake/route guards, explicit refusal/unknown outcomes
+and read-only reconciliation. The Web browser permission is capability-gated by the new Gateway.
+No upstream patch or source-label migration is used. Shared cases and the opt-in isolated upstream
+upgrade validator are documented in `docs/HG_257_ARCHIVE_COMPATIBILITY.md` at the repository root.
+Source validation does not constitute publication or real-device acceptance.
 keep their ellipsis without widening the transcript on narrow screens or enlarged text; short
 names remain compact. Code and table cards retain their own horizontal scrolling. Run the real
 FileCard/Markdown layout regression with `node web/scripts/check-chat-overflow.mjs

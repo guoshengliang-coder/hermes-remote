@@ -1,4 +1,4 @@
-import { useState } from "preact/hooks";
+import { useEffect, useMemo, useState } from "preact/hooks";
 import { draftKey, saveDraft } from "../app/drafts";
 import { toAppError } from "../app/failures";
 import { defaultProjectPath } from "../app/localPrefs";
@@ -6,7 +6,7 @@ import { explicitProfile } from "../app/profile";
 import { basename, deriveProjects, disambiguatedLabels, projectKeyOf } from "../app/projects";
 import { isBotSession, isListable } from "../app/sources";
 import { useApp } from "../app/store";
-import { moveSessionTo } from "../chat/oneShot";
+import { archiveSession, moveSessionTo } from "../chat/oneShot";
 import { appError, RPC, type AppError } from "../errors";
 import { HermesSocketError } from "../hermes/client";
 import type { SessionListItem } from "../hermes/types";
@@ -64,6 +64,8 @@ export function SessionActionSheet({
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<AppError | null>(null);
   const profile = explicitProfile(session);
+  const archiveAbort = useMemo(() => new AbortController(), [app.account?.id, deviceId, session.id, profile]);
+  useEffect(() => () => archiveAbort.abort(), [archiveAbort]);
   const name = session.title || session.display_name || t("未命名会话", "Untitled");
   const defaultProject = deviceId ? defaultProjectPath(deviceId) : null;
   const currentKey = projectKeyOf(session) ?? defaultProject;
@@ -91,6 +93,7 @@ export function SessionActionSheet({
     setError(null);
     try {
       await work();
+      if ((change === "archived" || change === "unarchived") && archiveAbort.signal.aborted) return;
       if (change === "deleted") {
         if (pinned) app.togglePin(session);
         if (deviceId) saveDraft(draftKey(deviceId, session.id), "");
@@ -100,6 +103,7 @@ export function SessionActionSheet({
       onChanged?.(change);
       void refresh();
     } catch (e) {
+      if (archiveAbort.signal.aborted) return;
       setError(change === "moved" ? moveError(e) : toAppError(e, "device"));
     } finally {
       setWorking(false);
@@ -160,6 +164,7 @@ export function SessionActionSheet({
             : t("可在「已归档」中恢复。", "You can restore it from Archived.")}
         </p>
         {error ? <ErrorNotice error={error} language={language} variant="inline" /> : null}
+        {!del && error ? <button type="button" class="text-button" onClick={() => window.location.reload()}>{t("刷新状态", "Refresh state")}</button> : null}
         <div class="sheet-buttons">
           <button type="button" class="text-button subtle" onClick={onClose}>
             {t("取消", "Cancel")}
@@ -171,7 +176,7 @@ export function SessionActionSheet({
             onClick={() =>
               void (del
                 ? run(() => client.deleteSession(deviceId, session.id, profile, revision), "deleted", t("已删除", "Deleted"))
-                : run(() => client.updateSession(deviceId, session.id, { archived: true }, profile, revision), "archived", t("已归档", "Archived")))
+                : run(() => archiveSession(client, deviceId, session.id, true, profile, revision, features.has("session-archive-rpc"), archiveAbort.signal), "archived", t("已归档", "Archived")))
             }
           >
             {del ? t("删除", "Delete") : t("归档", "Archive")}
@@ -233,7 +238,7 @@ export function SessionActionSheet({
             <SheetAction
               label={t("取消归档", "Unarchive")}
               disabled={working}
-              onClick={() => void run(() => client.updateSession(deviceId, session.id, { archived: false }, profile, revision), "unarchived", t("已恢复", "Restored"))}
+              onClick={() => void run(() => archiveSession(client, deviceId, session.id, false, profile, revision, features.has("session-archive-rpc"), archiveAbort.signal), "unarchived", t("已恢复", "Restored"))}
             />
           ) : null}
         </>

@@ -1,6 +1,9 @@
+import { appError } from "../errors";
 import { paths, type GatewayClient } from "../api/gateway";
-import { HermesSocket } from "../hermes/client";
-import { sessionWorkspaceMove } from "../hermes/params";
+import { HermesSocket, HermesSocketError } from "../hermes/client";
+import { archiveFailure, archiveWithBackend } from "../hermes/archive";
+import type { ProfileSessionsResponse } from "../hermes/types";
+import { sessionArchive, sessionWorkspaceMove } from "../hermes/params";
 import type { JsonObject } from "../hermes/types";
 
 // One RPC from a page that holds no conversation socket (the session list's "move to project"):
@@ -24,4 +27,64 @@ export function moveSessionTo(client: GatewayClient, deviceId: string, storedSes
     const { method, params } = sessionWorkspaceMove(storedSessionId, cwd, profile);
     return socket.call<JsonObject>(method, params, { timeoutMs: 30_000 });
   });
+}
+
+// Only one explicit write per target at a time; never queue a stale inverse intent.
+const archiving = new Set<string>();
+export async function archiveSession(client: GatewayClient, deviceId: string, storedSessionId: string,
+  archived: boolean, profile?: string | null, revision?: number, rpcAvailable = true, signal?: AbortSignal): Promise<void> {
+  const key = JSON.stringify([deviceId, profile ?? "default", storedSessionId]);
+  if (archiving.has(key)) throw appError("HR-SESS-026", "archive already in progress");
+  archiving.add(key);
+  let cancelled = false;
+  let activeSocket: HermesSocket | null = null;
+  const cancel = () => { cancelled = true; activeSocket?.close(); };
+  const unsubscribe = client.onSignedOut(cancel);
+  signal?.addEventListener("abort", cancel, { once: true });
+  const current = () => {
+    if (cancelled || signal?.aborted) throw new HermesSocketError("not-connected", "archive owner or route changed");
+  };
+  const read = async (): Promise<boolean | null> => {
+    for (let offset = 0; offset < 100_000; offset += 500) {
+      current();
+      const page = await client.deviceApi<ProfileSessionsResponse>(deviceId, "GET",
+        `profiles/sessions?limit=500&offset=${offset}&archived=include&profile=${encodeURIComponent(profile || "default")}`, { signal });
+      current();
+      if (page.errors?.length) return null;
+      const row = page.sessions.find((s) => s.id === storedSessionId && (s.profile || "default") === (profile || "default"));
+      if (row) return typeof row.archived === "boolean" ? row.archived : null;
+      if (page.sessions.length < 500 || page.total !== undefined && offset + 500 >= page.total) return null;
+    }
+    return null;
+  };
+  const rest = () => { current(); return client.updateSession(deviceId, storedSessionId, { archived }, profile, revision); };
+  try {
+    current();
+    if (!rpcAvailable) {
+      // Older Gateway: retain its existing REST contract; do not try a withheld browser RPC.
+      try { await rest(); current(); return; }
+      catch (error) {
+        const failure = archiveFailure(error);
+        if (failure.code === "HR-SESS-025") {
+          try { if (await read() === archived) return; } catch { /* preserve unknown */ }
+        }
+        throw failure;
+      }
+    }
+    await withSocket(client, deviceId, async (socket) => {
+      activeSocket = socket;
+      current();
+      await archiveWithBackend({
+        mode: await socket.archiveBackend(), sessionId: storedSessionId, archived,
+        rpc: () => {
+          current();
+          const { method, params } = sessionArchive(storedSessionId, archived, profile);
+          return socket.call<JsonObject>(method, params);
+        },
+        rest,
+        read,
+      });
+      current();
+    });
+  } finally { unsubscribe(); signal?.removeEventListener("abort", cancel); archiving.delete(key); }
 }

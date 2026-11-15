@@ -2337,3 +2337,25 @@ After a browser crash allow the writer lease to expire, recover only the saved p
 late old-writer appends. On Android, a shortened saved file must not be labelled complete. Inject
 an early provider final during initialization/replay, a delayed old-chat handoff, and an IDB abort;
 none may cause incomplete auto-send, unlock a different chat, or an unhandled rejection.
+
+## HG-257 archive upgrade smoke (not yet performed on production/user devices)
+
+Use disposable conversations on the selected Mac and an authorized test account. Run the isolated
+upstream validator in HG_257_ARCHIVE_COMPATIBILITY.md first. Test both Android and Web (Gateway
+must advertise session-archive-rpc before Web uses the new RPC):
+
+1. Archive and restore a phone-created hermes_remote conversation from both list and open chat;
+   verify it moves between lists and retains every message, ID, source, Mac and profile.
+2. Repeat with default/nondefault profiles, same ID in separate test stores, an older conversation
+   and a compression chain. Unknown/deleted profiles must not fall back to default.
+3. Interrupt the reply after submission, refresh state, and verify no automatic write replay.
+   Opposite-state/absent reads remain unconfirmed. Repeated/opposite in-flight clicks are not queued.
+4. Switch Mac or sign out during an operation. No later write or read may use the replacement
+   route/account; an old handshake cannot authorize a call on the new connection.
+5. On an authority backend, verify REST fences remain intact and old session.archive fallback is
+   refused. Explicit -32601 on standalone is the only old-REST fallback; 403/404/409 never select it.
+6. View the localized archive error code, show/copy redacted details, and use Refresh state.
+   Unknown-result recovery reads only; it must not resend an archive/unarchive.
+
+Record source commit/runtime mode and actual client versions. L1 handler, contract and dialog
+screenshots do not prove real phone, browser-cookie, Connector-network or cross-client acceptance.

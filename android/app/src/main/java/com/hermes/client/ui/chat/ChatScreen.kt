@@ -526,6 +526,7 @@ fun ChatScreen(
     var creatingNewChat by remember { mutableStateOf(false) }
     var confirmArchive by rememberSaveable(sessionId) { mutableStateOf(false) }
     var archiving by remember { mutableStateOf(false) }
+    var archiveFailure by remember { mutableStateOf<com.hermes.client.data.error.AppError?>(null) }
     // Share-transcript format picker + the offscreen image export it can start.
     var shareFormatSheet by remember { mutableStateOf(false) }
     var transcriptImageExporting by remember { mutableStateOf(false) }
@@ -557,6 +558,13 @@ fun ChatScreen(
     // before the export's first suspension point resumes. The write, the share sheet AND the
     // failure toast all disappeared together, so the tap read as "nothing happened" (HG-9).
     val exportScope = androidx.compose.runtime.rememberCoroutineScope()
+    archiveFailure?.let { failure ->
+        com.hermes.client.ui.sessions.SessionArchiveErrorDialog(failure, { archiveFailure = null }) {
+            archiveFailure = null
+            exportScope.launch { vm.recoverForForeground() }
+        }
+    }
+
 
     // The top bar's ＋. Creation is a gateway round trip, so the button holds a spinner and
     // refuses re-entry until it settles — double-tapping used to create two conversations.
@@ -2368,13 +2376,9 @@ fun ChatScreen(
                                 ).show()
                                 onMenu()
                             } else {
-                                // Stay put on failure: nothing was archived, and bouncing to the
-                                // list would suggest otherwise.
-                                android.widget.Toast.makeText(
-                                    context,
-                                    error.localizedMessage(language),
-                                    android.widget.Toast.LENGTH_LONG,
-                                ).show()
+                                // Stay put until state is confirmed; a lost acknowledgement
+                                // must not be presented as success or a definite no-op.
+                                archiveFailure = error
                             }
                         }
                     },

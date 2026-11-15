@@ -26,6 +26,18 @@ class HermesRestApiTest {
     @get:Rule val serverRule = MockWebServerRule()
     private val json = Json { ignoreUnknownKeys = true }
 
+    @Test fun archive_requires_an_explicit_matching_http_acknowledgement() = runTest {
+        for (body in listOf("{}", "{\"archived\":false}", "{\"archived\":\"true\"}", "{\"archived\":true,\"session_id\":\"other\"}")) {
+            serverRule.server.enqueue(MockResponse.Builder().code(200).body(body).build())
+            try {
+                api(serverRule.server).patchSession("s", archived = true, requestId = "r", expectedRevision = 0)
+                org.junit.Assert.fail("must not claim success: $body")
+            } catch (_: java.io.IOException) { }
+        }
+        serverRule.server.enqueue(MockResponse.Builder().code(200).body("{\"ok\":true,\"archived\":true}").build())
+        api(serverRule.server).patchSession("s", archived = true, requestId = "r2", expectedRevision = 0)
+    }
+
     private fun api(server: MockWebServer) = HermesRestApi(testHttpClient(), json) {
         testAccountConnection(baseUrl = server.url("/").toString().trimEnd('/'), token = "secret")
     }

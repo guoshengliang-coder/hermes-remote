@@ -1,5 +1,20 @@
 # Hermes upstream contract
 
+## HG-257: archive ownership and official standalone RPC (2026-11-15)
+
+Verified against the installed official v0.22.5 commit `bf0203a794a07aac3ff764972ab9087baa4e4f4e`.
+REST PATCH still exists but now checks unified ownership; unbound `source=hermes_remote` rows
+can answer 404 even though list/history reads work. The official standalone `session.archive`
+RPC supports the same stored rows and profile-scoped archive/restore without resume or inference.
+The RPC row below is audited against v0.22.5; the other params rows retain their stated baseline.
+GO chooses from the completed current handshake, never from a version string or a failed write:
+standalone -> RPC; authority -> fenced REST; unknown -> HR-COMPAT-004. Only explicit -32601 on
+standalone permits old REST fallback. Permissions/conflicts never downgrade; ambiguous writes
+only trigger a fresh state read, not replay. Both protocols require a matching archive acknowledgement.
+See [HG_257_ARCHIVE_COMPATIBILITY.md](HG_257_ARCHIVE_COMPATIBILITY.md) and run its disposable
+real-upstream validator before adopting another Hermes. OpenAPI path compatibility alone does not
+establish session ownership or mutation behavior. Upstream source, record sources and schema stay intact.
+
 ## 2026-10-28：旧版 launchd AppleScript 文法
 
 已核对本机上游 Git 历史 `61a2148370bcaed61c62e78bbad303b836233869` 的 `hermes_cli/gateway_launchd.py::launchd_program_arguments`：返回 `/usr/bin/osascript -e <script>` 三参数，脚本为单条 `do shell script "…"`，仅按顺序转义反斜杠和双引号。shell 命令仍是 `exec <shlex.join(command)> >> <quoted stdout> 2>> <quoted stderr>`。上游 `8682d5791b6b613c13948a0837c7293d675e77a7` 将其替换为现有 JXA 文法；旧安装可能保留旧 plist。测试固定样本由前一提交的真实字符串生成函数产生，并加入 M2/Hermes 0.21.4 的真实 plist 参数（仅归一化用户名），未执行启动脚本。两种包装共用静态命令校验；没有 Hermes RPC、Gateway、Connector 或客户端协议变化。
@@ -473,6 +488,7 @@ at build time (and checks this table against) and which the dev mock enforces in
 | `session.create` | `SessionCreateParams` | `close_on_disconnect`, `cols`, `cwd`, `fast`, `follow_profile_config`, `hidden`, `messages`, `model`, `parent_session_id`, `profile`, `provider`, `reasoning_effort`, `room_plumbing`, `source`, `title` | `source`, `profile`?, `cwd`? | present, unvalidated |
 | `session.workspace.move` | `SessionWorkspaceMoveParams` | `cwd`, `profile`, `session_key` | `session_key`, `cwd`, `profile`? | present, unvalidated |
 | `session.resume` | `SessionResumeParams` | `close_on_disconnect`, `cols`, `defer_history`, `eager_build`, `lazy`, `omit_messages`, `profile`, `session_id`, `source` | `session_id`, `source`, `omit_messages`, `profile`? | present, unvalidated |
+| `session.archive` | `SessionArchiveParams` (v0.22.5) | `session_id`, `session_key`, `archived`, `profile` | `session_id`, `archived`, `profile`? | absent; explicit method-not-found selects old REST |
 | `prompt.submit` | `PromptSubmitParams` | `confirm_empty_truncate`, `confirm_truncate`, `display_kind`, `hosted_task`, `hosted_terminal_callback`, `interrupted`, `profile`, `queued`, `rebind_survivor_row_ids`, `session_id`, `surface`, `text`, `title_preview`, `truncate_before_message_id`, `truncate_before_row_id`, `truncate_before_user_ordinal`, `turn_author`, `voice_context` | `session_id`, `text` | present, unvalidated |
 | `slash.exec` | `SlashExecParams` | `command`, `profile`, `session_id` | `session_id`, `command` | present, unvalidated |
 | `complete.path` | `CompletePathParams` | `cwd`, `profile`, `session_id`, `word` | `session_id`, `word` | present, unvalidated |

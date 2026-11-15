@@ -151,7 +151,7 @@ export function supportsWebDeviceAccess(caps: GatewayCapabilities): boolean {
   return caps.accountAuth?.webDeviceAccess === true;
 }
 
-export type WebDeviceFeature = "instance-model-preferences" | "session-manage" | "session-delete" | "workspace-move" | "model-select" | "default-model" | "default-model-write" | "session-model-config" | "process-list" | "session-access" | "voice-input";
+export type WebDeviceFeature = "instance-model-preferences" | "session-manage" | "session-archive-rpc" | "session-delete" | "workspace-move" | "model-select" | "default-model" | "default-model-write" | "session-model-config" | "process-list" | "session-access" | "voice-input";
 
 /** Features this Gateway admits for the Web app; an older Gateway lists none, so nothing extra shows. */
 export function webDeviceFeatures(caps: GatewayCapabilities): ReadonlySet<WebDeviceFeature> {
@@ -656,11 +656,18 @@ export class GatewayClient {
     profile?: string | null,
     expectedRevision?: number,
   ): Promise<unknown> {
-    return this.mutateSessionFenced(deviceId, sessionId, (fence) =>
+    const result = await this.mutateSessionFenced(deviceId, sessionId, (fence) =>
       this.deviceApi(deviceId, "PATCH", `sessions/${encodePathSegment(sessionId)}`, {
         body: { ...change, ...(profile ? { profile } : {}), request_id: fence.requestId, expected_revision: fence.expectedRevision },
       }), expectedRevision,
     );
+    if (change.archived !== undefined) {
+      const ack = result as { archived?: unknown; session_id?: unknown } | null;
+      if (!ack || ack.archived !== change.archived || ack.session_id !== undefined && ack.session_id !== sessionId) {
+        throw new GatewayNetworkError(new Error("archive acknowledgement mismatch"), `sessions/${encodePathSegment(sessionId)}`);
+      }
+    }
+    return result;
   }
 
   /** Same fence as [updateSession]; upstream takes a DELETE's fence as query params. */

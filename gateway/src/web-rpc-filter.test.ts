@@ -61,6 +61,20 @@ test("binary, non-JSON and non-object frames close the tunnel", () => {
 const forwarded = (method: string, params: unknown): boolean =>
   screenBrowserFrame(frame({ jsonrpc: "2.0", id: 9, method, params }), false).forward;
 
+test("archive admits only a stored identity, explicit boolean and optional profile", () => {
+  for (const archived of [true, false]) {
+    assert.equal(forwarded("session.archive", { session_id: "20261115_001_x", archived, profile: "工作" }), true);
+  }
+  for (const params of [
+    {}, { session_id: "s" }, { session_id: "s", archived: "true" },
+    { session_id: "../other", archived: true }, { session_id: "s", archived: true, profile: "../other" },
+    { session_id: "s", archived: true, profile: null },
+    { session_key: "s", archived: true }, { session_id: "s", archived: true, title: "other change" },
+    { session_id: "s", archived: true, expected_revision: 0 },
+    ...["..", ".", " ", " work"].map((profile) => ({ session_id: "s", archived: true, profile })),
+  ]) assert.equal(forwarded("session.archive", params), false, JSON.stringify(params));
+});
+
 test("slash.exec only switches the current session's model", () => {
   const ok = { session_id: "live-1", command: "/model claude-opus-5 --provider anthropic --session" };
   assert.equal(forwarded("slash.exec", ok), true);

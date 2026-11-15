@@ -162,8 +162,13 @@ Rules:
   Web sessions and binding): the Web app at `/app/` may then use §8's cookie device access. Its
   absence means the Web app must show its "not available on this Gateway" state instead of calling
   device routes. With it, `webDeviceFeatures` lists what the Gateway admits beyond chat
-  (`session-manage`, `session-delete`, `workspace-move`, `model-select`, `process-list`,
+  (`session-manage`, `session-archive-rpc`, `session-delete`, `workspace-move`, `model-select`, `process-list`,
   `session-access`, and `voice-input` when the private Doubao key is configured); the Web app shows only listed features, so an older Gateway simply hides them.
+  `session-archive-rpc` admits only `session.archive {session_id, archived: boolean, profile?}`
+  through the existing authorized device socket, with no extra mutation/policy fields. It is a
+  Gateway allowlist capability, not a claim that every upstream runtime supports that RPC. HG-257
+  selects it only for a completed standalone `serve` handshake; authority mode retains fenced REST.
+  Older Gateways keep the Web client's original REST archive path without probing a withheld RPC.
 - `replacement=true` is advertised only when the independently gated binding surface is enabled and
   the replacement/unbind HTTP contract is available. The flag remains false in production while
   `ACCOUNT_BINDING_ENABLED=0`.

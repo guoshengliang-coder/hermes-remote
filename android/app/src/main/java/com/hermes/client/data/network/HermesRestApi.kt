@@ -852,6 +852,15 @@ class HermesRestApi(
             .toRequestBody("application/json".toMediaType())
         restCall(builder("/api/sessions/$sessionId", deviceId).patch(payload).build()).execute().use { resp ->
             if (!resp.isSuccessful) throw sessionMutationException(resp, "update session failed")
+            if (archived != null) {
+                val ack = runCatching { json.parseToJsonElement(resp.body.string()).jsonObject }.getOrNull()
+                val flag = ack?.get("archived") as? kotlinx.serialization.json.JsonPrimitive
+                val target = (ack?.get("session_id") as? kotlinx.serialization.json.JsonPrimitive)?.content
+                if (flag == null || flag.isString || flag.content != archived.toString() ||
+                    (target != null && target != sessionId)) {
+                    throw java.io.IOException("archive acknowledgement mismatch")
+                }
+            }
         }
     }
 

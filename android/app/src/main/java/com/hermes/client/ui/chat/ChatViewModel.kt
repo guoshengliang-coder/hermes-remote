@@ -1610,15 +1610,12 @@ class ChatViewModel @Inject constructor(
                 com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND,
                 retryable = false, stage = "session_archive",
             )
-        return runCatching { sessions.archive(id, archived = true, runtimeKey?.profile) }
+        return runCatching { sessions.archive(id, archived = true, runtimeKey?.profile, currentDeviceId) }
             .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
             .fold(
                 onSuccess = { null },
                 onFailure = {
-                    com.hermes.client.data.error.AppError(
-                        com.hermes.client.data.error.AppErrorCode.SESSION_ARCHIVE_FAILED,
-                        retryable = true, technicalCause = it.message, stage = "session_archive",
-                    )
+                    com.hermes.client.data.repository.archiveFailure(it)
                 },
             )
     }
