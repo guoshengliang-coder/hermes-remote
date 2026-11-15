@@ -1,3 +1,12 @@
+HG-256 bounds file cards by both their parent width and the existing 22rem cap. Long filenames
+keep their ellipsis without widening the transcript on narrow screens or enlarged text; short
+names remain compact. Code and table cards retain their own horizontal scrolling. Run the real
+FileCard/Markdown layout regression with `node web/scripts/check-chat-overflow.mjs
+<absolute-playwright-module> <output-directory> [webkit-executable]` from the repository root after `npm ci --prefix web`.
+It needs installed Chromium and WebKit through the supplied Playwright module; browser geometry
+is not covered by happy-dom. Android Chrome/PWA and iPhone physical acceptance is in
+`../docs/SMOKE_TEST.md`. No native app, protocol or release version changes.
+
 HG-254 refinement keeps the 3rem send/stop target with a 2.75rem painted circle, white 1.7px
 round-stroke arrow/solid Stop and the dark hairline. Disabled/preparing uses 8% secondary fill
 and 75% ink. Only the dark composer background moves to #1A1D21 to match the reviewed tonal layer.

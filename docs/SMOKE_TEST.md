@@ -2275,3 +2275,33 @@ by the synthetic harness. See `HG_254_COMPOSER_ACTION.md`.
 ## HG-244 congestion and fault isolation
 
 Use the single acceptance checklist in `HG_244_CONGESTION.md`. New mode is opt-in at both ends. Exercise control-only loss and replacement while chat and both file directions are active; confirm no business generation change and exact file hashes. Exercise business-only loss while control responds, early/duplicate/late cancellation, revoked binding, stale nonce/health, two Connector instances, old/new combinations and rollback. A 30-minute loopback fixture is automated; actual shaped WAN and Baidu Netdisk saturation, phone/sleep-wake and production database/proxy behavior remain separate release checks.
+
+## HG-256 · Web chat attachment width
+
+Automated browser regression (from the repository root, after `npm ci --prefix web`):
+
+```sh
+node web/scripts/check-chat-overflow.mjs <absolute-playwright-module> <output-directory> [webkit-executable]
+```
+
+Supply a Playwright module with installed Chromium and WebKit. The fixture renders production
+FileCard and Markdown components with production CSS, synthetic filenames and no account/backend.
+It checks 320/360/390/412/900px widths, 16/20/24px root text sizes and both themes, in Chinese
+without side insets and English with 24px side insets (120 layouts across both engines). Both user
+and assistant cards must stay inside their parents; long names retain ellipsis and short names use
+their natural content width when space permits. A longer translated subtitle may naturally fill
+the available width. The transcript must reject horizontal panning while retaining vertical scrolling. Check
+computed overflow modes as well as scroll positions: `overflow: hidden` still permits programmatic
+scrolling and must not pass as user scrolling. Wide code and tables must remain independently
+horizontally scrollable. Measurements and selected screenshots are written outside the repository;
+fixture/server cleanup must also run when output creation or evidence writing fails.
+The old 22rem-only rule must fail on the 320px case.
+
+Physical acceptance remains separate: on Android Chrome and its installed Web App, open a chat
+with long Chinese and unbroken Latin filenames in user and assistant attachments. Repeat with
+normal and enlarged text, portrait and landscape, and both themes. Scroll to the bottom: attachment
+right borders and the content inset must remain visible; no transcript horizontal bar or sideways
+drag, normal vertical scrolling, and code/table local sideways scrolling. Tap the attachments and
+confirm their existing open/download action still works. Repeat in iPhone Safari/Home Screen Web App
+because the CSS is shared. Record actual device, browser and published Web bundle; desktop mobile
+viewports do not establish physical gesture, OEM text-scaling or installed-PWA acceptance.
