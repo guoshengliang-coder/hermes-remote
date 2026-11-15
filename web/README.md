@@ -1,3 +1,12 @@
+HG-256 bounds file cards by both their parent width and the existing 22rem cap. Long filenames
+keep their ellipsis without widening the transcript on narrow screens or enlarged text; short
+names remain compact. Code and table cards retain their own horizontal scrolling. Run the real
+FileCard/Markdown layout regression with `node web/scripts/check-chat-overflow.mjs
+<absolute-playwright-module> <output-directory> [webkit-executable]` from the repository root after `npm ci --prefix web`.
+It needs installed Chromium and WebKit through the supplied Playwright module; browser geometry
+is not covered by happy-dom. Android Chrome/PWA and iPhone physical acceptance is in
+`../docs/SMOKE_TEST.md`. No native app, protocol or release version changes.
+
 HG-255 makes a held foreground voice capture survive ASR/chat network failures. Original PCM is
 journaled locally for 24 hours; a persistent recovery card retries that recording without reopening
 the microphone. Reopened/interrupted/limited audio only returns draft text. A durable text handoff
