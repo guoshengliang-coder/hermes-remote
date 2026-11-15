@@ -1,3 +1,11 @@
+HG-255 makes a held foreground voice capture survive ASR/chat network failures. Original PCM is
+journaled locally for 24 hours; a persistent recovery card retries that recording without reopening
+the microphone. Reopened/interrupted/limited audio only returns draft text. A durable text handoff
+protects failed sends; account invalidation clears local audio and rejects late writers. Five-minute,
+full-composer and explicit-cancel rules remain. See `../docs/HG_255_VOICE_RETRY.md` for ownership,
+capacity, tests and outstanding physical Safari/PWA/provider acceptance. This source change is not
+publication.
+
 HG-254 refinement keeps the 3rem send/stop target with a 2.75rem painted circle, white 1.7px
 round-stroke arrow/solid Stop and the dark hairline. Disabled/preparing uses 8% secondary fill
 and 75% ink. Only the dark composer background moves to #1A1D21 to match the reviewed tonal layer.

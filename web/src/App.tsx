@@ -1,3 +1,4 @@
+import { clearVoiceRecordings } from "./chat/voiceRecordings";
 import { AccountProfileSyncClient, clearAccountProfileSync, PROFILE_SYNC_LOGOUT, type ProfileSyncStatus } from "./account/profileSync";
 import { AccountModelPreferences, clearModelPreferences, type ModelSyncView } from "./account/modelPreferences";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "preact/hooks";
@@ -281,6 +282,7 @@ export function App() {
       void clearAccountProfileSync().catch(() => undefined);
       modelSync.current?.stop();modelSync.current=null;setModelSyncView(undefined);
       void clearModelPreferences(false).catch(()=>undefined);
+      void clearVoiceRecordings().catch(() => undefined);
       clearConversationMemory();
       if (signingOut.current) return;
       setPushEnabled(false);
@@ -308,6 +310,7 @@ export function App() {
       void clearCaches();
       clearAllPins();
       clearAllDrafts();
+      void clearVoiceRecordings().catch(() => undefined);
       clearConversationMemory();
       clearPageSnapshots();
       clearPrompts();
@@ -493,6 +496,7 @@ export function App() {
       await clearCaches();
       clearAllPins();
       clearAllDrafts();
+      void clearVoiceRecordings().catch(() => undefined);
       clearConversationMemory();
       clearPageSnapshots();
       clearPrompts();

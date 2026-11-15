@@ -68,6 +68,7 @@ class AccountSessionManager(
     private val beforeSignOut: suspend (AccountControlConnection) -> Unit = {},
     private val profileAvatars: AccountProfileAvatarCache? = null,
     private val modelCache: com.hermes.client.data.sync.ModelPreferenceCacheStore? = null,
+    private val clearVoiceRecordings: () -> Unit = {},
 ) {
     private val refreshMutex = Mutex()
     private val profileSyncMutex = Mutex()
@@ -109,6 +110,7 @@ class AccountSessionManager(
     ) {
         synchronized(profileOwnerLock) {
             profileOwnerEpoch.incrementAndGet()
+            clearVoiceRecordings()
             profileAvatars?.clear()
             runCatching { modelCache?.clear() }
             val value = AccountSession(
@@ -328,6 +330,7 @@ class AccountSessionManager(
     fun completeAccountDeletion() {
         synchronized(profileOwnerLock) {
             profileOwnerEpoch.incrementAndGet()
+            clearVoiceRecordings()
             profileAvatars?.clear()
             runCatching { modelCache?.clear() }
             store.completeAccountDeletion()
@@ -393,6 +396,7 @@ class AccountSessionManager(
     fun clearLocal(requireReauthentication: Boolean = true, reason: String? = null) {
         synchronized(profileOwnerLock) {
             profileOwnerEpoch.incrementAndGet()
+            clearVoiceRecordings()
             profileAvatars?.clear()
             runCatching { modelCache?.clear() }
             store.clearAccountSession(

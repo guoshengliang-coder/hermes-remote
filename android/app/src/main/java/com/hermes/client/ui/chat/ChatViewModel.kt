@@ -487,6 +487,16 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    suspend fun persistVoiceDraft(text: String) {
+        val token = checkNotNull(draftToken)
+        val drafts = conversationDrafts
+        draftSaveJob?.cancel()
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            drafts.save(token, text)
+            check(drafts.read(token).orEmpty() == text) { "voice draft handoff incomplete" }
+        }
+    }
+
     /** Drop the draft now, ahead of the debounce — the message went out, or was thrown away. */
     fun clearDraft() {
         val token = draftToken ?: return
@@ -2052,7 +2062,9 @@ class ChatViewModel @Inject constructor(
             ?: mutateState { it.withDelivery(messageId, delivery) }
     }
 
-    fun send(text: String): Boolean {
+    fun send(text: String): Boolean = sendWithReceipt(text, null)
+
+    private fun sendWithReceipt(text: String, onDelivered: (() -> Unit)?): Boolean {
         if (_sessionAccessState.value == SessionAccessState.OWNED_ELSEWHERE || _composerRecoveryError.value != null) return false
         val atts = _state.value.pendingAttachments
         if (text.isBlank() && atts.isEmpty()) return false
@@ -2069,22 +2081,23 @@ class ChatViewModel @Inject constructor(
         // Clear the staging strip immediately. The cached thumbnails are attached to the sent turn
         // on an IO dispatcher below, so large images never block the Compose main thread.
         mutateState { it.copy(pendingAttachments = emptyList()) }
-        dispatch(text, atts)
+        dispatch(text, atts, onDelivered)
         return true
     }
 
     /** HG-196: final speech completes the composer; rejected auto-sends leave its contents intact. */
-    fun sendVoiceText(text: String, draft: String = ""): Boolean {
+    fun sendVoiceText(text: String, draft: String = "", onDelivered: (() -> Unit)? = null): Boolean {
         if (text.isBlank() || _sessionAccessState.value == SessionAccessState.OWNED_ELSEWHERE ||
             connectionState.value !is ConnectionState.Connected || _state.value.isGenerating ||
             _attachingSessions.value > 0) return false
         val combined = if (draft.isBlank()) text.trim() else draft.trimEnd() + "\n" + text.trim()
-        return send(combined)
+        return sendWithReceipt(combined, onDelivered)
     }
 
     private fun dispatch(
         text: String,
         atts: List<PendingAttachment>,
+        onDelivered: (() -> Unit)? = null,
     ) {
         val messageId = "u-${java.util.UUID.randomUUID()}"
         val pending = PendingSend()
@@ -2203,6 +2216,7 @@ class ChatViewModel @Inject constructor(
                 atts.forEach { it.stagedFile?.delete() }
                 // The gateway acknowledged the turn: the bubble goes from "sending" to solid.
                 updateDelivery(messageId, com.hermes.client.domain.DeliveryState.SENT)
+                if (onDelivered != null) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { onDelivered() } }
                 // Clear only this turn's record; an earlier unsent message remains outstanding.
                 forgetUnsent(messageId)
             } catch (cancelled: CancellationException) {

@@ -53,18 +53,19 @@ it("cancels before endpoint or microphone resolution without accepting late call
   sessions.push(s); s.start(); s.cancel(); resolveEndpoint("wss://same.test/voice"); resolveCapture({ stop }); await settle();
   expect(factory).not.toHaveBeenCalled(); expect(stop).toHaveBeenCalledTimes(1); expect(events).toEqual([]);
 });
-it("bounds a stuck endpoint and releases a live microphone", async () => {
+it("bounds a stuck endpoint without interrupting local capture", async () => {
   const stop = vi.fn(), events: VoiceEvent[] = [];
   const s = new BrowserVoiceSession({ endpoint: () => new Promise(() => {}), capture: async () => ({ stop }), onEvent: (e) => events.push(e) });
   sessions.push(s); s.start(); await settle(); await vi.advanceTimersByTimeAsync(10000);
-  expect(stop).toHaveBeenCalled(); expect(events.at(-1)).toMatchObject({ kind: "failed", error: { code: "HR-VOICE-001" } });
+  expect(stop).not.toHaveBeenCalled(); expect(events.at(-1)).toMatchObject({ kind: "degraded", error: { code: "HR-VOICE-001" } });
+  s.finish(); expect(stop).toHaveBeenCalledOnce(); expect(events.at(-1)?.kind).toBe("failed");
 });
 it("refuses backpressure and malformed provider frames without leaking their content", async () => {
   const h = harness(); await settle(); h.socket.onopen!(); h.socket.onmessage!({ data: frame() }); await settle();
   h.socket.bufferedAmount = 512 * 1024; h.pcm(new Uint8Array(12800));
-  expect(h.events.at(-1)).toMatchObject({ kind: "failed", error: { code: "HR-VOICE-001" } });
+  expect(h.events.at(-1)).toMatchObject({ kind: "degraded", error: { code: "HR-VOICE-001" } });
   const bad = harness(); await settle(); bad.socket.onmessage!({ data: new Uint8Array([1, 2]).buffer }); await settle();
-  expect(bad.events.at(-1)).toMatchObject({ kind: "failed", error: { code: "HR-VOICE-002" } });
+  expect(bad.events.at(-1)).toMatchObject({ kind: "degraded", error: { code: "HR-VOICE-002" } });
 });
 it("cancel returns partial text and a late final can no longer send", async () => {
   const h = harness(); await settle(); h.socket.onmessage!({ data: frame("草稿") }); await settle();
@@ -74,7 +75,9 @@ it("cancel returns partial text and a late final can no longer send", async () =
 });
 it("a provider final while still holding cannot send and retains text for review", async () => {
   const h = harness(); await settle(); h.socket.onmessage!({ data: frame("尚未松手", true) }); await settle();
-  expect(h.events.at(-1)).toMatchObject({ kind: "failed", text: "尚未松手", error: { code: "HR-VOICE-002" } });
+  expect(h.events.at(-1)).toMatchObject({ kind: "degraded", error: { code: "HR-VOICE-002" } });
+  expect(h.stop).not.toHaveBeenCalled(); h.session.finish();
+  expect(h.events.at(-1)).toMatchObject({ kind: "failed", text: "尚未松手" });
   expect(h.events.some((e) => e.kind === "final")).toBe(false); expect(h.stop).toHaveBeenCalledOnce();
 });
 it("survives 60 seconds and gracefully finalizes five minutes of real audio to a draft", async () => {
@@ -100,6 +103,9 @@ it("a release just before the limit has its own full final-result deadline", asy
 it.each(["close", "error"])("reports established connection %s separately, retaining partial text", async (event) => {
   const h = harness(); await settle(); h.socket.onmessage!({ data: frame("已有文字") }); await settle();
   if (event === "close") h.socket.onclose!(); else h.socket.onerror!();
+  expect(h.stop).not.toHaveBeenCalled();
+  expect(h.events.at(-1)).toMatchObject({ kind: "degraded", error: { code: "HR-VOICE-003" } });
+  h.session.finish();
   expect(h.events.at(-1)).toMatchObject({ kind: "failed", text: "已有文字", error: { code: "HR-VOICE-003" } });
   expect(vi.getTimerCount()).toBe(0);
 });
@@ -123,7 +129,7 @@ it.each(["cancel", "finish", "failure"])("ignores PCM after %s, including a late
   expect(events).toEqual([]);
   if (ending === "cancel") s.cancel();
   else if (ending === "finish") s.finish();
-  else await vi.advanceTimersByTimeAsync(10_000);
+  else s.storageFailed();
   resolve({ stop }); await settle(); pcm(new Uint8Array(320));
   expect(stop).toHaveBeenCalledOnce(); expect(events.some((e) => e.kind === "recording")).toBe(false);
 });
@@ -133,4 +139,40 @@ it("a failed capture never reports recording, even if it supplied PCM before rej
     capture: async (pcm) => { pcm(new Uint8Array(320)); throw new Error("capture failed"); }, onEvent: (e) => events.push(e) });
   sessions.push(s); s.start(); await settle();
   expect(events).toEqual([expect.objectContaining({ kind: "failed", error: expect.objectContaining({ code: "HR-PERM-006" }) })]);
+});
+it("journals every PCM byte before and after a mid-sentence disconnect until release", async () => {
+  const socket = new Socket(), audio: Uint8Array[] = [], events: VoiceEvent[] = [], stop = vi.fn();
+  let pcm!: (bytes: Uint8Array) => void;
+  const session = new BrowserVoiceSession({ endpoint: async () => "wss://same.test/voice", socket: () => socket as unknown as WebSocket,
+    capture: async (callback) => { pcm = callback; return { stop }; }, onAudio: bytes => audio.push(bytes), onEvent: event => events.push(event) });
+  sessions.push(session); session.start(); await settle(); socket.onopen!(); socket.onmessage!({ data: frame("before") }); await settle();
+  pcm(new Uint8Array([1, 2])); socket.onclose!(); pcm(new Uint8Array([3, 4]));
+  expect(stop).not.toHaveBeenCalled(); expect(events.filter(e => e.kind === "failed")).toEqual([]);
+  session.finish();
+  expect(audio).toEqual([new Uint8Array([1, 2]), new Uint8Array([3, 4])]); expect(stop).toHaveBeenCalledOnce();
+  expect(events.at(-1)).toMatchObject({ kind: "failed", text: "before" });
+});
+it("replays saved audio with a new sequence without a microphone; final budget starts at last packet", async () => {
+  const socket = new Socket(), events: VoiceEvent[] = [], capture = vi.fn();
+  const session = new BrowserVoiceSession({ endpoint: async () => "wss://same.test/voice", socket: () => socket as unknown as WebSocket,
+    capture, replay: { chunks: [new Uint8Array(12800).fill(7), new Uint8Array([8, 9])], limited: false }, onEvent: e => events.push(e) });
+  sessions.push(session); session.start(); await settle(); socket.onopen!(); socket.onmessage!({ data: frame() }); await settle();
+  expect(capture).not.toHaveBeenCalled(); expect(socket.sent).toHaveLength(2);
+  await vi.advanceTimersByTimeAsync(400);
+  expect(socket.sent).toHaveLength(4);
+  expect(new DataView(socket.sent[3]!).getInt32(4)).toBe(-4);
+  expect(new Uint8Array(socket.sent[3]!).slice(12)).toEqual(new Uint8Array([8, 9]));
+  socket.onmessage!({ data: frame("full replacement", true) }); await settle();
+  expect(events.at(-1)).toEqual({ kind: "final", text: "full replacement" });
+  expect(vi.getTimerCount()).toBe(0);
+});
+it.each(["initial", "mid-replay"])("rejects a provider final %s before the saved audio's final packet", async stage => {
+  const socket = new Socket(), events: VoiceEvent[] = [];
+  const session = new BrowserVoiceSession({ endpoint: async () => "wss://same.test/voice", socket: () => socket as unknown as WebSocket,
+    replay: { chunks: [new Uint8Array(12802)], limited: false }, onEvent: e => events.push(e) });
+  sessions.push(session); session.start(); await settle(); socket.onopen!();
+  socket.onmessage!({ data: frame("early", stage === "initial") }); await settle();
+  if (stage === "mid-replay") { socket.onmessage!({ data: frame("early", true) }); await settle(); }
+  expect(events.some(e => e.kind === "final")).toBe(false);
+  expect(events.at(-1)).toMatchObject({ kind: "failed", error: { code: "HR-VOICE-002" } });
 });

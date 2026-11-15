@@ -34,6 +34,7 @@ class DoubaoVoiceSessionTest {
     private val testScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Before fun setUp() {
+        com.hermes.client.data.voice.VoiceRecordingStore(ApplicationProvider.getApplicationContext<Application>()).clear()
         DebugLog.detachStore()
         DebugLog.setTokenToRedact(null)
         DebugLog.setEnabled(true)
@@ -108,8 +109,12 @@ class DoubaoVoiceSessionTest {
             endpointTimeoutMs = 200,
         ) { event = it }
 
+        shadowOf(ApplicationProvider.getApplicationContext<Application>()).grantPermissions(android.Manifest.permission.RECORD_AUDIO)
         session.start()
-        val received = awaitEvent({ event })
+        val degraded = awaitEvent({ event?.takeIf { it is VoiceEvent.Degraded } })
+        assertTrue(degraded is VoiceEvent.Degraded)
+        session.finish()
+        val received = awaitEvent({ event?.takeIf { it is VoiceEvent.Failed } })
 
         assertTrue("no event arrived before the deadline — the session hung", received != null)
         assertTrue(received is VoiceEvent.Failed)
@@ -128,8 +133,11 @@ class DoubaoVoiceSessionTest {
             endpointTimeoutMs = 200,
         ) { event = it }
 
+        shadowOf(ApplicationProvider.getApplicationContext<Application>()).grantPermissions(android.Manifest.permission.RECORD_AUDIO)
         session.start()
-        awaitEvent({ event })
+        awaitEvent({ event?.takeIf { it is VoiceEvent.Degraded } })
+        session.finish()
+        awaitEvent({ event?.takeIf { it is VoiceEvent.Failed } })
 
         val log = messages()
         assertTrue(log.any { it == "start" })
@@ -173,7 +181,7 @@ class DoubaoVoiceSessionTest {
         } finally { session.cancel(); server.close() }
     }
 
-    @Test fun disconnectWhileHolding_reportsImmediatelyAndKeepsPartialText() {
+    @Test fun disconnectWhileHolding_keepsRecordingUntilReleaseAndSavesAllAudio() {
         val server = mockwebserver3.MockWebServer()
         server.start()
         server.enqueue(mockwebserver3.MockResponse.Builder().webSocketUpgrade(object : okhttp3.WebSocketListener() {
@@ -190,6 +198,14 @@ class DoubaoVoiceSessionTest {
         ) { events.add(it) }
         try {
             session.start()
+            assertTrue(awaitEvent({ events.firstOrNull { it is VoiceEvent.Degraded } }) is VoiceEvent.Degraded)
+            assertTrue(events.none { it is VoiceEvent.Failed })
+            val saved = checkNotNull(session.savedRecording)
+            val file = com.hermes.client.data.voice.VoiceRecordingStore(context).audio(saved.id)
+            val before = file.length()
+            assertTrue("capture must continue after disconnect",
+                awaitEvent({ if (file.length() > before) VoiceEvent.Started else null }) != null)
+            session.finish()
             assertEquals(VoiceEvent.Failed("断线前文字", VoiceFailure.DISCONNECTED),
                 awaitEvent({ events.firstOrNull { it is VoiceEvent.Failed } }))
             assertTrue(events.none { it is VoiceEvent.Final })
@@ -213,6 +229,9 @@ class DoubaoVoiceSessionTest {
         ) { events.add(it) }
         try {
             session.start()
+            assertTrue(awaitEvent({ events.firstOrNull { it is VoiceEvent.Degraded } }) is VoiceEvent.Degraded)
+            assertTrue(events.none { it is VoiceEvent.Final || it is VoiceEvent.Failed })
+            session.finish()
             assertEquals(VoiceEvent.Failed("提前定稿", VoiceFailure.RECOGNITION),
                 awaitEvent({ events.firstOrNull { it is VoiceEvent.Failed } }))
             assertTrue(events.none { it is VoiceEvent.Final })
@@ -244,6 +263,100 @@ class DoubaoVoiceSessionTest {
                 awaitEvent({ events.firstOrNull { it is VoiceEvent.Failed } }, timeoutMs = 12_000))
             assertTrue(messages().any { it.startsWith("failed reason=FINAL_TIMEOUT") })
             assertTrue(events.none { it is VoiceEvent.Final })
+        } finally { session.cancel(); server.close() }
+    }
+
+    @Test fun replayUsesOriginalPcmInANewStreamWithoutStartingTheMicrophone() {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        shadowOf(context).denyPermissions(android.Manifest.permission.RECORD_AUDIO)
+        val store = com.hermes.client.data.voice.VoiceRecordingStore(context)
+        val record = store.begin("replay")
+        val audio = ByteArray(12_802) { (it % 97).toByte() }
+        store.append(record.id, audio)
+        val sealed = store.seal(record.id, true, false)
+        val received = java.io.ByteArrayOutputStream()
+        val sequences = java.util.concurrent.CopyOnWriteArrayList<Int>()
+        val server = mockwebserver3.MockWebServer()
+        server.start()
+        server.enqueue(mockwebserver3.MockResponse.Builder().webSocketUpgrade(object : okhttp3.WebSocketListener() {
+            override fun onClosing(webSocket: okhttp3.WebSocket, code: Int, reason: String) { webSocket.close(code, reason) }
+            override fun onMessage(ws: okhttp3.WebSocket, bytes: okio.ByteString) {
+                val frame = bytes.toByteArray()
+                if (frame[1].toInt() == 0x10) ws.send(response(""))
+                else {
+                    sequences += java.nio.ByteBuffer.wrap(frame, 4, 4).int
+                    received.write(frame, 12, frame.size - 12)
+                    if (frame[1].toInt() == 0x23) ws.send(response("replayed final", true))
+                }
+            }
+        }).build())
+        val events = java.util.concurrent.CopyOnWriteArrayList<VoiceEvent>()
+        val session = DoubaoVoiceSession(context, testScope,
+            endpoint = { com.hermes.client.data.network.GatewayWebSocketEndpoint(server.url("/").toString().replace("http", "ws")) },
+            replay = sealed, store = store,
+        ) { events.add(it) }
+        try {
+            session.start()
+            assertEquals(VoiceEvent.Final("replayed final"), awaitEvent({ events.firstOrNull { it is VoiceEvent.Final || it is VoiceEvent.Failed } }))
+            assertTrue(events.none { it is VoiceEvent.Started })
+            org.junit.Assert.assertArrayEquals(audio, received.toByteArray())
+            assertEquals(listOf(2, 3, -4), sequences)
+        } finally { session.cancel(); server.close() }
+    }
+
+    @Test fun microphoneFailureAfterDisconnectCannotClaimACompleteRecording() {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        shadowOf(context).grantPermissions(android.Manifest.permission.RECORD_AUDIO)
+        val failMic = java.util.concurrent.atomic.AtomicBoolean(false)
+        org.robolectric.shadows.ShadowAudioRecord.setSource(object : org.robolectric.shadows.ShadowAudioRecord.AudioRecordSource {
+            override fun readInByteArray(buffer: ByteArray, offset: Int, size: Int, blocking: Boolean): Int {
+                Thread.sleep(20L)
+                return if (failMic.get()) -3 else size
+            }
+        })
+        val events = java.util.concurrent.CopyOnWriteArrayList<VoiceEvent>()
+        val session = DoubaoVoiceSession(context, testScope, endpoint = { awaitCancellation() }, endpointTimeoutMs = 150) { events.add(it) }
+        try {
+            session.start()
+            assertTrue(awaitEvent({ events.firstOrNull { it is VoiceEvent.Degraded } }) is VoiceEvent.Degraded)
+            failMic.set(true)
+            assertEquals(VoiceFailure.MICROPHONE,
+                (awaitEvent({ events.firstOrNull { it is VoiceEvent.Failed } }) as VoiceEvent.Failed).reason)
+            val record = checkNotNull(session.savedRecording)
+            assertTrue(record.bytes > 0)
+            assertTrue(!record.complete)
+        } finally { session.cancel() }
+    }
+
+    @Test fun replayRejectsAnInitialFinalBeforeAnyAudioWasSent() = assertPrematureReplayFinal(0)
+    @Test fun replayRejectsAFinalWhileSavedAudioIsStillBeingSent() = assertPrematureReplayFinal(1)
+    private fun assertPrematureReplayFinal(earlyAt: Int) {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val store = com.hermes.client.data.voice.VoiceRecordingStore(context)
+        val r = store.begin("early-$earlyAt")
+        store.append(r.id, ByteArray(12802))
+        val sealed = store.seal(r.id, true, false)
+        val server = mockwebserver3.MockWebServer()
+        server.start()
+        server.enqueue(mockwebserver3.MockResponse.Builder().webSocketUpgrade(object : okhttp3.WebSocketListener() {
+            private var packets = 0
+            override fun onClosing(webSocket: okhttp3.WebSocket, code: Int, reason: String) { webSocket.close(code, reason) }
+            override fun onMessage(ws: okhttp3.WebSocket, bytes: okio.ByteString) {
+                if (bytes[1].toInt() == 0x10) ws.send(response("early", earlyAt == 0))
+                else if (++packets == earlyAt) ws.send(response("early", true))
+            }
+        }).build())
+        val events = java.util.concurrent.CopyOnWriteArrayList<VoiceEvent>()
+        val session = DoubaoVoiceSession(context, testScope,
+            endpoint = { com.hermes.client.data.network.GatewayWebSocketEndpoint(server.url("/").toString().replace("http", "ws")) },
+            replay = sealed, store = store,
+        ) { events.add(it) }
+        try {
+            session.start()
+            val terminal = awaitEvent({ events.firstOrNull { it is VoiceEvent.Final || it is VoiceEvent.Failed } })
+            assertTrue("premature result was accepted: $terminal", terminal is VoiceEvent.Failed)
+            assertEquals(VoiceFailure.RECOGNITION, (terminal as VoiceEvent.Failed).reason)
+            assertTrue(store.audio(r.id).exists())
         } finally { session.cancel(); server.close() }
     }
 

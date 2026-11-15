@@ -167,6 +167,7 @@ enum class AppErrorCode(val value: String) {
     VOICE_DISCONNECTED("HR-VOICE-003"),
     VOICE_FINAL_TIMEOUT("HR-VOICE-004"),
     VOICE_EMPTY("HR-VOICE-005"),
+    VOICE_STORAGE_FAILED("HR-VOICE-006"),
     HISTORY_INCOMPLETE("HR-SYNC-001"),
     RUN_UNCONFIRMED("HR-SYNC-002"),
     // The Mac's Hermes answered the transcript request with a 5xx. The conversation and the
