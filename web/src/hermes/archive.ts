@@ -23,8 +23,9 @@ export interface ArchiveOperations {
 }
 
 export function archiveFailure(error: unknown): AppError {
-  if (error instanceof GatewayHttpError && error.status >= 400 && error.status < 500 ||
-      error instanceof HermesSocketError && error.kind === "rpc" && error.code !== 0) {
+  if (error instanceof GatewayHttpError && error.status >= 400 && error.status < 500 && error.status !== 408 ||
+      error instanceof HermesSocketError && error.kind === "rpc" && error.code !== undefined &&
+      (error.code >= 4000 && error.code < 5000 || [-32600, -32601, -32602].includes(error.code))) {
     return appError("HR-SESS-026", error instanceof Error ? error.message : String(error));
   }
   return appError("HR-SESS-025", error instanceof Error ? error.message : String(error));

@@ -626,11 +626,11 @@ class SessionRepository(
                 },
                 rest = {
                     requireRoute()
-                    mutateFenced(sessionId, profile, deviceId) { requestId, revision ->
-                        requireRoute()
-                        rest.patchSession(sessionId, archived = archived, profile = profile, deviceId = deviceId,
-                            requestId = requestId, expectedRevision = revision)
-                    }
+                    // Preserve the fence, but never replay an archive intent on conflict.
+                    // The shared rename/delete retry can re-read another profile after a route change.
+                    val revision = cachedSession(sessionId, profile, deviceId)?.runtimeRevision ?: 0
+                    rest.patchSession(sessionId, archived = archived, profile = profile, deviceId = deviceId,
+                        requestId = java.util.UUID.randomUUID().toString(), expectedRevision = revision)
                 },
                 read = {
                     requireRoute()

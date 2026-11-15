@@ -384,33 +384,19 @@ class SessionRepositoryTest {
         }
     }
 
-    @Test fun revision_conflict_retries_once_with_the_re_read_revision() = runTest {
-        coEvery { rest.profileSessions(any(), false, null, any(), any(), 1) } returns
-            ProfileSessionsDto(sessions = listOf(revisionDto("s1", 3)))
-        repo.listAllProfiles()
-
-        // The other client's write lands between our read and our PATCH; the re-read sees it.
-        var calls = 0
+    @Test fun archive_conflict_is_not_retried_or_refreshed() = runTest {
         coEvery {
             rest.patchSession("s1", archived = true, profile = "personal", deviceId = null,
                 requestId = any(), expectedRevision = any())
-        } answers {
-            calls += 1
-            if (calls == 1) throw com.hermes.client.data.network.HermesApiException(409, "revision_conflict")
+        } throws com.hermes.client.data.network.HermesApiException(409, "revision_conflict")
+        try {
+            repo.archive("s1", true, "personal")
+            org.junit.Assert.fail("conflict must surface")
+        } catch (failure: SessionArchiveFailure) {
+            assertEquals(com.hermes.client.data.error.AppErrorCode.SESSION_ARCHIVE_REFUSED, failure.error.code)
         }
-        coEvery { rest.profileSessions(any(), false, null, any(), any(), 1) } returns
-            ProfileSessionsDto(sessions = listOf(revisionDto("s1", 4)))
-
-        repo.archive("s1", archived = true, "personal")
-
-        coVerify(exactly = 2) {
-            rest.patchSession("s1", archived = true, profile = "personal", deviceId = null,
-                requestId = any(), expectedRevision = any())
-        }
-        coVerify(atLeast = 1) {
-            rest.patchSession("s1", archived = true, profile = "personal", deviceId = null,
-                requestId = any(), expectedRevision = 4)
-        }
+        coVerify(exactly = 1) { rest.patchSession(any(), any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { rest.profileSessions(any(), any(), any(), any(), any(), any()) }
     }
 
     @Test fun non_conflict_failures_are_not_retried() = runTest {

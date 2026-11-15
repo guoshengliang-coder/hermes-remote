@@ -647,7 +647,7 @@ export class GatewayClient {
    * Rename (title), archive / unarchive (archived). `profile` rides in the body, as on Android.
    * Hermes ≥ 0.22.5 (2026-10-16) fences every write (HG-250): without request_id +
    * expected_revision the answer is 409 client_upgrade_required and nothing changes. Pass the
-   * row's runtime_revision; a 409 revision_conflict re-reads the row and retries once.
+   * row's runtime_revision; rename retries a revision conflict once, archive never replays it.
    */
   async updateSession(
     deviceId: string,
@@ -655,11 +655,13 @@ export class GatewayClient {
     change: { title?: string; archived?: boolean },
     profile?: string | null,
     expectedRevision?: number,
+    signal?: AbortSignal,
   ): Promise<unknown> {
     const result = await this.mutateSessionFenced(deviceId, sessionId, (fence) =>
       this.deviceApi(deviceId, "PATCH", `sessions/${encodePathSegment(sessionId)}`, {
+        signal,
         body: { ...change, ...(profile ? { profile } : {}), request_id: fence.requestId, expected_revision: fence.expectedRevision },
-      }), expectedRevision,
+      }), expectedRevision, change.archived !== undefined ? { signal, profile } : undefined,
     );
     if (change.archived !== undefined) {
       const ack = result as { archived?: unknown; session_id?: unknown } | null;
@@ -683,20 +685,29 @@ export class GatewayClient {
   }
 
   /** One write with the caller's fence, then once more on a revision conflict with a re-read one. */
-  private async mutateSessionFenced<T>(deviceId: string, sessionId: string, call: (fence: { requestId: string; expectedRevision: number }) => Promise<T>, expectedRevision?: number): Promise<T> {
+  private async mutateSessionFenced<T>(deviceId: string, sessionId: string, call: (fence: { requestId: string; expectedRevision: number }) => Promise<T>, expectedRevision?: number, archive?: { signal?: AbortSignal; profile?: string | null }): Promise<T> {
+    const current = () => archive?.signal?.throwIfAborted();
     const currentRevision = async (): Promise<number> => {
       try {
-        const rows = await this.profileSessions(deviceId);
-        return rows.sessions.find((s) => s.id === sessionId)?.runtime_revision ?? 0;
-      } catch {
+        current();
+        const rows = archive ? await this.deviceApi<ProfileSessionsResponse>(deviceId, "GET",
+          `profiles/sessions?archived=include&profile=${encodeURIComponent(archive.profile || "default")}`, { signal: archive.signal })
+          : await this.profileSessions(deviceId);
+        current();
+        return rows.sessions.find((s) => s.id === sessionId && (!archive ||
+          (s.profile || "default") === (archive.profile || "default")))?.runtime_revision ?? 0;
+      } catch (error) {
+        if (archive) throw error;
         return 0;
       }
     };
     const initial = expectedRevision ?? await currentRevision();
+    current();
     try {
       return await call({ requestId: newFenceRequestId(), expectedRevision: initial });
     } catch (error) {
-      if (!(error instanceof GatewayHttpError) || error.status !== 409 || !revisionConflict(error.body)) {
+      // An archive intent is never replayed after its owning route may have changed.
+      if (archive || !(error instanceof GatewayHttpError) || error.status !== 409 || !revisionConflict(error.body)) {
         throw error;
       }
       return call({ requestId: newFenceRequestId(), expectedRevision: await currentRevision() });

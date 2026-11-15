@@ -37,6 +37,14 @@ describe("archive upgrade contract", () => {
     ops.read = vi.fn().mockResolvedValue(requested);
     await archiveWithBackend(ops); expect(ops.rpc).toHaveBeenCalledOnce(); expect(ops.rest).not.toHaveBeenCalled();
   });
+  for (const code of [5007, -32603, -32000, 7001]) it(`RPC ${code} is ambiguous and reads without replay`, async () => {
+    const ops = operations(); ops.rpc = vi.fn().mockRejectedValue(new HermesSocketError("rpc", "storage failed", "session.archive", code));
+    ops.read = vi.fn().mockResolvedValue(true);
+    await archiveWithBackend(ops);
+    expect(ops.read).toHaveBeenCalledOnce(); expect(ops.rpc).toHaveBeenCalledOnce(); expect(ops.rest).not.toHaveBeenCalled();
+    ops.read = vi.fn().mockResolvedValue(false);
+    await expect(archiveWithBackend(ops)).rejects.toMatchObject({ code: "HR-SESS-025" });
+  });
   it("absence/opposite state does not prove an ambiguous write failed or authorize replay", async () => {
     for (const state of [null, false]) {
       const ops = operations(); ops.rpc = vi.fn().mockRejectedValue(new HermesSocketError("closed", "disconnected"));

@@ -16,7 +16,8 @@ class SessionArchiveFailure(val error: AppError) : Exception(error.code.value)
 fun archiveFailure(cause: Throwable): AppError = when (cause) {
     is SessionArchiveFailure -> cause.error
     else -> AppError(
-        if (cause is GatewayRpcException && cause.code != 0 || cause is HermesApiException && cause.code in 400..499)
+        if (cause is GatewayRpcException && (cause.code in 4000..4999 || cause.code in listOf(-32600, -32601, -32602)) ||
+            cause is HermesApiException && cause.code in 400..499 && cause.code != 408)
             AppErrorCode.SESSION_ARCHIVE_REFUSED else AppErrorCode.SESSION_ARCHIVE_UNCONFIRMED,
         retryable = false, technicalCause = cause.message, stage = "session_archive",
     )

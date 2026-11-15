@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { GatewayClient } from "../api/gateway";
+import { GatewayClient, GatewayHttpError } from "../api/gateway";
 import { HermesSocket, HermesSocketError } from "../hermes/client";
 import { archiveSession } from "./oneShot";
 
@@ -51,9 +51,23 @@ describe("device-scoped archive adapter", () => {
     await expect(archiveSession(api, "mac-a", "s", true, "work", 0, true, abort.signal)).rejects.toBeDefined();
     expect(socket.call).not.toHaveBeenCalled(); expect(api.updateSession).not.toHaveBeenCalled();
   });
+  it("sign-out aborts an in-flight REST request and prevents readback", async () => {
+    const api = client(); let writeSignal: AbortSignal | undefined;
+    let signedOut!: Parameters<GatewayClient["onSignedOut"]>[0];
+    vi.spyOn(api, "onSignedOut").mockImplementation((listener) => { signedOut = listener; return () => {}; });
+    vi.mocked(api.updateSession).mockImplementation((_d, _s, _c, _p, _r, signal) => {
+      writeSignal = signal;
+      return new Promise((_resolve, reject) => signal!.addEventListener("abort", () => reject(new Error("aborted"))));
+    });
+    const pending = archiveSession(api, "mac-a", "s", true, "work", 7, false);
+    await vi.waitFor(() => expect(writeSignal).toBeDefined());
+    signedOut(new GatewayHttpError(401, {}, "session"));
+    await expect(pending).rejects.toBeDefined();
+    expect(writeSignal!.aborted).toBe(true); expect(api.deviceApi).not.toHaveBeenCalled();
+  });
   it("keeps the old Gateway REST contract without probing a withheld RPC", async () => {
     const api = client(); await archiveSession(api, "mac-a", "s", true, "work", 7, false);
-    expect(api.updateSession).toHaveBeenCalledExactlyOnceWith("mac-a", "s", { archived: true }, "work", 7);
+    expect(api.updateSession).toHaveBeenCalledExactlyOnceWith("mac-a", "s", { archived: true }, "work", 7, expect.any(AbortSignal));
     expect(HermesSocket).not.toHaveBeenCalled();
   });
 });

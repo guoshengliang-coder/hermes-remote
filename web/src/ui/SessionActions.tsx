@@ -76,7 +76,7 @@ export function SessionActionSheet({
   const pinned = app.isPinned(session);
 
   // Hermes ≥ 0.22.5 fences every write (HG-250): the row's runtime_revision rides along and a
-  // concurrent edit is retried once inside the client with a re-read fence.
+  // concurrent rename/delete is retried once; archive conflicts are surfaced without replay.
   const revision = session.runtime_revision ?? 0;
 
   async function refresh() {

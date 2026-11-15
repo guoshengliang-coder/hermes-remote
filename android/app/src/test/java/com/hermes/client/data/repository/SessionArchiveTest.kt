@@ -66,6 +66,19 @@ class SessionArchiveTest {
             } catch (e: SessionArchiveFailure) { assertEquals(AppErrorCode.SESSION_ARCHIVE_UNCONFIRMED, e.error.code) }
         }
     }
+    @Test fun internal_or_unknown_rpc_errors_reconcile_without_replay() = runTest {
+        for (code in listOf(5007, -32603, -32000, 7001)) {
+            var reads = 0
+            archiveWithBackend(SessionArchiveMode.LEGACY, "s", true,
+                { throw GatewayRpcException(code, "storage failed") }, { error("unsafe fallback") }, { reads++; true })
+            assertEquals(1, reads)
+            try {
+                archiveWithBackend(SessionArchiveMode.LEGACY, "s", true,
+                    { throw GatewayRpcException(code, "storage failed") }, { error("unsafe fallback") }, { false })
+                fail("must remain unknown")
+            } catch (e: SessionArchiveFailure) { assertEquals(AppErrorCode.SESSION_ARCHIVE_UNCONFIRMED, e.error.code) }
+        }
+    }
     @Test fun wrong_target_and_unknown_mode_do_not_claim_success() = runTest {
         try {
             archiveWithBackend(SessionArchiveMode.LEGACY, "s", true, { ack("other") }, {}, { null })

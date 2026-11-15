@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 from types import SimpleNamespace
+from urllib.parse import unquote, urlsplit
 
 
 @contextmanager
@@ -59,6 +60,13 @@ def main():
         def audit(event, values):
             if event in ("socket.connect", "subprocess.Popen"):
                 raise OSError("archive contract probe forbids network and child processes")
+            if event == "sqlite3.connect":
+                database = values[0]
+                if isinstance(database, str) and database.startswith("file:"):
+                    uri = urlsplit(database)
+                    database = unquote(uri.path) if uri.netloc in ("", "localhost") else None
+                if database != ":memory:" and not inside(database):
+                    raise PermissionError("archive contract probe forbids external SQLite stores")
             if event == "open":
                 path, mode, flags = values
                 if isinstance(path, int):
@@ -91,6 +99,14 @@ def main():
 
         def check(name, condition, details=None):
             checks.append({"name": name, "passed": bool(condition), "details": details})
+
+        try:
+            # Invoke the guard directly: never actually open a real external database.
+            audit("sqlite3.connect", (root / "state.db",))
+        except PermissionError:
+            check("SQLite guard rejects an external store", True)
+        else:
+            check("SQLite guard rejects an external store", False)
 
         class Sink:
             async def send_text(self, _line):
@@ -145,6 +161,19 @@ def main():
                     reply = server.handle_request({"id": 1, "method": "session.archive", "params": {
                         "session_id": target, "profile": profile, "archived": True}})
                     check("refuse:" + target + ":" + profile, reply.get("error", {}).get("code") == code, reply)
+                original_archive = db.set_session_archived
+                def fail_after_write(target, archived):
+                    original_archive(target, archived)
+                    raise RuntimeError("synthetic acknowledgement failure after commit")
+                db.set_session_archived = fail_after_write
+                try:
+                    reply = server.handle_request({"id": 1, "method": "session.archive", "params": {
+                        "session_id": sid, "profile": "default", "archived": True}})
+                    check("RPC storage error may follow a committed write", reply.get("error", {}).get("code") == 5007
+                        and db.get_session(sid)["archived"] == 1, reply)
+                finally:
+                    db.set_session_archived = original_archive
+                    original_archive(sid, False)
                 authority.sessions[sid] = LiveSession(None, "fixture-route")
                 connection = AuthorityConnection(authority, transport, {"user_id": "fixture-owner"})
                 try:

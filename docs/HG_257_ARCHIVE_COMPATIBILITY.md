@@ -19,7 +19,8 @@ source label, adopt/resume the session, start inference, use SQL, or install a s
 | `session_authority: true` | Existing revision-fenced REST |
 | Malformed/missing payload or unknown flag format | `HR-COMPAT-004`, no write |
 | Standalone RPC explicitly answers `-32601` | Existing REST path for older upstreams |
-| Any permission, conflict or other RPC refusal | Preserve refusal; never change protocol |
+| Explicit permission, conflict or invalid-parameter refusal | Preserve refusal; never change protocol |
+| Internal/storage or unknown future RPC error | Fresh read only; a write may already have committed |
 | Timeout, disconnect, malformed/wrong-target acknowledgement | Fresh read of original Mac/profile; never replay the write |
 
 The standalone flag is idempotent, **not compare-and-swap**: external clients can still write an
@@ -27,6 +28,7 @@ opposite flag concurrently. GO blocks a second in-flight intent for the same tar
 does not queue it. A fresh matching state confirms the current observation, not which concurrent
 writer produced it. Absence/opposite state never proves a timed-out write failed. Unknown outcomes
 use `HR-SESS-025`; explicit refusals/in-progress use `HR-SESS-026`. Recovery reads state only.
+Archive revision conflicts are surfaced without the shared rename/delete automatic retry.
 No new fallback is applied to rename/delete or to an authority-owned session.
 
 Android uses its authenticated socket and binds the archive call to the handshake generation;
@@ -63,9 +65,10 @@ The source checkout and a user's real `state.db` are never written. It tests rea
 owner handlers and the WS dispatcher/handler, not just mock responses. Output records source SHA,
 every check and limitations; any changed/unusable contract fails rather than claiming compatibility.
 
-The installed build passes 18 checks: REST source comparison, RPC archive/restore across GO and
+The installed build passes 20 checks: REST source comparison, RPC archive/restore across GO and
 native sources, messages retained, compression chain, same-ID profile isolation, missing ID/profile,
-and authority refusal of legacy fallback. A future upstream fixing GO-source REST admission is
+authority refusal of legacy fallback, a real write followed by RPC storage error, and the
+external-SQLite guard. A future upstream fixing GO-source REST admission is
 allowed; a different refusal or removal of the supported RPC fails the validator for investigation.
 
 ## Gate before adopting another upstream
@@ -112,3 +115,26 @@ light, English dark and Chinese large text. No release version is allocated by t
   checks. Database-backed Gateway integration tests require their configured test database.
 - Source-only delivery in `codex/hg-257-archive-compat`; no push, PR, merge, version bump,
   production mutation, restart, installation or publication has been performed.
+
+## Follow-up audit — three rounds, 2026-11-15
+
+The user requested at most three rounds with fixes. The following are separate audit passes by
+this implementation session, not claims of external human review or independently staffed agents.
+
+| Round / perspective | Finding | Fix and evidence |
+|---|---|---|
+| 1 — lifecycle and write ordering | Web cancellation closed WS but did not abort REST; shared conflict handling could issue another archive write. README insertion split two existing paragraphs. | Internal AbortController reaches REST and fresh reads; profile-scoped revision reads check cancellation before writing. Both clients surface archive conflicts without automatic retry; rename/delete retain their existing behavior. Tests cover aborted revision read, sign-out during REST, and one-write conflict refusal; README paragraphs restored. |
+| 2 — actual upstream failure semantics | Official RPC catches storage exceptions as 5007 even if the archive flag was already committed. Treating every nonzero RPC code as refusal skipped reconciliation. | Explicit validation/permission/conflict codes remain refusals; internal/storage/unknown RPC codes and HTTP 408 are ambiguous and only read state. Client tests cover 5007, -32603, -32000 and a future code; the real upstream fixture writes then raises and proves 5007 with a changed flag. |
+| 3 — upgrade probe isolation and final consistency | Python file-open auditing does not cover SQLite connections opened by its native extension. | A sqlite3.connect audit guard permits only disposable-home databases or :memory:, parsing legitimate read-only file URIs before checking the canonical path. The negative guard check never actually opens an external store; all real upstream checks pass with the guard installed. |
+
+Final verification: Android full unit-test/build baseline passed, 3,031 tests, no failures/errors;
+Web all 105 files / 1,091 tests and typecheck/build passed. Focused regression suites also passed.
+The isolated installed-upstream validator now passes all 20 checks at the same pinned source SHA;
+upstream Git status is still clean. git diff --check passed. No Gateway/Connector/Protocol runtime
+code changed during this audit, so their previously successful baseline remains the applicable
+result. Web build retains its existing chunk-size advisory.
+
+No additional audit round was started after round 3; subsequent runs only verified those repairs.
+L1 ran; no attached physical device (L2), and available L3 was not run. Real-browser/production
+end-to-end, physical network loss and external-client concurrency remain unverified. No push,
+integration registration, merge, version allocation, APK handoff or publication was performed.

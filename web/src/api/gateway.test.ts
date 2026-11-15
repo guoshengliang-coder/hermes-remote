@@ -423,13 +423,27 @@ describe("HG-250 session mutation fence", () => {
       }
       return json(200, { sessions: [{ id: "s1", runtime_revision: 9 }] });
     });
-    await client.updateSession("dev", "s1", { archived: true }, null, 3);
+    await client.updateSession("dev", "s1", { title: "new title" }, null, 3);
     const patchCalls = calls.filter((c) => c.method === "PATCH");
     expect(patchCalls).toHaveLength(2);
     expect(patchCalls[0]!.body).toMatchObject({ expected_revision: 3 });
     expect(patchCalls[1]!.body).toMatchObject({ expected_revision: 9 });
     expect((patchCalls[1]!.body as Record<string, unknown>).request_id)
       .not.toBe((patchCalls[0]!.body as Record<string, unknown>).request_id);
+  });
+
+  it("archive conflict is final and does not re-read or replay", async () => {
+    const { client, calls } = fake(() => json(409, { detail: "revision_conflict" }));
+    await expect(client.updateSession("dev", "s1", { archived: true }, "work", 3)).rejects.toMatchObject({ status: 409 });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("an aborted revision read cannot be followed by an archive write", async () => {
+    const abort = new AbortController();
+    const { client, calls } = fake(() => { abort.abort(); return json(200, { sessions: [{ id: "s1", profile: "work", runtime_revision: 9 }] }); });
+    await expect(client.updateSession("dev", "s1", { archived: true }, "work", undefined, abort.signal)).rejects.toBeDefined();
+    expect(calls).toHaveLength(1); expect(calls[0]!.method).toBe("GET");
+    expect(calls[0]!.url).toContain("profile=work");
   });
 
   it("other refusals surface unchanged", async () => {

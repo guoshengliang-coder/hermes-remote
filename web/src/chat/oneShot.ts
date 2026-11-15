@@ -36,9 +36,10 @@ export async function archiveSession(client: GatewayClient, deviceId: string, st
   const key = JSON.stringify([deviceId, profile ?? "default", storedSessionId]);
   if (archiving.has(key)) throw appError("HR-SESS-026", "archive already in progress");
   archiving.add(key);
+  const controller = new AbortController();
   let cancelled = false;
   let activeSocket: HermesSocket | null = null;
-  const cancel = () => { cancelled = true; activeSocket?.close(); };
+  const cancel = () => { cancelled = true; controller.abort(); activeSocket?.close(); };
   const unsubscribe = client.onSignedOut(cancel);
   signal?.addEventListener("abort", cancel, { once: true });
   const current = () => {
@@ -48,7 +49,7 @@ export async function archiveSession(client: GatewayClient, deviceId: string, st
     for (let offset = 0; offset < 100_000; offset += 500) {
       current();
       const page = await client.deviceApi<ProfileSessionsResponse>(deviceId, "GET",
-        `profiles/sessions?limit=500&offset=${offset}&archived=include&profile=${encodeURIComponent(profile || "default")}`, { signal });
+        `profiles/sessions?limit=500&offset=${offset}&archived=include&profile=${encodeURIComponent(profile || "default")}`, { signal: controller.signal });
       current();
       if (page.errors?.length) return null;
       const row = page.sessions.find((s) => s.id === storedSessionId && (s.profile || "default") === (profile || "default"));
@@ -57,7 +58,7 @@ export async function archiveSession(client: GatewayClient, deviceId: string, st
     }
     return null;
   };
-  const rest = () => { current(); return client.updateSession(deviceId, storedSessionId, { archived }, profile, revision); };
+  const rest = () => { current(); return client.updateSession(deviceId, storedSessionId, { archived }, profile, revision, controller.signal); };
   try {
     current();
     if (!rpcAvailable) {
