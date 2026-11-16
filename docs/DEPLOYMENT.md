@@ -3264,3 +3264,66 @@ managed connector reinstalls and repair now carry `EXTRA_READ_ROOTS` (validated 
 external-volume attachment authorization survives managed updates on any Mac running 0.2.51+.
 Desktop-app installation does not touch the running connector agent; the allowlist takes effect
 on that Mac's next managed connector regeneration.
+
+
+### HG-257 session operations — Gateway/Web/Connector, 2026-11-16 (authorized)
+
+The owner authorized merge and publication in the original project conversation, then explicitly
+confirmed the established temporary-signing convention and patch-version allocation. Feature
+PR #750, version PR #751 and Android metadata PR #752 passed their PR and resulting main gates.
+Runtime publication source is `ddc8a903c0000031bffa7d5c44096ed2afa6c0b6`, containing feature merge
+`fbf9e8695dc453fe5b3459c18173e7123ed77a56`. No upstream Hermes source or production session database
+was modified. Schema, protocol/minimum clients and existing account/rollout flags remain unchanged.
+
+Gateway **0.4.42** used matching Gateway/operator artifacts from successful main OCI run
+`43783116785`, verified locally and after transfer, and the fresh extracted operator entrypoint.
+Native `production-release.mjs --operation deploy` committed run
+`6c8adee9-10d4-4314-85ae-045bc17e64da`, active **green**, previous **blue**;
+rollback point is `releases/0.4.41-78cc1585bb58`. Public capabilities report 0.4.42 and
+`session-archive-rpc`. Web was published afterwards with the official package/test/atomic-switch
+script: **0.1.1-ddc8a903c000**, previous `0.1.1-e96b4a29bf1f`; all **20** manifest-listed public
+files were independently downloaded and checked for exact size and SHA-256.
+
+Connector **0.1.21** is distributed through signed component channel **0.4.17**, containing only
+Node 22.23.2 and Connector. The current-public-key match was verified; signing reused the existing
+trusted local key under the owner's explicit single-publication exception because the protected
+GitHub environment still has no private-key secret. No key was generated, rotated, copied or
+exported. Exact immutable nginx routes were added with a backup, `nginx -t` and reload before the
+official protected-prestaged components-only publisher switched the index and pushed
+`desktop-components-v0.4.17`. Full public downloads passed independent signature, content,
+size/hash and Connector BUILD-IDENTITY source checks. Component 0.4.16 remains the rollback index;
+the legacy Desktop release index was not changed. No Desktop app/DMG code changed or was published.
+
+| Public component file under `/desktop/components/0.4.17/` | Bytes | SHA-256 |
+|---|---:|---|
+| `Hermes-Component-connector-0.1.21-arm64.tar.gz` | 101667 | `fa1f6c6563146abf4aca33872b054bad75b05927838fdeeb24ea1f289671d676` |
+| `Hermes-Component-node_runtime-22.23.2-arm64.tar.gz` | 36999073 | `0f334f49062e2f2176fbf7cd3395b772fc3fa03828e25fa67369664dd36d4c18` |
+
+Publication does not install the Connector on every Mac or the APK on a phone. The matching
+Connector and Android client must be updated before accepting the full fix. L1 tests passed;
+no L2 device was attached and L3 was not run. Real browser/phone-to-Mac production end-to-end,
+Basic Auth Console ticket integration and external-client concurrency remain acceptance work.
+Official active-session deletion and Console title-syntax restrictions remain. Legacy writes
+are not atomic CAS; unknown write outcomes require read-only refresh and are never replayed.
+
+
+Android **0.1.200/code 201** was published by official workflow `43785681706`, attempt 2,
+from the same runtime source. Attempt 1 stopped before publication on one of 3,032 tests:
+`DoubaoVoiceSessionTest.deniedMicrophone_neverAnnouncesCaptureStarted` waits for the first
+arbitrary event while a 200ms endpoint timeout can emit Degraded before the eventual Failed
+callback. Previous same-source gates passed; one permitted full rerun passed without removing
+or weakening a test. The first failure remains in the publication evidence.
+Public `https://mrlgs.net/releases/Hermes-Remote-0.1.200-debug.apk` is **37,426,131 bytes**,
+SHA-256 `ec383c761288de2badd436b0947c8c7efb9847abdbb17b3320549ad415427e48`.
+Independent full download, apksigner verification and aapt identity checks passed for
+`com.hermes.remote`, version 0.1.200/201 and the canonical debug certificate
+`06c18dfc4a852330654c2da040a578bccab13b71dde4ac962bb9bc2271dd32c5`.
+Both historical unversioned APK URLs return 404; no local development APK was distributed.
+
+All four required artifacts were verified before HG-257 was submitted to **pending verification**
+through release batch `39ca13ddf45eeed16ef512f06e326d84bb46c4e61252394a17c68918fa086bb1`.
+The full candidate page contained only HG-257 plus existing no-release exclusions HG-216/HG-160;
+neither exclusion's state was changed. Publication receipt SHA-256:
+`98b64e0e49badc7af24d3ca815c360627b3b1c432701045470bf358abc00da95`.
+The receipt is retained in the repository Git common directory as
+`hg257-publication-receipt-ddc8a903.json`. This records publication and handover, not acceptance.
