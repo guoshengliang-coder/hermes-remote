@@ -1,3 +1,10 @@
+## Connector 0.1.21 — HG-257 (allocated, not published)
+
+Adapts current-runtime rename/delete via official installed Hermes interfaces, with exact-target
+and acknowledgement checks, scoped cancellation and strict input contracts. Component 0.4.17
+contains Node 22.23.2 and Connector only. No Hermes source/archive is changed. Signing and public
+verification remain independent publication gates; see HG_257_SESSION_OPERATIONS.md.
+
 HG-257 follow-up checks and repairs related session actions; rename/delete now require the
 Connector-side official-interface adapter. See `../docs/HG_257_SESSION_OPERATIONS.md` for fences,
 Console title restrictions, compatibility tests and remaining physical acceptance. No release is allocated.
