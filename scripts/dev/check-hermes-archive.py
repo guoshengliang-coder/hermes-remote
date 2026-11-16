@@ -197,6 +197,8 @@ def main():
                 unusual_title = "名字 ' 和双引号 \" 标题"
                 command = "sessions rename " + shlex.quote(sid) + " " + shlex.quote(unusual_title)
                 before_messages = db.get_messages(sid)
+                # HermesConsoleEngine runs curated commands, not SQLAlchemy queries.
+                # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
                 result = engine.execute(command, confirmed=True)
                 check("official curated rename accepts only quoted title", result.status == "ok"
                     and db.get_session(sid)["title"] == unusual_title and db.get_messages(sid) == before_messages,
@@ -207,6 +209,8 @@ def main():
                 alias_target = "audit-rename-prefix-full"
                 db.create_session(alias_target, source="hermes_remote")
                 alias_command = "sessions rename audit-rename-prefix " + shlex.quote("prefix fixture")
+                # HermesConsoleEngine runs curated commands, not SQLAlchemy queries.
+                # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
                 alias_result = engine.execute(alias_command, confirmed=True)
                 check("curated rename may resolve a prefix to a different stored id", alias_result.status == "ok"
                     and alias_result.output.rstrip() == f"Session '{alias_target}' renamed to: prefix fixture")
@@ -215,6 +219,8 @@ def main():
                 check("exact snapshot rejects a prefix alias before mutation", alias_snapshot["session_id"] == "audit-rename-prefix"
                     and alias_snapshot["exists"] is False)
 
+                # HermesConsoleEngine runs curated commands, not SQLAlchemy queries.
+                # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
                 refused = engine.execute("sessions rename " + shlex.quote(sid) + " " + shlex.quote("$(cmd); delete all"), confirmed=True)
                 check("console rejects shell syntax without changing title", refused.status == "error"
                     and db.get_session(sid)["title"] == unusual_title)
