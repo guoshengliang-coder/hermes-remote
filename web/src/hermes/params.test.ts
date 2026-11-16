@@ -22,6 +22,7 @@ function whitelist(method: string): string[] {
 
 // Every builder with every optional key set: the widest params each can emit.
 const widest: P.RpcCall[] = [
+  P.sessionArchive("stored-1", true, "work"),
   P.sessionCreate({ profile: "work", cwd: "/Users/x/p" }),
   P.sessionResume("s", { profile: "work" }),
   P.promptSubmit("s", "hi"),

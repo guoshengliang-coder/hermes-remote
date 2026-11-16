@@ -13,6 +13,7 @@ data class ServerEvent(
     val type: String,
     val sessionId: String?,
     val payload: JsonObject,
+    val payloadIsObject: Boolean = true,
 ) {
     companion object {
         fun from(params: JsonObject): ServerEvent {
@@ -27,7 +28,7 @@ data class ServerEvent(
                 payload["session_id"], params["session_id"],
                 payload["sessionId"], params["sessionId"],
             ).firstNotNullOfOrNull { (it as? JsonPrimitive)?.contentOrNull?.ifBlank { null } }
-            return ServerEvent(type, sessionId, payload)
+            return ServerEvent(type, sessionId, payload, type != "gateway.ready" || params["payload"] is JsonObject)
         }
     }
 }

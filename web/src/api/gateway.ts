@@ -151,7 +151,7 @@ export function supportsWebDeviceAccess(caps: GatewayCapabilities): boolean {
   return caps.accountAuth?.webDeviceAccess === true;
 }
 
-export type WebDeviceFeature = "instance-model-preferences" | "session-manage" | "session-delete" | "workspace-move" | "model-select" | "default-model" | "default-model-write" | "session-model-config" | "process-list" | "session-access" | "voice-input";
+export type WebDeviceFeature = "instance-model-preferences" | "session-manage" | "session-archive-rpc" | "session-delete" | "workspace-move" | "model-select" | "default-model" | "default-model-write" | "session-model-config" | "process-list" | "session-access" | "voice-input";
 
 /** Features this Gateway admits for the Web app; an older Gateway lists none, so nothing extra shows. */
 export function webDeviceFeatures(caps: GatewayCapabilities): ReadonlySet<WebDeviceFeature> {
@@ -288,11 +288,6 @@ function newFenceRequestId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : `web-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-/** Upstream answers a lost fence race with HTTP 409 body `{"detail": "revision_conflict"}`. */
-function revisionConflict(body: unknown): boolean {
-  return (body as { detail?: unknown } | null)?.detail === "revision_conflict";
 }
 
 export interface RequestOptions {
@@ -647,7 +642,7 @@ export class GatewayClient {
    * Rename (title), archive / unarchive (archived). `profile` rides in the body, as on Android.
    * Hermes ≥ 0.22.5 (2026-10-16) fences every write (HG-250): without request_id +
    * expected_revision the answer is 409 client_upgrade_required and nothing changes. Pass the
-   * row's runtime_revision; a 409 revision_conflict re-reads the row and retries once.
+   * row's runtime_revision; mutations never replay a revision conflict.
    */
   async updateSession(
     deviceId: string,
@@ -655,45 +650,49 @@ export class GatewayClient {
     change: { title?: string; archived?: boolean },
     profile?: string | null,
     expectedRevision?: number,
+    signal?: AbortSignal,
   ): Promise<unknown> {
-    return this.mutateSessionFenced(deviceId, sessionId, (fence) =>
+    const result = await this.mutateSessionFenced(deviceId, sessionId, (fence) =>
       this.deviceApi(deviceId, "PATCH", `sessions/${encodePathSegment(sessionId)}`, {
+        signal,
         body: { ...change, ...(profile ? { profile } : {}), request_id: fence.requestId, expected_revision: fence.expectedRevision },
-      }), expectedRevision,
+      }), expectedRevision, { signal, profile },
     );
+    if (change.archived !== undefined) {
+      const ack = result as { archived?: unknown; session_id?: unknown } | null;
+      if (!ack || ack.archived !== change.archived || ack.session_id !== undefined && ack.session_id !== sessionId) {
+        throw new GatewayNetworkError(new Error("archive acknowledgement mismatch"), `sessions/${encodePathSegment(sessionId)}`);
+      }
+    }
+    return result;
   }
 
   /** Same fence as [updateSession]; upstream takes a DELETE's fence as query params. */
-  async deleteSession(deviceId: string, sessionId: string, profile?: string | null, expectedRevision?: number): Promise<unknown> {
+  async deleteSession(deviceId: string, sessionId: string, profile?: string | null, expectedRevision?: number, signal?: AbortSignal): Promise<unknown> {
     return this.mutateSessionFenced(deviceId, sessionId, (fence) => {
       const query = [
         ...(profile ? [`profile=${encodeURIComponent(profile)}`] : []),
         `request_id=${encodeURIComponent(fence.requestId)}`,
         `expected_revision=${fence.expectedRevision}`,
       ].join("&");
-      return this.deviceApi(deviceId, "DELETE", `sessions/${encodePathSegment(sessionId)}?${query}`);
-    }, expectedRevision);
+      return this.deviceApi(deviceId, "DELETE", `sessions/${encodePathSegment(sessionId)}?${query}`, { signal });
+    }, expectedRevision, { signal, profile });
   }
 
-  /** One write with the caller's fence, then once more on a revision conflict with a re-read one. */
-  private async mutateSessionFenced<T>(deviceId: string, sessionId: string, call: (fence: { requestId: string; expectedRevision: number }) => Promise<T>, expectedRevision?: number): Promise<T> {
-    const currentRevision = async (): Promise<number> => {
-      try {
-        const rows = await this.profileSessions(deviceId);
-        return rows.sessions.find((s) => s.id === sessionId)?.runtime_revision ?? 0;
-      } catch {
-        return 0;
-      }
-    };
-    const initial = expectedRevision ?? await currentRevision();
-    try {
-      return await call({ requestId: newFenceRequestId(), expectedRevision: initial });
-    } catch (error) {
-      if (!(error instanceof GatewayHttpError) || error.status !== 409 || !revisionConflict(error.body)) {
-        throw error;
-      }
-      return call({ requestId: newFenceRequestId(), expectedRevision: await currentRevision() });
+  /** One write with the caller's fence. Session mutations never replay a conflict. */
+  private async mutateSessionFenced<T>(deviceId: string, sessionId: string,
+    call: (fence: { requestId: string; expectedRevision: number }) => Promise<T>, expectedRevision?: number,
+    scope: { signal?: AbortSignal; profile?: string | null } = {}): Promise<T> {
+    scope.signal?.throwIfAborted();
+    let revision = expectedRevision;
+    if (revision === undefined) {
+      const rows = await this.deviceApi<ProfileSessionsResponse>(deviceId, "GET",
+        `profiles/sessions?archived=include&profile=${encodeURIComponent(scope.profile || "default")}`, { signal: scope.signal });
+      revision = rows.sessions.find((s) => s.id === sessionId &&
+        (s.profile || "default") === (scope.profile || "default"))?.runtime_revision ?? 0;
     }
+    scope.signal?.throwIfAborted();
+    return call({ requestId: newFenceRequestId(), expectedRevision: revision });
   }
 
   modelOptions(deviceId: string, profile?: string | null): Promise<ModelOptionsResponse> {

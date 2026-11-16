@@ -48,6 +48,11 @@ export const BROWSER_RPC_CHECKS: ReadonlyMap<string, ParamsCheck> = new Map<stri
   ["client.capabilities", ANY],
   ["session.create", ANY],
   ["session.resume", ANY],
+  ["session.archive", (p) =>
+    onlyKeys(p, ["session_id", "archived", "profile"]) && sessionId(p.session_id) &&
+    typeof p.archived === "boolean" && optionalProfile(p.profile) &&
+    (p.profile === undefined || typeof p.profile === "string" && p.profile.trim() === p.profile &&
+      p.profile.length > 0 && p.profile !== "." && p.profile !== "..")],
   ["prompt.submit", ANY],
   ["session.interrupt", ANY],
   ["image.attach", ANY],

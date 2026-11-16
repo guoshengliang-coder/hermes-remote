@@ -64,13 +64,19 @@ fun ArchivedScreen(
     // A refused unarchive/delete used to be swallowed silently (HG-250); name it once here too.
     val rowMutationFailed by vm.rowMutationFailed.collectAsStateWithLifecycle()
     LaunchedEffect(rowMutationFailed) {
-        rowMutationFailed?.let { failure ->
+        rowMutationFailed?.takeUnless(::isArchiveFailure)?.let { failure ->
             android.widget.Toast.makeText(
                 context,
                 failure.localizedSummary(language),
                 android.widget.Toast.LENGTH_SHORT,
             ).show()
             vm.clearRowMutationFailed()
+        }
+    }
+
+    rowMutationFailed?.takeIf(::isArchiveFailure)?.let { failure ->
+        SessionArchiveErrorDialog(failure, vm::clearRowMutationFailed) {
+            vm.clearRowMutationFailed(); vm.loadArchived()
         }
     }
 

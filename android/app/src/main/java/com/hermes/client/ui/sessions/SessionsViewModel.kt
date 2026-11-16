@@ -248,10 +248,7 @@ class SessionsViewModel @Inject constructor(
         runCatching { sessions.archive(session.id, archived = false, session.profile, session.deviceId) }
             .onSuccess { loadArchived(); refresh() }
             .onFailure { if (it !is kotlinx.coroutines.CancellationException) {
-                _rowMutationFailed.value = AppError(
-                    AppErrorCode.SESSION_ARCHIVE_FAILED, retryable = true,
-                    technicalCause = it.message, stage = "unarchive",
-                )
+                _rowMutationFailed.value = com.hermes.client.data.repository.archiveFailure(it)
             } }
     }
 
@@ -794,7 +791,9 @@ class SessionsViewModel @Inject constructor(
 
     private fun onRowMutationFailed(failure: Throwable, code: AppErrorCode, stage: String) {
         if (failure is kotlinx.coroutines.CancellationException) return
-        _rowMutationFailed.value = AppError(code, retryable = true, technicalCause = failure.message, stage = stage)
+        _rowMutationFailed.value = if (stage == "archive" || stage == "unarchive")
+            com.hermes.client.data.repository.archiveFailure(failure)
+        else com.hermes.client.data.repository.sessionMutationFailure(failure)
     }
 
     /** Pin/unpin keyed by the session's OWN profile, so it works regardless of the active one. */

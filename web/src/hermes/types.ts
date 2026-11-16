@@ -223,6 +223,7 @@ export interface ImageAttachResult {
  * id: `stored_session_id` over `session_id`, payload over params, snake_case over camelCase.
  */
 export interface ServerEvent {
+  payloadIsObject?: boolean;
   type: string;
   sessionId: string | null;
   payload: JsonObject;

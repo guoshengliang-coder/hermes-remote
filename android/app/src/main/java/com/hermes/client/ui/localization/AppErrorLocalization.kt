@@ -243,6 +243,16 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             )
         AppErrorCode.SESSION_TRANSCRIPT_UNAVAILABLE ->
             localized(language, "无法读取所选会话的内容，请重试。", "Couldn't read the selected conversation. Retry.")
+        AppErrorCode.SESSION_ARCHIVE_UNCONFIRMED ->
+            localized(language, "归档状态尚未确认，请刷新列表核对后再操作。", "The archive state is unconfirmed. Refresh the list before another action.")
+        AppErrorCode.SESSION_MUTATION_UNCONFIRMED ->
+            localized(language, "操作结果尚未确认，请刷新列表核对后再操作。", "The operation outcome is unconfirmed. Refresh the list before another action.")
+        AppErrorCode.SESSION_MUTATION_REFUSED ->
+            localized(language, "当前无法更改会话，请查看详情并刷新列表。", "The session cannot be changed now. View details and refresh the list.")
+        AppErrorCode.SESSION_ARCHIVE_REFUSED ->
+            localized(language, "当前无法更改归档状态，请查看详情并刷新列表。", "The archive state cannot be changed now. View details and refresh the list.")
+        AppErrorCode.ARCHIVE_INCOMPATIBLE ->
+            localized(language, "无法确认这台 Mac 的归档接口兼容性，请重新连接后查看。", "Archive compatibility on this Mac could not be established. Reconnect and check again.")
         AppErrorCode.SESSION_ARCHIVE_FAILED ->
             localized(language, "无法归档会话，请重试。", "Couldn't archive the conversation. Retry.")
         AppErrorCode.SESSION_RENAME_FAILED ->

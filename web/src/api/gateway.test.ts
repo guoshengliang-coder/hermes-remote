@@ -388,7 +388,7 @@ it("profile sync uses cookie/CSRF with a fixed expected account and reuses avata
 
 describe("HG-250 session mutation fence", () => {
   it("updateSession sends request_id and the row's expected_revision", async () => {
-    const { client, calls } = fake(() => json(200, { ok: true }));
+    const { client, calls } = fake(() => json(200, { ok: true, archived: true }));
     await client.updateSession("dev", "s1", { archived: true }, "work", 5);
     const call = calls.find((c) => c.method === "PATCH")!;
     expect(call.url).toBe("/v2/devices/dev/api/sessions/s1");
@@ -405,23 +405,32 @@ describe("HG-250 session mutation fence", () => {
     expect(call.url).toMatch(/request_id=[^&]+/);
   });
 
-  it("re-reads the row and retries once on 409 revision_conflict", async () => {
-    let patches = 0;
-    const { client, calls } = fake((call) => {
-      if (call.method === "PATCH") {
-        patches += 1;
-        if (patches === 1) return json(409, { detail: "revision_conflict" });
-        return json(200, { ok: true });
-      }
-      return json(200, { sessions: [{ id: "s1", runtime_revision: 9 }] });
-    });
-    await client.updateSession("dev", "s1", { archived: true }, null, 3);
-    const patchCalls = calls.filter((c) => c.method === "PATCH");
-    expect(patchCalls).toHaveLength(2);
-    expect(patchCalls[0]!.body).toMatchObject({ expected_revision: 3 });
-    expect(patchCalls[1]!.body).toMatchObject({ expected_revision: 9 });
-    expect((patchCalls[1]!.body as Record<string, unknown>).request_id)
-      .not.toBe((patchCalls[0]!.body as Record<string, unknown>).request_id);
+  it("an archive HTTP 200 with missing, opposite or wrong-target acknowledgement is unconfirmed", async () => {
+    for (const body of [{ ok: true }, { archived: false }, { archived: true, session_id: "other" }]) {
+      const { client, calls } = fake(() => json(200, body));
+      await expect(client.updateSession("dev", "s1", { archived: true }, "work", 0)).rejects.toMatchObject({ name: "GatewayNetworkError" });
+      expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(1);
+    }
+  });
+
+  it("rename conflicts are final and never replay the write", async () => {
+    const { client, calls } = fake(() => json(409, { detail: "revision_conflict" }));
+    await expect(client.updateSession("dev", "s1", { title: "new" }, "work", 3)).rejects.toMatchObject({ status: 409 });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("archive conflict is final and does not re-read or replay", async () => {
+    const { client, calls } = fake(() => json(409, { detail: "revision_conflict" }));
+    await expect(client.updateSession("dev", "s1", { archived: true }, "work", 3)).rejects.toMatchObject({ status: 409 });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("an aborted revision read cannot be followed by an archive write", async () => {
+    const abort = new AbortController();
+    const { client, calls } = fake(() => { abort.abort(); return json(200, { sessions: [{ id: "s1", profile: "work", runtime_revision: 9 }] }); });
+    await expect(client.updateSession("dev", "s1", { archived: true }, "work", undefined, abort.signal)).rejects.toBeDefined();
+    expect(calls).toHaveLength(1); expect(calls[0]!.method).toBe("GET");
+    expect(calls[0]!.url).toContain("profile=work");
   });
 
   it("other refusals surface unchanged", async () => {
@@ -433,10 +442,10 @@ describe("HG-250 session mutation fence", () => {
   it("without a caller revision the row is read first", async () => {
     const { client, calls } = fake((call) => {
       if (call.method === "PATCH") return json(200, { ok: true });
-      return json(200, { sessions: [{ id: "s1", runtime_revision: 7 }] });
+      return json(200, { sessions: [{ id: "s1", profile: "default", runtime_revision: 7 }] });
     });
     await client.updateSession("dev", "s1", { title: "t" });
-    const list = calls.find((c) => c.url.endsWith("/api/profiles/sessions"))!;
+    const list = calls.find((c) => c.url.includes("/api/profiles/sessions?"))!;
     expect(list).toBeTruthy();
     expect(calls.find((c) => c.method === "PATCH")!.body).toMatchObject({ expected_revision: 7 });
   });

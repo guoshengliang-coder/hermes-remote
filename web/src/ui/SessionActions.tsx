@@ -1,4 +1,4 @@
-import { useState } from "preact/hooks";
+import { useEffect, useMemo, useState } from "preact/hooks";
 import { draftKey, saveDraft } from "../app/drafts";
 import { toAppError } from "../app/failures";
 import { defaultProjectPath } from "../app/localPrefs";
@@ -6,7 +6,8 @@ import { explicitProfile } from "../app/profile";
 import { basename, deriveProjects, disambiguatedLabels, projectKeyOf } from "../app/projects";
 import { isBotSession, isListable } from "../app/sources";
 import { useApp } from "../app/store";
-import { moveSessionTo } from "../chat/oneShot";
+import { archiveSession, moveSessionTo } from "../chat/oneShot";
+import { sessionMutationFailure } from "../hermes/archive";
 import { appError, RPC, type AppError } from "../errors";
 import { HermesSocketError } from "../hermes/client";
 import type { SessionListItem } from "../hermes/types";
@@ -64,6 +65,8 @@ export function SessionActionSheet({
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<AppError | null>(null);
   const profile = explicitProfile(session);
+  const archiveAbort = useMemo(() => new AbortController(), [app.account?.id, deviceId, session.id, profile]);
+  useEffect(() => () => archiveAbort.abort(), [archiveAbort]);
   const name = session.title || session.display_name || t("未命名会话", "Untitled");
   const defaultProject = deviceId ? defaultProjectPath(deviceId) : null;
   const currentKey = projectKeyOf(session) ?? defaultProject;
@@ -74,7 +77,7 @@ export function SessionActionSheet({
   const pinned = app.isPinned(session);
 
   // Hermes ≥ 0.22.5 fences every write (HG-250): the row's runtime_revision rides along and a
-  // concurrent edit is retried once inside the client with a re-read fence.
+  // concurrent mutation is surfaced without automatically replaying its write.
   const revision = session.runtime_revision ?? 0;
 
   async function refresh() {
@@ -91,6 +94,7 @@ export function SessionActionSheet({
     setError(null);
     try {
       await work();
+      if (archiveAbort.signal.aborted) return;
       if (change === "deleted") {
         if (pinned) app.togglePin(session);
         if (deviceId) saveDraft(draftKey(deviceId, session.id), "");
@@ -100,7 +104,9 @@ export function SessionActionSheet({
       onChanged?.(change);
       void refresh();
     } catch (e) {
-      setError(change === "moved" ? moveError(e) : toAppError(e, "device"));
+      if (archiveAbort.signal.aborted) return;
+      setError(change === "moved" ? moveError(e) : change === "renamed" || change === "deleted"
+        ? sessionMutationFailure(e) : toAppError(e, "device"));
     } finally {
       setWorking(false);
     }
@@ -128,10 +134,10 @@ export function SessionActionSheet({
             enterkeyhint="done"
             onInput={(e) => setTitle((e.target as HTMLInputElement).value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && clean && !working) void run(() => client.updateSession(deviceId, session.id, { title: clean }, profile, revision), "renamed", null);
+              if (e.key === "Enter" && clean && !working) void run(() => client.updateSession(deviceId, session.id, { title: clean }, profile, revision, archiveAbort.signal), "renamed", null);
             }}
           />
-          {error ? <ErrorNotice error={error} language={language} variant="inline" /> : null}
+          {error ? <><ErrorNotice error={error} language={language} variant="inline" />{["HR-SESS-025", "HR-SESS-026", "HR-SESS-027", "HR-SESS-028"].includes(error.code) ? <button type="button" class="text-button" onClick={() => window.location.reload()}>{t("刷新状态", "Refresh state")}</button> : null}</> : null}
         </div>
         <div class="sheet-buttons">
           <button type="button" class="text-button subtle" onClick={onClose}>
@@ -141,7 +147,7 @@ export function SessionActionSheet({
             type="button"
             class="primary-button inline"
             disabled={!clean || working}
-            onClick={() => void run(() => client.updateSession(deviceId, session.id, { title: clean }, profile, revision), "renamed", null)}
+            onClick={() => void run(() => client.updateSession(deviceId, session.id, { title: clean }, profile, revision, archiveAbort.signal), "renamed", null)}
           >
             {t("保存", "Save")}
           </button>
@@ -159,7 +165,7 @@ export function SessionActionSheet({
             ? t(`“${name}”将被永久删除。`, `"${name}" will be permanently deleted.`)
             : t("可在「已归档」中恢复。", "You can restore it from Archived.")}
         </p>
-        {error ? <ErrorNotice error={error} language={language} variant="inline" /> : null}
+        {error ? <><ErrorNotice error={error} language={language} variant="inline" />{["HR-SESS-025", "HR-SESS-026", "HR-SESS-027", "HR-SESS-028"].includes(error.code) ? <button type="button" class="text-button" onClick={() => window.location.reload()}>{t("刷新状态", "Refresh state")}</button> : null}</> : null}
         <div class="sheet-buttons">
           <button type="button" class="text-button subtle" onClick={onClose}>
             {t("取消", "Cancel")}
@@ -170,8 +176,8 @@ export function SessionActionSheet({
             disabled={working}
             onClick={() =>
               void (del
-                ? run(() => client.deleteSession(deviceId, session.id, profile, revision), "deleted", t("已删除", "Deleted"))
-                : run(() => client.updateSession(deviceId, session.id, { archived: true }, profile, revision), "archived", t("已归档", "Archived")))
+                ? run(() => client.deleteSession(deviceId, session.id, profile, revision, archiveAbort.signal), "deleted", t("已删除", "Deleted"))
+                : run(() => archiveSession(client, deviceId, session.id, true, profile, revision, features.has("session-archive-rpc"), archiveAbort.signal), "archived", t("已归档", "Archived")))
             }
           >
             {del ? t("删除", "Delete") : t("归档", "Archive")}
@@ -184,7 +190,7 @@ export function SessionActionSheet({
   if (step === "move") {
     return (
       <Sheet title={t("移动到项目", "Move to project")} closeLabel={t("关闭", "Close")} onClose={onClose}>
-        {error ? <ErrorNotice error={error} language={language} variant="inline" /> : null}
+        {error ? <><ErrorNotice error={error} language={language} variant="inline" />{["HR-SESS-025", "HR-SESS-026", "HR-SESS-027", "HR-SESS-028"].includes(error.code) ? <button type="button" class="text-button" onClick={() => window.location.reload()}>{t("刷新状态", "Refresh state")}</button> : null}</> : null}
         {projects.map((p) => {
           const current = p.path === currentKey;
           return (
@@ -226,14 +232,14 @@ export function SessionActionSheet({
         <span class="action-chip">{archived ? t("已归档", "Archived") : t("会话", "Conversation")}</span>
         <span class="action-title">{name}</span>
       </div>
-      {error ? <ErrorNotice error={error} language={language} variant="inline" /> : null}
+      {error ? <><ErrorNotice error={error} language={language} variant="inline" />{["HR-SESS-025", "HR-SESS-026", "HR-SESS-027", "HR-SESS-028"].includes(error.code) ? <button type="button" class="text-button" onClick={() => window.location.reload()}>{t("刷新状态", "Refresh state")}</button> : null}</> : null}
       {archived ? (
         <>
           {canManage ? (
             <SheetAction
               label={t("取消归档", "Unarchive")}
               disabled={working}
-              onClick={() => void run(() => client.updateSession(deviceId, session.id, { archived: false }, profile, revision), "unarchived", t("已恢复", "Restored"))}
+              onClick={() => void run(() => archiveSession(client, deviceId, session.id, false, profile, revision, features.has("session-archive-rpc"), archiveAbort.signal), "unarchived", t("已恢复", "Restored"))}
             />
           ) : null}
         </>

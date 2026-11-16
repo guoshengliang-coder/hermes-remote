@@ -67,8 +67,17 @@ export class HermesAuth {
     return response;
   }
 
-  async websocketUrl(path: string): Promise<string> {
+  async websocketUrl(path: string, signal?: AbortSignal): Promise<string> {
     if (path !== "/api/ws") throw new Error("unsupported WebSocket path");
+    return this.localWebsocketUrl(path, signal);
+  }
+
+  /** Connector-owned curated command only; never accepts a tunnel-supplied path. */
+  async consoleWebsocketUrl(signal?: AbortSignal): Promise<string> {
+    return this.localWebsocketUrl("/api/console", signal);
+  }
+
+  private async localWebsocketUrl(path: string, signal?: AbortSignal): Promise<string> {
     const wsBase = this.baseUrl.replace(/^https:/, "wss:").replace(/^http:/, "ws:");
     if (this.sessionToken) {
       const url = new URL(path, wsBase);
@@ -76,7 +85,7 @@ export class HermesAuth {
       return url.toString();
     }
     if (this.username) {
-      const response = await this.request("/api/auth/ws-ticket", { method: "POST" });
+      const response = await this.request("/api/auth/ws-ticket", { method: "POST", signal });
       if (!response.ok) throw new Error(`Hermes WS ticket returned HTTP ${response.status}`);
       const payload = await response.json() as { ticket?: string };
       if (!payload.ticket) throw new Error("Hermes WS ticket response contained no ticket");

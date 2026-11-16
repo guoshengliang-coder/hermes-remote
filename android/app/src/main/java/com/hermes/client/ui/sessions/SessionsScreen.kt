@@ -158,12 +158,18 @@ fun SessionsScreen(
     // the row stays as it was, and the refusal is named once.
     val rowMutationFailed by vm.rowMutationFailed.collectAsStateWithLifecycle()
     LaunchedEffect(rowMutationFailed) {
-        rowMutationFailed?.let { failure ->
+        rowMutationFailed?.takeUnless(::isArchiveFailure)?.let { failure ->
             Toast.makeText(context, failure.localizedSummary(language), Toast.LENGTH_SHORT).show()
             vm.clearRowMutationFailed()
         }
     }
 
+
+    rowMutationFailed?.takeIf(::isArchiveFailure)?.let { failure ->
+        SessionArchiveErrorDialog(failure, vm::clearRowMutationFailed) {
+            vm.clearRowMutationFailed(); vm.refresh()
+        }
+    }
 
     // Re-fetch on every resume — notably when returning from a chat. The "sessions" nav entry
     // (and its ViewModel) stays alive across navigation, so init() runs only once; without this

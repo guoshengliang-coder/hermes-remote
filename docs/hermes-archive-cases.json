@@ -1,0 +1,13 @@
+{
+  "upstream": "bf0203a794a07aac3ff764972ab9087baa4e4f4e",
+  "readyCases": [
+    { "name": "old standalone ready", "payload": {}, "mode": "legacy" },
+    { "name": "explicit standalone", "payload": { "session_authority": false }, "mode": "legacy" },
+    { "name": "unified owner", "payload": { "session_authority": true }, "mode": "authority" },
+    { "name": "missing payload", "payload": null, "mode": "unknown" },
+    { "name": "invalid payload", "payload": [], "mode": "unknown" },
+    { "name": "string is not a capability", "payload": { "session_authority": "true" }, "mode": "unknown" },
+    { "name": "null is not absence", "payload": { "session_authority": null }, "mode": "unknown" },
+    { "name": "future capability format", "payload": { "session_authority": {} }, "mode": "unknown" }
+  ]
+}

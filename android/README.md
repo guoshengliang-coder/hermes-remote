@@ -1,3 +1,14 @@
+HG-257 follow-up checks and repairs related session actions; rename/delete now require the
+Connector-side official-interface adapter. See `../docs/HG_257_SESSION_OPERATIONS.md` for fences,
+Console title restrictions, compatibility tests and remaining physical acceptance. No release is allocated.
+
+HG-257 adds archive/restore adaptation for the Mac's current Hermes runtime: official standalone
+RPC versus authority-fenced REST, current-handshake/route guards, explicit refusal/unknown outcomes
+and read-only reconciliation. The Web browser permission is capability-gated by the new Gateway.
+No upstream patch or source-label migration is used. Shared cases and the opt-in isolated upstream
+upgrade validator are documented in `docs/HG_257_ARCHIVE_COMPATIBILITY.md` at the repository root.
+Source validation does not constitute publication or real-device acceptance.
+
 HG-253 hides the meaningless `/` project segment on ordinary session, archive and search rows,
 including installations that have not learned the default folder yet. Root default paths survive
 preference storage and comparison; independent projects keep their names, with folder basenames

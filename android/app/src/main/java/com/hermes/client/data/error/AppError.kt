@@ -130,6 +130,11 @@ enum class AppErrorCode(val value: String) {
     // failure surface at all, so a refused write read as a no-op.
     SESSION_RENAME_FAILED("HR-SESS-023"),
     SESSION_DELETE_FAILED("HR-SESS-024"),
+    SESSION_ARCHIVE_UNCONFIRMED("HR-SESS-025"),
+    SESSION_MUTATION_UNCONFIRMED("HR-SESS-027"),
+    SESSION_MUTATION_REFUSED("HR-SESS-028"),
+    SESSION_ARCHIVE_REFUSED("HR-SESS-026"),
+    ARCHIVE_INCOMPATIBLE("HR-COMPAT-004"),
     // Fetching ANOTHER conversation's transcript failed while turning it into a Markdown
     // attachment (HG-38). Not HR-SYNC-001: nothing is out of sync and the open conversation is
     // untouched — one conversation the user asked to reference could not be read.

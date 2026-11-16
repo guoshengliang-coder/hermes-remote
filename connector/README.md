@@ -1,3 +1,7 @@
+HG-257 follow-up checks and repairs related session actions; rename/delete now require the
+Connector-side official-interface adapter. See `../docs/HG_257_SESSION_OPERATIONS.md` for fences,
+Console title restrictions, compatibility tests and remaining physical acceptance. No release is allocated.
+
 # Connector control connection recovery
 
 ## Connector 0.1.20 — HG-245 authorized external read roots (allocated, not published)

@@ -1,3 +1,4 @@
+import { sessionMutationResponse } from "./session-mutations.js";
 import { WebSocket } from "ws";
 import { constants, readFileSync } from "node:fs";
 import { stat, realpath, mkdir, open, readdir, rename, unlink, type FileHandle } from "node:fs/promises";
@@ -456,7 +457,9 @@ async function handleTunnelHttp(socket: WebSocket, request: TunnelHttpRequest): 
     }
     const projected = await historyProjection(request.method, request.path, (path) =>
       hermesAuth.request(path, { method: "GET", signal: controller.signal }));
-    const response = projected ?? await hermesAuth.request(request.path, {
+    const adapted = projected ? undefined : await sessionMutationResponse(request.method, request.path,
+      request.bodyBase64 ? Buffer.from(request.bodyBase64, "base64") : undefined, hermesAuth, controller.signal);
+    const response = projected ?? adapted ?? await hermesAuth.request(request.path, {
       method: request.method,
       headers: request.headers,
       body: request.bodyBase64 ? Buffer.from(request.bodyBase64, "base64") : undefined,

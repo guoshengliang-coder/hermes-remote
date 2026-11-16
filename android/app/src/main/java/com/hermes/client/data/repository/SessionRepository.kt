@@ -1,5 +1,8 @@
 package com.hermes.client.data.repository
 
+import com.hermes.client.data.error.AppError
+import com.hermes.client.data.error.AppErrorCode
+import kotlinx.serialization.json.jsonObject
 import com.hermes.client.data.network.HermesApiException
 import com.hermes.client.data.network.HermesRestApi
 import com.hermes.client.data.network.MessageDto
@@ -52,6 +55,7 @@ class SessionRepository(
     private val accountSessions: AccountSessionManager? = null,
     private val conversationDevices: ConversationDeviceStore? = null,
     private val files: ChatFileRepository? = null,
+    private val archiveClient: com.hermes.client.data.network.HermesGatewayClient? = null,
 ) {
     /**
      * Every non-archived, non-empty, non-internal session on the current route, WITHOUT the
@@ -575,12 +579,14 @@ class SessionRepository(
     private fun routeKey(context: AccountRoutingContext?): String =
         context?.let { "${it.accountId}:${it.deviceId}" } ?: "legacy"
 
+    private val archiveInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
     // All mutations carry the session's profile so the gateway hits the right per-profile DB
     // (otherwise the call 404s and the change silently no-ops). Hermes ≥ 0.22.5 additionally
     // fences every session write (upstream change 2026-10-16): without a fresh request id and
     // the row's runtime revision the answer is 409 client_upgrade_required and nothing changes —
     // the silent archive no-op of HG-250. A concurrent edit answers 409 revision_conflict; the
-    // fresh fence is not in that response, so the row is re-read and the write retried once.
+    // intent is surfaced to the user without automatically replaying any session mutation.
     suspend fun rename(sessionId: String, title: String, profile: String?, deviceId: String? = null) =
         mutateFenced(sessionId, profile, deviceId) { requestId, revision ->
             rest.patchSession(sessionId, title = title, profile = profile, deviceId = deviceId,
@@ -591,9 +597,50 @@ class SessionRepository(
         archived: Boolean,
         profile: String?,
         deviceId: String? = null,
-    ) = mutateFenced(sessionId, profile, deviceId) { requestId, revision ->
-        rest.patchSession(sessionId, archived = archived, profile = profile, deviceId = deviceId,
-            requestId = requestId, expectedRevision = revision)
+    ) {
+        val context = accountSessions?.routingContext()
+        val canonicalProfile = profile?.takeIf { it.isNotBlank() } ?: "default"
+        val key = "${routeKey(context)}:$canonicalProfile:$sessionId"
+        if (!archiveInFlight.add(key)) throw SessionArchiveFailure(AppError(
+            AppErrorCode.SESSION_ARCHIVE_REFUSED, false, "archive already in progress", "session_archive"))
+        fun requireRoute() {
+            if (routeKey(context) != routeKey(accountSessions?.routingContext()) ||
+                (deviceId != null && context?.deviceId != deviceId)) {
+                throw kotlinx.coroutines.CancellationException("Archive device route changed")
+            }
+        }
+        try {
+            requireRoute()
+            val client = archiveClient ?: throw SessionArchiveFailure(AppError(
+                AppErrorCode.ARCHIVE_INCOMPATIBLE, false, stage = "archive_backend"))
+            val backend = client.archiveBackend()
+            requireRoute()
+            archiveWithBackend(backend.mode, sessionId, archived,
+                rpc = {
+                    requireRoute()
+                    client.callArchive(backend, kotlinx.serialization.json.buildJsonObject {
+                        put("session_id", kotlinx.serialization.json.JsonPrimitive(sessionId))
+                        put("archived", kotlinx.serialization.json.JsonPrimitive(archived))
+                        if (!profile.isNullOrBlank()) put("profile", kotlinx.serialization.json.JsonPrimitive(profile))
+                    }).jsonObject
+                },
+                rest = {
+                    requireRoute()
+                    // Preserve the fence, but never replay an archive intent on conflict.
+                    // The shared rename/delete retry can re-read another profile after a route change.
+                    val revision = cachedSession(sessionId, profile, deviceId)?.runtimeRevision ?: 0
+                    rest.patchSession(sessionId, archived = archived, profile = profile, deviceId = deviceId,
+                        requestId = java.util.UUID.randomUUID().toString(), expectedRevision = revision)
+                },
+                read = {
+                    requireRoute()
+                    // Fresh uncached pages AFTER the ambiguous write, pinned to its original Mac.
+                    loadSessionPages(context, emptySet(), archivedOnly = archived)
+                        .firstOrNull { it.id == sessionId && (it.profile?.takeIf { it.isNotBlank() } ?: "default") == canonicalProfile }?.archived
+                },
+            )
+            requireRoute()
+        } finally { archiveInFlight.remove(key) }
     }
     suspend fun delete(sessionId: String, profile: String?, deviceId: String? = null) {
         mutateFenced(sessionId, profile, deviceId) { requestId, revision ->
@@ -609,24 +656,21 @@ class SessionRepository(
         deviceId: String?,
         write: suspend (requestId: String, expectedRevision: Int) -> Unit,
     ) {
-        val initial = cachedSession(sessionId, profile, deviceId)?.runtimeRevision ?: 0
-        try {
-            write(java.util.UUID.randomUUID().toString(), initial)
-        } catch (conflict: HermesApiException) {
-            if (conflict.code != 409 || conflict.message != "revision_conflict") throw conflict
-            write(java.util.UUID.randomUUID().toString(), freshRevision(sessionId, profile, deviceId))
+        val context = accountSessions?.routingContext()
+        val targetContext = context?.let { if (deviceId != null) it.copy(deviceId = deviceId) else it }
+        val key = "${routeKey(targetContext)}:${profile?.takeIf { it.isNotBlank() } ?: "default"}:$sessionId"
+        if (!archiveInFlight.add(key)) throw SessionArchiveFailure(AppError(
+            AppErrorCode.SESSION_MUTATION_REFUSED, false, stage = "session_mutation"))
+        fun current() {
+            if (routeKey(context) != routeKey(accountSessions?.routingContext())) throw kotlinx.coroutines.CancellationException("Session mutation route changed")
         }
+        try {
+            current()
+            val initial = cachedSession(sessionId, profile, deviceId)?.runtimeRevision ?: 0
+            write(java.util.UUID.randomUUID().toString(), initial)
+            current()
+        } finally { archiveInFlight.remove(key) }
     }
-
-    /** The fence the conflict refused; from the list row the caller's cache copy was stale on. */
-    private suspend fun freshRevision(sessionId: String, profile: String?, deviceId: String?): Int {
-        runCatching { listAllProfiles() }
-        cachedSession(sessionId, profile, deviceId)?.let { return it.runtimeRevision ?: 0 }
-        // An archived row never appears in the active list; the archived page's unarchive needs it.
-        return runCatching { archivedAllProfiles() }.getOrNull()
-            ?.firstOrNull { it.id == sessionId }?.runtimeRevision ?: 0
-    }
-
 
     // ── Filesystem, for the project folder picker ───────────────────────────────────────────
     // Thin passthroughs: the picker needs the Mac's directory tree, and this repository already
