@@ -1,5 +1,21 @@
 # MVP deployment
 
+## HG-257 release preparation — 2026-11-16 (authorized)
+
+The owner requested merge/publication of the full HG-257 delivery. Allocate Gateway 0.4.42 and
+Connector 0.1.21, component channel 0.4.17 (Node 22.23.2 + Connector only). Android is prepared
+independently as 0.1.200 by the official release train; Web keeps its source-qualified release ID.
+Publish the archive browser allowlist Gateway before Web. Connector is required for rename/delete;
+client-only publication cannot deliver the Mac-side adapter. No upstream Hermes core/patches,
+schema, protocol versions, minimum clients or production flags change.
+
+Use exact green main OCI Gateway/operator bundles and the normal R5-F1 slot switch/public smoke
+and observation gates. Component manifests require the existing trusted key and public byte/hash
+verification. Protected GitHub signing credentials are missing at preparation time; historical local
+signing exceptions do not authorize this release. No private key is copied or generated. This is
+version preparation, not publication. Physical phone/browser and Basic Auth Console acceptance
+remain outstanding; active-delete/title restrictions and legacy non-CAS races remain.
+
 ## Gateway 0.4.41 release preparation — 2026-11-14 (authorized)
 
 The owner requested merge/publication of HG-254 and explicitly confirmed Gateway 0.4.41.

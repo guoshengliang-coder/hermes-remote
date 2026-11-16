@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createServer } from "node:net";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -12,6 +12,8 @@ import {
   PROTOCOL_VERSION,
   type WireMessage,
 } from "@hermes-remote/protocol";
+
+const expectedVersion: string = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")).version;
 
 test("Relay durably acknowledges and serves Connector lifecycle events", {
   skip: process.env.RUN_NETWORK_TESTS !== "1" ? "set RUN_NETWORK_TESTS=1 for loopback integration" : false,
@@ -67,7 +69,7 @@ test("Relay durably acknowledges and serves Connector lifecycle events", {
         minimumClients: { android: string; desktop: string; connector: string };
       };
     };
-    assert.equal(capabilities.server.version, "0.4.41");
+    assert.equal(capabilities.server.version, expectedVersion);
     assert.deepEqual(capabilities.server.protocolVersions, { legacy: 1, accountConnector: 2 });
     assert.equal((await fetch(`http://127.0.0.1:${port}/account`)).status, 404);
 
@@ -81,7 +83,7 @@ test("Relay durably acknowledges and serves Connector lifecycle events", {
       sourceCommit: string;
       capabilities: { legacyAuth: boolean; accountAuth: boolean };
     };
-    assert.equal(version.serverVersion, "0.4.41");
+    assert.equal(version.serverVersion, expectedVersion);
     assert.match(version.sourceCommit, /^(?:development|[0-9a-f]{40})$/);
     assert.deepEqual(version.capabilities, {
       accountAuth: false,
