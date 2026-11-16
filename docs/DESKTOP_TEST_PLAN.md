@@ -1159,3 +1159,17 @@ See `DESKTOP_COMPONENT_MIGRATION.md` for the transaction and physical acceptance
 ## HG-244 connection health
 
 Run `desktop:assets:test`, `desktop:test`, and `desktop:app`. Verify optional health DTO decoding, congestion/control-only loss as degraded, stale local report as unknown, and explicit local failure with HR-CONN-006. Test 0/1 opt-in preservation and rejection of arbitrary environment during repair/upgrade. Before release, exercise actual remote traffic, control-only reconnection, business-only failure, permission revocation and rollback; local Swift tests do not replace those checks.
+## HG-258 update closure
+
+The source-level matrix, automation and separate physical gates are recorded in
+[HG_258_DESKTOP_UPDATE_CLOSURE.md](HG_258_DESKTOP_UPDATE_CLOSURE.md). Exercise independent source
+failures, signed-in/out and account mismatch, old layout migration, same-build repair, content
+corruption, cancellation, network loss, restart failure, exact runtime identity and interrupted
+recovery. A real Mac installation and dedicated-session acceptance remain separate gates; a
+green helper test or isolated upstream handler probe does not substitute for them.
+
+
+HG-258 audit regressions additionally cover interrupted restoration after both renames, credential
+changes during Connector stop, kernel executable/argv disagreement, complete bundle (including helper)
+evidence binding, and index/bundle channel, architecture and minimum-OS mismatch. A restored file
+transaction remains separate from live business acceptance.

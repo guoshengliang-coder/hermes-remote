@@ -37,7 +37,8 @@ bin_dir="$(
 )"
 
 rm -rf "$app"
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Helpers"
+install -m 755 "$bin_dir/HermesGoUpdateHelper" "$app/Contents/Helpers/HermesGoUpdateHelper"
 install -m 755 "$bin_dir/HermesGoDesktop" "$app/Contents/MacOS/HermesGoDesktop"
 install -m 644 "$desktop_dir/Packaging/Info.plist" "$app/Contents/Info.plist"
 
@@ -112,6 +113,18 @@ if [ -n "${HERMES_GO_APP_UPDATE_CHANNEL:-}" ]; then
 fi
 if [ -n "${HERMES_GO_APP_UPDATE_ARCHITECTURE:-}" ]; then
   plutil -replace HermesGoDesktopAppUpdateArchitecture -string "$HERMES_GO_APP_UPDATE_ARCHITECTURE" "$app/Contents/Info.plist"
+fi
+
+purpose="${DESKTOP_BUILD_PURPOSE:-development}"
+case "$purpose" in development|distribution) ;; *) echo 'HR-DESKUPDATE-004 Invalid build purpose / 构建用途无效' >&2; exit 65 ;; esac
+source_commit="$(git -C "$project_root" rev-parse HEAD)"
+plutil -replace HermesGoBuildPurpose -string "$purpose" "$app/Contents/Info.plist"
+plutil -replace HermesGoSourceCommit -string "$source_commit" "$app/Contents/Info.plist"
+if [ "$purpose" = distribution ]; then
+  test -z "$(git -C "$project_root" status --porcelain)" || { echo 'HR-DESKUPDATE-004 发行构建需要干净源码 / Clean source required' >&2; exit 65; }
+  "$bin_dir/DesktopReleaseVerifier" "$app" \
+    "$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")" \
+    "$(plutil -extract CFBundleVersion raw "$app/Contents/Info.plist")" "$source_commit"
 fi
 
 bootstrap_enabled="$(plutil -extract HermesGoManagedBootstrapEnabled raw "$app/Contents/Info.plist")"

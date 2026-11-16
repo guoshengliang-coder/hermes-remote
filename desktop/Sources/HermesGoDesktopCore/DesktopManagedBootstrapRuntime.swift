@@ -149,6 +149,7 @@ public final class DesktopManagedRecoveryRuntime: @unchecked Sendable {
             journal: journal,
             installer: installer,
             launchAgent: launchAgent,
+            connectorRuntimeProof: { DesktopConnectorRuntimeIdentity.verify(launchAgentURL: layout.connectorLaunchAgent, userID: userID) },
             hermesShutdown: DesktopHermesShutdownChecker(log: operationLog),
             operationLog: operationLog
         )
@@ -315,6 +316,7 @@ public final class DesktopManagedBootstrapRuntime: @unchecked Sendable {
             journal: journal,
             installer: DesktopManagedInstaller(layout: layout),
             launchAgent: launchAgent,
+            connectorRuntimeProof: { DesktopConnectorRuntimeIdentity.verify(launchAgentURL: layout.connectorLaunchAgent, userID: userID) },
             hermesShutdown: DesktopHermesShutdownChecker(log: operationLog),
             operationLog: operationLog,
             progress: progress,

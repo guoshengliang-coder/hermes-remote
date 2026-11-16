@@ -1,5 +1,11 @@
 # Hermes upstream contract
 
+HG-258 keeps the HG-257 upstream surface unchanged. The exact-combination gate binds the isolated
+real-upstream results to an exact Hermes commit, verified app build and signed Node/Connector
+content. Missing/failed semantic checks refuse evidence. This does not certify future Hermes,
+real phones or production session state. Ordinary post-upgrade health remains explicitly distinct
+from business compatibility; see [HG-258](HG_258_DESKTOP_UPDATE_CLOSURE.md).
+
 ## HG-257: archive ownership and official standalone RPC (2026-11-15)
 
 Verified against the installed official v0.22.5 commit `bf0203a794a07aac3ff764972ab9087baa4e4f4e`.

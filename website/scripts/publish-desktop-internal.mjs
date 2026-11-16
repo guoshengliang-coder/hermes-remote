@@ -11,7 +11,7 @@ import { remoteTransaction } from '../src/internal-publication.mjs';
 import { errorEnvelope } from '../src/errors.mjs';
 
 const execute = promisify(execFile);
-let remoteStage, sshTarget;
+let remoteStage, sshTarget, indexPathForVerification;
 async function ssh(command) {
   return execute('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', sshTarget, command], { timeout: 30_000 });
 }
@@ -19,7 +19,7 @@ async function remotePython(source, args) {
   const code = `import base64;exec(base64.b64decode("${Buffer.from(source).toString('base64')}"))`;
   return ssh(`sudo -n python3 -c '${code}' ${args.join(' ')}`);
 }
-async function verifyBundle(dmg, index) {
+async function verifyBundle(dmg, index, compatibility, legacy) {
   if (process.platform !== 'darwin') throw new Error('macOS verification required');
   await execute('hdiutil', ['verify', dmg]);
   const mount = await mkdtemp(join(tmpdir(), 'hermes-internal-inspection-'));
@@ -37,6 +37,8 @@ async function verifyBundle(dmg, index) {
       const { stdout } = await execute('/usr/libexec/PlistBuddy', ['-c', `Print :${key}`, join(app, 'Contents/Info.plist')]);
       if (stdout.trim() !== expected) throw new Error('bundle identity mismatch');
     }
+    await execute('node', ['scripts/verify-desktop-publication-input.mjs', app,
+      indexPathForVerification, compatibility ?? '-', ...(legacy ? ['--legacy'] : [])]);
     const { stdout: binary } = await execute('file', [join(app, 'Contents/MacOS/HermesGoDesktop')]);
     const architectures = ['arm64', 'x86_64'].filter(value => binary.includes(value));
     if ((index.architecture === 'universal' ? architectures.length !== 2 : architectures.length !== 1 || architectures[0] !== index.architecture)) throw new Error('architecture mismatch');
@@ -50,10 +52,11 @@ try {
   const { values } = parseArgs({ options: {
     receipt: { type: 'string' }, dmg: { type: 'string' }, 'notes-file': { type: 'string' }, 'evidence-dir': { type: 'string' },
     'ssh-target': { type: 'string' }, architecture: { type: 'string', default: 'arm64' },
+    compatibility: { type: 'string' },
     'minimum-macos': { type: 'string', default: '14.0' }, help: { type: 'boolean' },
   } });
   if (values.help) {
-    console.log('node website/scripts/publish-desktop-internal.mjs --receipt <verified-package.json> --dmg <version-dev.dmg> --notes-file <notes.json> --evidence-dir <new-absolute-directory> --ssh-target user@host');
+    console.log('node website/scripts/publish-desktop-internal.mjs --receipt <verified-package.json> --dmg <version-dev.dmg> --notes-file <notes.json> --evidence-dir <new-absolute-directory> --ssh-target user@host --compatibility <exact-combination.json>');
   } else {
     sshTarget = values['ssh-target'];
     if (!/^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+$/.test(sshTarget ?? '') || !isAbsolute(values.dmg ?? '')
@@ -73,7 +76,13 @@ try {
       if (receipt.stage === 'internal-test-package-verified' && index.sourceCommit !== head.trim()) throw new Error('candidate source mismatch');
     }
     await sourceGate();
-    await verifyBundle(values.dmg, index);
+    const verificationRoot = await mkdtemp(join(tmpdir(), 'hermes-publication-input-'));
+    try {
+      indexPathForVerification = join(verificationRoot, 'index.json');
+      await writeFile(indexPathForVerification, JSON.stringify(index), { mode: 0o600 });
+      const legacy = receipt.stage !== 'internal-test-package-verified' && /^0\.2\.(?:[0-9]|[1-4][0-9]|5[0-2])$/.test(index.appVersion);
+      await verifyBundle(values.dmg, index, values.compatibility, legacy);
+    } finally { await rm(verificationRoot, { recursive: true }); }
     await mkdir(values['evidence-dir'], { mode: 0o700 });
     await writeFile(join(values['evidence-dir'], 'candidate-index.json'), `${JSON.stringify(index)}\n`, { flag: 'wx', mode: 0o600 });
     const run = randomUUID();

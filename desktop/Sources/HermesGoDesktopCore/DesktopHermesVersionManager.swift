@@ -79,7 +79,7 @@ public final class DesktopHermesVersionManager: ObservableObject {
         let pending = checks.filter { !$0.needsAttention && $0.health.level != .healthy }.count
         if failed > 0 { return "升级完成，\(failed) 项运行检测未通过" }
         if checks.isEmpty || pending > 0 { return "升级完成，部分运行检测待确认" }
-        return "升级完成，运行检测通过"
+        return "升级完成，运行检测通过；会话业务兼容尚未验证"
     }
     public func check() async {
         guard !isChecking, !isRunning else { return }

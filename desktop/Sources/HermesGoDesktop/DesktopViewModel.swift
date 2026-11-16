@@ -117,6 +117,13 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     let hermesVersionManager: DesktopHermesVersionManager
     private var hermesVersionObservation: AnyCancellable?
 
+    @Published private(set) var componentContentRepairPreparation: DesktopComponentContentRepairPreparation?
+    @Published private(set) var isComponentContentRepairRunning = false
+    private var componentContentRepair: DesktopComponentContentRepair?
+    @Published private(set) var appUpdateTransactionIssue: DesktopIssue?
+    @Published private(set) var appUpdateOutcomeMessage: String?
+    @Published private(set) var appUpdateTransaction: DesktopAppUpdateTransaction?
+    @Published var isAppRecoveryConfirmationPresented = false
     @Published private(set) var updateCheckState: DesktopUpdateCheckState = .idle
     @Published var isUpdateSheetPresented = false
     @Published private(set) var diagnosticFocusIssue: DesktopIssue?
@@ -205,6 +212,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             hermesVersionManager = .init(detect: { .unsupported(.unreadableIdentity, detail: "home unavailable") }, execute: { _, _, _ in throw DesktopHermesUpgradeError.preflightBlocked })
         }
         if let managedPaths {
+            componentContentRepair = try? DesktopComponentContentRepair.system(paths: managedPaths, account: controller, gatewayURL: configuration.gatewayURL)
             serviceRepair = try? DesktopManagedServiceRepair.system(
                 account: controller, paths: managedPaths, gatewayURL: configuration.gatewayURL
             )
@@ -338,22 +346,111 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             ?? (device.hermes.reachable == true ? "可访问" : "不可访问")
     }
 
+    func refreshAppUpdateOutcome() {
+        do {
+            try DesktopAppUpdateTransactions.acknowledgeStartup(root: Self.updateWorkspaceRoot())
+            appUpdateTransactionIssue = nil
+            appUpdateTransaction = try DesktopAppUpdateTransactions.load(root: Self.updateWorkspaceRoot())
+            if let transaction = appUpdateTransaction {
+                switch transaction.state {
+                case .completed: appUpdateOutcomeMessage = "应用更新已由新版启动确认。后台组件与业务状态请分别检查。"
+                case .restored: appUpdateOutcomeMessage = "旧版应用文件已恢复，请重新检查运行与连接状态。"
+                default: appUpdateTransactionIssue = DesktopIssue(code: .appUpdateRecoveryRequired)
+                }
+            }
+        } catch { appUpdateTransactionIssue = DesktopIssue(code: .appUpdateRecoveryRequired) }
+    }
+
+    func cancelUnappliedAppUpdate() {
+        guard let transaction = appUpdateTransaction else { return }
+        do { try DesktopAppUpdateTransactions.cancelUnapplied(root: Self.updateWorkspaceRoot(), id: transaction.id); refreshAppUpdateOutcome() }
+        catch { appUpdateIssue = DesktopIssue.appUpdateInstall(error) }
+    }
+
+    func restorePreviousAppUpdate() {
+        guard !isManagedBootstrapAccountLocked, let transaction = appUpdateTransaction else { return }
+        do {
+            try appUpdateInstaller.restorePreviousApplication(root: Self.updateWorkspaceRoot(), expectedID: transaction.id)
+            NSApplication.shared.terminate(nil)
+        } catch { appUpdateIssue = DesktopIssue.appUpdateInstall(error) }
+    }
+
+    var canCheckComponentContentRepair: Bool {
+        guard case .signedIn = accountState else { return false }
+        return componentBootstrapRuntime != nil && componentContentRepair != nil
+    }
+
+    func prepareComponentContentRepair() async {
+        guard !isManagedBootstrapAccountLocked, let repair = componentContentRepair,
+              let runtime = componentBootstrapRuntime,
+              case .configured(let config) = componentPreflightConfiguration else { return }
+        isComponentContentRepairRunning = true
+        defer { isComponentContentRepairRunning = false }
+        do {
+            let verified: VerifiedDesktopComponentReleaseManifestV2
+            if let saved = try await repair.verifiedForRecovery(using: config.makeManifestVerifier()) { verified = saved }
+            else { verified = try await runtime.preflight.loadVerified() }
+            let probe = componentEntrypointProbe
+            componentContentRepairPreparation = try await repair.prepare(verified: verified) { kind, root, entrypoint in
+                try probe(kind, root: root, entrypoint: entrypoint)
+            }
+        } catch DesktopComponentContentRepairError.noRepairNeeded {
+            appUpdateStatusMessage = "当前签名组件内容完整，无需同版修复；若连接异常请使用重新连接。"
+        } catch DesktopMigrationCoordinatorError.releaseNotNewer {
+            appUpdateStatusMessage = "更新源提供其他版本，请使用检查更新；同版修复仅针对已安装版本。"
+        } catch { appUpdateIssue = DesktopIssue(code: .managedServiceRepairBlocked, technicalCause: String(describing: error)) }
+    }
+
+    func cancelComponentContentRepair() async {
+        guard let preparation = componentContentRepairPreparation, let repair = componentContentRepair else { return }
+        do { try await repair.cancel(preparation); componentContentRepairPreparation = nil }
+        catch { appUpdateIssue = DesktopIssue(code: .managedServiceRepairFailed, technicalCause: String(describing: error)) }
+    }
+
+    func confirmComponentContentRepair() async {
+        guard let preparation = componentContentRepairPreparation, let repair = componentContentRepair else { return }
+        isComponentContentRepairRunning = true
+        defer { isComponentContentRepairRunning = false; componentContentRepairPreparation = nil }
+        do {
+            try await repair.commit(preparation, confirmation: preparation.confirmationText)
+            appUpdateStatusMessage = "当前组件已修复，已核实原绑定的新连接；业务兼容仍需验证。"
+            await refresh()
+        } catch { appUpdateIssue = DesktopIssue(code: .managedServiceRepairFailed, technicalCause: String(describing: error)) }
+    }
+
+    func selectAppRepair() {
+        guard let report = updateCheckState.report?.selectingAppRepair() else { return }
+        updateCheckState = .available(report)
+        isUpdateSheetPresented = true
+    }
+
+    func installDiscoveredAppOnly() async {
+        guard !isManagedBootstrapAccountLocked, let report = updateCheckState.report, report.appUpdate != nil else { return }
+        desktopUpdateReport = DesktopUpdateReport(checkedAt: report.checkedAt, appUpdate: report.appUpdate, managedUpdate: nil,
+                                                appState: report.appState, managedState: report.managedState)
+        desktopUpdateSequence.begin(background: false, app: true)
+        await installAppUpdate()
+    }
+
     func startMonitoring() {
         if hermesVersionObservation == nil {
             hermesVersionObservation = hermesVersionManager.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         }
         guard monitorTask == nil else { return }
+        refreshAppUpdateOutcome()
         monitorTask = Task { [weak self] in
             await self?.refreshAccount(bootstrap: true)
             await self?.recoverManagedBootstrapAfterRestart()
             await self?.refresh()
             await self?.resumeStoppedConnectorIfNeeded()
             await self?.refreshComponentPreflight()
+            self?.refreshAppUpdateOutcome()
             await self?.runAutomaticUpdateCheckIfDue()
             var cycle = 0
             while !Task.isCancelled {
                 await self?.refresh()
                 await self?.resumeStoppedConnectorIfNeeded()
+                self?.refreshAppUpdateOutcome()
                 cycle += 1
                 if cycle.isMultiple(of: 4) {
                     await self?.refreshAccount()
@@ -373,17 +470,31 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         return nil
     }
 
+    private var updateDiscoveryInstallation: DesktopManagedBootstrapInstallationStatus?
+
     private var managedUpdateSource: DesktopManagedUpdateSource? {
         let bundled: DesktopManagedBootstrapConfiguration? =
             if case .configured(let value) = effectiveManagedBootstrapConfiguration { value } else { nil }
         let components: DesktopComponentPreflightConfiguration? =
-            if componentBootstrapAvailability == .ready,
-               case .configured(let value) = componentPreflightConfiguration { value } else { nil }
+            if case .configured(let value) = componentPreflightConfiguration { value } else { nil }
         return DesktopManagedUpdateSource.resolve(
-            installation: currentManagedInstallation, bundled: bundled, components: components,
+            installation: updateDiscoveryInstallation ?? currentManagedInstallation, bundled: bundled, components: components,
             allowBundledComponentMigration: managedRecoveryRuntime?.hermesAgentLooksLocal == true
                 && localHermesDetection?.installation != nil
         )
+    }
+
+    var appVersionLabel: String {
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+        let purpose = Bundle.main.object(forInfoDictionaryKey: "HermesGoBuildPurpose") as? String
+        return "\(appVersion) / build \(build)" + (purpose == "development" ? "（开发构建）" : "")
+    }
+
+    var canInstallDiscoveredComponents: Bool {
+        guard componentBootstrapAvailability == .ready else { return false }
+        let installation = updateDiscoveryInstallation ?? currentManagedInstallation
+        if case .active = installation { return managedAccountVerification(for: installation) == .verified }
+        return false
     }
 
     var updateSources: DesktopUpdateSources {
@@ -415,7 +526,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         switch updateCheckState {
         case .idle: isUpdateConfigured ? "尚未检查" : "此版本未配置更新检查"
         case .checking: "正在检查更新…"
-        case .upToDate: "已是最新版本（\(appVersion)）"
+        case .upToDate(let report): report.hasFailures ? "部分更新源检查失败" : (report.isFullyChecked ? "已是最新版本（\(appVersion)）" : "更新检查已结束，请查看各项结果")
         case .available: "Desktop 有可用更新"
         case .failed(let issue): issue.summaryChinese
         }
@@ -435,7 +546,9 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         // Resolve both discovery and execution from the actual installation, not the monitor's
         // startup cache or the server's capability for fresh installations.
         updateCheckState = .checking
-        currentManagedInstallation = await inspectScopedManagedBootstrapInstallation()
+        let observed = await inspectRawManagedBootstrapInstallation()
+        updateDiscoveryInstallation = observed
+        currentManagedInstallation = scopeManagedBootstrapInstallation(observed)
         let source = managedUpdateSource
         let sources = updateSources
         // Only a direct manifest needs a prepared hint. An index is authoritative for discovery;
@@ -448,7 +561,8 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             preparedTarget = nil
         }
         guard isUpdateConfigured else {
-            let report = DesktopUpdateReport(checkedAt: Date(), appUpdate: nil, managedUpdate: nil)
+            let report = DesktopUpdateReport(checkedAt: Date(), appUpdate: nil, managedUpdate: nil,
+                                             appState: .notConfigured, managedState: .notConfigured)
                 .includingPreparedManagedVersion(preparedTarget, installed: installedManagedVersion,
                                                  layout: sources.managedLayout)
             if report.hasUpdates {
@@ -458,34 +572,60 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             }
             let issue = DesktopIssue(code: .updateNotConfigured)
             updateCheckState = .failed(issue)
-            if manual { appUpdateIssue = issue }
+            if manual { appUpdateIssue = issue; isUpdateSheetPresented = true }
             return
         }
         let checker = updateChecker
-        let installedManagedVersion = self.installedManagedVersion
+        let installedManagedVersion: String?
+        if case .active(let version, _, _, _) = updateDiscoveryInstallation { installedManagedVersion = version }
+        else { installedManagedVersion = nil }
         appUpdateStatusMessage = nil
-        if manual { appUpdateIssue = nil }
+        if manual || [.updateCheckFailed, .updateNotConfigured, .installedUpdateIdentityMismatch].contains(appUpdateIssue?.code) { appUpdateIssue = nil }
         do {
-            let report = try await checker.check(
+            var report = try await checker.check(
                 sources: sources,
                 installedAppVersion: appVersion,
+                installedAppBuild: Int(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""),
+                appIdentityNeedsRepair: DesktopAppUpdateInstaller.identityNeedsRepair(bundle: .main),
+                installedAppSource: Bundle.main.object(forInfoDictionaryKey: "HermesGoSourceCommit") as? String,
                 installedManagedVersion: installedManagedVersion
             ).includingPreparedManagedVersion(preparedTarget, installed: installedManagedVersion,
                                                  layout: sources.managedLayout)
+            if let paths = managedPaths, let runtime = componentBootstrapRuntime,
+               case .active(let installed, .componentStore, _, _) = updateDiscoveryInstallation,
+               report.latestManagedReference?.releaseVersion == installed, report.managedUpdate == nil {
+                do {
+                    let verified = try await runtime.preflight.loadVerified()
+                    if verified.manifest.releaseVersion == installed {
+                        let probe = componentEntrypointProbe
+                        let intact = await Task.detached(priority: .utility) {
+                            do {
+                                let planner = try DesktopComponentReleaseActivationPlanner(storeRoot: paths.managedRoot, currentUserID: getuid())
+                                _ = try planner.plan(manifest: verified.manifest) { kind, root, entrypoint in
+                                    try probe(kind, root: root, entrypoint: entrypoint)
+                                }
+                                return DesktopConnectorRuntimeIdentity.verify(
+                                    launchAgentURL: paths.launchAgentsRoot.appendingPathComponent("com.hermesgo.connector.plist"), userID: getuid())
+                            } catch { return false }
+                        }.value
+                        report = report.markingManagedIdentity(intact ? .upToDate : .repairAvailable)
+                    } else { report = report.markingManagedIdentity(.installationUnknown) }
+                } catch { report = report.markingManagedIdentity(.failed) }
+            }
             lastUpdateCheckAt = report.checkedAt
             updateCheckState = report.hasUpdates ? .available(report) : .upToDate(report)
             // The Account & Devices card reads this discovered version as a preflight hint.
             // Refresh it now instead of waiting for the next monitor cycle.
             _ = await refreshManagedBootstrapPreflight()
-            if report.hasUpdates {
-                isUpdateSheetPresented = true
-            } else if manual {
-                appUpdateStatusMessage = nil
+            if report.hasFailures { appUpdateIssue = DesktopIssue(code: .updateCheckFailed) }
+            else if report.appState == .repairAvailable || report.managedState == .repairAvailable {
+                appUpdateIssue = DesktopIssue(code: .installedUpdateIdentityMismatch, technicalCause: report.appState == .repairAvailable ? "app_identity_mismatch" : "managed_content_or_runtime_mismatch")
             }
+            if report.hasUpdates || manual { isUpdateSheetPresented = true }
         } catch {
             let issue = DesktopIssue.updateCheck(error)
             updateCheckState = .failed(issue)
-            if manual { appUpdateIssue = issue }
+            if manual { appUpdateIssue = issue; isUpdateSheetPresented = true }
         }
     }
 
@@ -554,7 +694,8 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             let prepared = try await appUpdateInstaller.prepare(
                 reference: reference,
                 destinationAppURL: Bundle.main.bundleURL,
-                workspaceRoot: Self.updateWorkspaceRoot()
+                workspaceRoot: Self.updateWorkspaceRoot(),
+                repair: desktopUpdateReport?.appUpdate?.isRepair == true
             )
             try appUpdateInstaller.commit(prepared)
             isAppUpdateHandoff = true
@@ -613,7 +754,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         guard desktopUpdateSequence.stage == .background else { return }
         desktopUpdateSequence.backgroundFinished(succeeded: succeeded, cleanupPending: cleanupPending)
         if succeeded, let report = desktopUpdateReport {
-            let remaining = DesktopUpdateReport(checkedAt: report.checkedAt, appUpdate: report.appUpdate, managedUpdate: nil)
+            let remaining = report.afterManagedUpdate()
             desktopUpdateReport = remaining
             updateCheckState = remaining.hasUpdates ? .available(remaining) : .upToDate(remaining)
         }
@@ -628,7 +769,13 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
                 ? "Desktop 更新已完成。" : "Desktop 更新未全部完成；请先处理诊断中的问题，再重试更新。"
             isUpdateSheetPresented = false
             if desktopUpdateSequence.stage == .completed {
-                updateCheckState = .upToDate(DesktopUpdateReport(checkedAt: Date(), appUpdate: nil, managedUpdate: nil))
+                if let remaining = desktopUpdateReport {
+                    updateCheckState = .upToDate(remaining)
+                    if remaining.hasFailures {
+                        appUpdateIssue = DesktopIssue(code: .updateCheckFailed)
+                        appUpdateStatusMessage = "后台组件更新已完成；其他更新源检查仍未成功，请重试检查。"
+                    }
+                }
             }
         }
     }
@@ -1969,7 +2116,8 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         case .completed(_, cleanupPending: true): true
         default: false
         }
-        return isAppUpdateInstalling || managedLocked || isComponentBootstrapAccountLocked
+        return isComponentContentRepairRunning || componentContentRepairPreparation != nil
+            || isAppUpdateInstalling || managedLocked || isComponentBootstrapAccountLocked
             || isServiceRepairPreparing || isServiceRepairRunning || serviceRepairPreparation != nil
     }
 
@@ -2417,7 +2565,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             lines.append("\(check.title) [\(check.source)]: \(item.level.rawValue) — \(item.detail) — \(String(describing: item.checkedAt))")
         }
         if case .unsupported(let reason, let detail) = localHermesDetection { lines.append("\(reason.rawValue): \(detail)") }
-        for issue in [localHermesIssue, managedBootstrapIssue, componentBootstrapIssue, serviceRepairIssue, appUpdateIssue, accountIssue].compactMap({ $0 }) {
+        for issue in [localHermesIssue, managedBootstrapIssue, componentBootstrapIssue, serviceRepairIssue, appUpdateIssue, appUpdateTransactionIssue, accountIssue].compactMap({ $0 }) {
             lines.append(issue.sanitizedDiagnostic)
         }
         lines.append(contentsOf: recentLogLines)

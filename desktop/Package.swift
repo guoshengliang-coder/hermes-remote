@@ -12,6 +12,8 @@ let package = Package(
         .executable(name: "HermesGoDesktop", targets: ["HermesGoDesktop"]),
     ],
     targets: [
+        .executableTarget(name: "HermesGoUpdateHelper", dependencies: ["HermesGoDesktopCore"]),
+        .executableTarget(name: "DesktopReleaseVerifier", dependencies: ["HermesGoDesktopCore"]),
         .target(name: "HermesGoDesktopCore"),
         .executableTarget(
             name: "HermesGoDesktop",

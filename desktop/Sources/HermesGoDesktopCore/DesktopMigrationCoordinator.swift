@@ -130,6 +130,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
     private let serviceReloadAttempts: Int
     private let serviceReloadDelayNanoseconds: UInt64
     private let operationLog: DesktopServiceOperationLog?
+    private let connectorRuntimeProof: @Sendable () -> Bool
     private let progress: DesktopSetupProgress?
     private let localHermesForFreshInstall: @Sendable () -> DesktopLocalHermesInstallation?
 
@@ -140,6 +141,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         journal: DesktopMigrationJournalStore,
         installer: DesktopManagedInstaller,
         launchAgent: DesktopLaunchAgentController<Runner>,
+        connectorRuntimeProof: @escaping @Sendable () -> Bool = { true },
         hermesReadiness: (any DesktopHermesCandidateReadinessChecking)? = nil,
         hermesShutdown: any DesktopHermesShutdownChecking = DesktopHermesShutdownChecker(),
         maximumHealthPolls: Int = 75,
@@ -153,6 +155,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         guard (1...300).contains(maximumHealthPolls), (1...10).contains(serviceReloadAttempts) else {
             throw DesktopMigrationCoordinatorError.invalidStartingState
         }
+        self.connectorRuntimeProof = connectorRuntimeProof
         self.account = account
         self.journal = journal
         self.installer = installer
@@ -1343,7 +1346,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                 _ = try transitionJournal(runID: runID, to: .candidateAuthenticated)
                 authenticated = true
             }
-            if authenticated, dashboard.binding.healthVerified == true {
+            if authenticated, dashboard.binding.healthVerified == true, connectorRuntimeProof() {
                 _ = try transitionJournal(runID: runID, to: .candidateHealthy)
                 return
             }
@@ -1368,7 +1371,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                   binding.id == bindingID,
                   binding.generation == generation
             else { throw DesktopMigrationCoordinatorError.invalidBindingState }
-            if isCommitted(state, bindingID: bindingID, generation: generation),
+            if connectorRuntimeProof(), isCommitted(state, bindingID: bindingID, generation: generation),
                hasFreshCloudHealth(
                    state,
                    bindingID: bindingID,
@@ -1396,7 +1399,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             guard hasExactBoundBinding(state, bindingID: bindingID, generation: generation) else {
                 throw DesktopMigrationCoordinatorError.invalidBindingState
             }
-            if isCommitted(state, bindingID: bindingID, generation: generation),
+            if connectorRuntimeProof(), isCommitted(state, bindingID: bindingID, generation: generation),
                hasFreshCloudHealth(
                    state,
                    bindingID: bindingID,

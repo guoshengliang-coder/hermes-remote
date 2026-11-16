@@ -8,6 +8,7 @@ from contextlib import contextmanager
 import argparse
 import asyncio
 import json
+import hashlib
 import os
 from pathlib import Path
 import subprocess
@@ -261,7 +262,23 @@ def main():
                     await connection.close()
 
         asyncio.run(exercise())
-        result = {"sourceCommit": commit, "checks": checks, "passed": all(c["passed"] for c in checks),
+        # Bind the semantic result to the interpreter and actual imported code, without exposing
+        # machine-specific paths. Version labels alone cannot identify a dependency environment.
+        imported = []
+        for name, module in sorted(sys.modules.items()):
+            raw = getattr(module, "__file__", None)
+            if not isinstance(raw, str):
+                continue
+            path = Path(raw)
+            if path.suffix not in (".py", ".pyc", ".so", ".dylib") or not path.is_file():
+                continue
+            imported.append([name, hashlib.sha256(path.read_bytes()).hexdigest()])
+        runtime_identity = {
+            "interpreterSHA256": hashlib.sha256(Path(sys.executable).read_bytes()).hexdigest(),
+            "importedCodeSHA256": hashlib.sha256(json.dumps(imported, separators=(",", ":")).encode()).hexdigest(),
+            "importedModuleCount": len(imported),
+        }
+        result = {"sourceCommit": commit, "runtimeIdentity": runtime_identity, "checks": checks, "passed": all(c["passed"] for c in checks),
             "limitations": ["isolated handlers and dispatcher, not a real phone or production HTTP/WS handshake",
                 "native grants, database handles and profile roots are test fixtures; no inference or runtime startup"]}
         print(json.dumps(result, ensure_ascii=False, indent=2), file=output)

@@ -155,3 +155,10 @@ error stages replace raw exceptions. Browser network failure is `HR-SITE-007`. N
 external fonts or external runtime assets are required. Cookie/IP retention is described on Help.
 
 See [`../docs/WEBSITE.md`](../docs/WEBSITE.md) for publication gates and manual acceptance.
+## HG-258 Desktop publication addition
+
+New internal Desktop publication additionally requires `--compatibility <exact-combination.json>`.
+The repository's exact-combination verifier checks the actual distribution app, signed component
+archives and disposable real-Hermes semantics. Missing/stale evidence stops upload; publication and
+physical installation remain separately authorized. See
+[`docs/HG_258_DESKTOP_UPDATE_CLOSURE.md`](../docs/HG_258_DESKTOP_UPDATE_CLOSURE.md).

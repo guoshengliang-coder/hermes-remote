@@ -44,6 +44,7 @@ public final class DesktopComponentBootstrapRuntime: @unchecked Sendable {
             journal: journal,
             installer: DesktopManagedInstaller(layout: layout),
             launchAgent: launchAgent,
+            connectorRuntimeProof: { DesktopConnectorRuntimeIdentity.verify(launchAgentURL: layout.connectorLaunchAgent, userID: userID) },
             hermesShutdown: DesktopHermesShutdownChecker(log: operationLog),
             operationLog: operationLog,
             progress: progress,

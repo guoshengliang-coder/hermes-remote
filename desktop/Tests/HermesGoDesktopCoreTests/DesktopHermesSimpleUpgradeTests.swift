@@ -33,7 +33,7 @@ final class DesktopHermesSimpleUpgradeTests: XCTestCase {
         await Task.yield()
         XCTAssertTrue(diagnosed)
         XCTAssertEqual(manager.phase, .completed)
-        XCTAssertEqual(manager.resultSummary, "升级完成，运行检测通过")
+        XCTAssertEqual(manager.resultSummary, "升级完成，运行检测通过；会话业务兼容尚未验证")
         XCTAssertFalse(manager.canUpgrade)
         XCTAssertFalse(manager.output.joined().contains("fixture-secret-value"))
     }
@@ -91,11 +91,11 @@ final class DesktopHermesSimpleUpgradeTests: XCTestCase {
             await manager.upgrade { [Self.check(health)] }
             XCTAssertEqual(manager.phase, .completed)
             XCTAssertFalse(manager.resultSummary.contains("兼容"))
-            XCTAssertNotEqual(manager.resultSummary, "升级完成，运行检测通过")
+            XCTAssertNotEqual(manager.resultSummary, "升级完成，运行检测通过；会话业务兼容尚未验证")
             XCTAssertEqual(manager.issue?.code, health == .failed ? .hermesUpdateDiagnosticsFailed : nil)
             await manager.recheckRuntime { [Self.check()] }
             XCTAssertNil(manager.issue)
-            XCTAssertEqual(manager.resultSummary, "升级完成，运行检测通过")
+            XCTAssertEqual(manager.resultSummary, "升级完成，运行检测通过；会话业务兼容尚未验证")
             let executions = await state.updates
             XCTAssertEqual(executions, 1)
         }

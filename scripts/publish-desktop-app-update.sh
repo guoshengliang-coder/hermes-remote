@@ -62,7 +62,8 @@ remote_exec() {
 repo_root="$(cd "$(dirname "$0")/.." && pwd -P)"
 cd "$repo_root"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+mount_active=0
+trap 'if [[ "$mount_active" == 1 ]]; then hdiutil detach "$work/mount" >/dev/null 2>&1 || true; fi; rm -rf "$work"' EXIT
 
 readback_index() {
   curl -fsS -H 'Cache-Control: no-cache' \
@@ -80,7 +81,7 @@ fi
 
 publish_required=(
   DESKTOP_APP_VERSION DESKTOP_APP_ARCHITECTURE DESKTOP_APP_CHANNEL
-  DESKTOP_APP_DMG DESKTOP_APP_UPDATE_INDEX
+  DESKTOP_APP_DMG DESKTOP_APP_UPDATE_INDEX DESKTOP_COMPATIBILITY_EVIDENCE
 )
 for name in "${publish_required[@]}"; do
   [[ -n "${!name:-}" ]] || { echo "Missing $name" >&2; exit 64; }
@@ -135,6 +136,18 @@ if (index.sha256 !== sha) fail('index sha256 does not match the DMG');
 if (index.downloadURL !== expectedURL) fail('index downloadURL is not the expected versioned URL');
 if (!Array.isArray(index.releaseNotes)) fail('index releaseNotes must be an array');
 NODE
+# Re-open the exact distribution; a candidate job or a metadata-only receipt is insufficient.
+mkdir "$work/mount"
+hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$work/mount" "$DESKTOP_APP_DMG"
+mount_active=1
+if ! node scripts/verify-desktop-publication-input.mjs "$work/mount/Hermes Go Desktop.app" \
+  "$DESKTOP_APP_UPDATE_INDEX" "$DESKTOP_COMPATIBILITY_EVIDENCE"; then
+  hdiutil detach "$work/mount" >/dev/null 2>&1 || true
+  exit 65
+fi
+codesign --verify --deep --strict "$work/mount/Hermes Go Desktop.app"
+hdiutil detach "$work/mount"
+mount_active=0
 cp "$DESKTOP_APP_UPDATE_INDEX" "$work/app-index.json"
 
 if [[ "$protected" == 1 ]]; then

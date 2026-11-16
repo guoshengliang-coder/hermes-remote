@@ -181,7 +181,7 @@ public final class DesktopMigrationJournalStore: @unchecked Sendable {
         .init(root: root)
     }
 
-    public func acquireOperationLease() throws -> DesktopMigrationOperationLease {
+    public func acquireOperationLease(allowComponentRepair: Bool = false) throws -> DesktopMigrationOperationLease {
         do { try ensureRoot() }
         catch let error as DesktopMigrationJournalError { throw error }
         catch { throw DesktopMigrationJournalError.persistenceFailed }
@@ -199,6 +199,11 @@ public final class DesktopMigrationJournalStore: @unchecked Sendable {
             throw DesktopMigrationJournalError.lockUnavailable
         }
         let lease = DesktopMigrationOperationLease(descriptor: descriptor)
+        var repairMetadata = stat()
+        let repairStatus = Darwin.lstat(root.appendingPathComponent("component-content-repair.json").path, &repairMetadata)
+        guard allowComponentRepair || (repairStatus != 0 && errno == ENOENT) else {
+            throw DesktopMigrationJournalError.invalidState
+        }
         try hermesUpgradeJournal.requireNoPendingUpgrade()
         return lease
     }

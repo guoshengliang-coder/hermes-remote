@@ -5,6 +5,90 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopComponentReleaseInstallerTests: XCTestCase {
+    func testSameReleaseContentRepairStagesBeforeConfirmationAndKeepsBinding() async throws {
+        try await checkSameReleaseContentRepair(changeCredentialDuringStop: false)
+    }
+
+    func testSameReleaseContentRepairRejectsCredentialChangeWhileStopping() async throws {
+        try await checkSameReleaseContentRepair(changeCredentialDuringStop: true)
+    }
+
+    private func checkSameReleaseContentRepair(changeCredentialDuringStop: Bool) async throws {
+        let fixture = try ComponentInstallFixture(); defer { fixture.remove() }
+        let initialInstaller = try fixture.installer(downloader: FixtureComponentDownloader())
+        _ = try await initialInstaller.install(verifiedManifest: fixture.verifiedManifest,
+            workspaceRoot: fixture.workspace, runID: UUID().uuidString, healthProbe: executableProbe)
+        let home = fixture.base.resolvingSymlinksInPath().appendingPathComponent("home")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: false)
+        let paths = try DesktopManagedBootstrapPaths(homeDirectory: home)
+        try FileManager.default.createDirectory(at: paths.managedRoot.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: fixture.store, to: paths.managedRoot)
+        let layout = try DesktopManagedInstallLayout(root: paths.managedRoot, launchAgentsRoot: paths.launchAgentsRoot)
+        let local = DesktopManagedInstaller(layout: layout)
+        let journal = try DesktopMigrationJournalStore(root: paths.migrationJournalRoot)
+        let runID = UUID().uuidString, bindingID = UUID().uuidString.lowercased()
+        _ = try journal.begin(runID: runID, lastKnownGoodMode: .none, releaseVersion: fixture.manifest.releaseVersion,
+                              releaseLayout: .componentStore, bindingID: bindingID, bindingGeneration: 1)
+        for state: DesktopMigrationState in [.accountStaged, .candidateStarting, .candidateAuthenticated, .candidateHealthy, .commitPending, .accountActive] {
+            _ = try journal.transition(runID: runID, to: state)
+        }
+        let beforeJournal = try journal.loadReadOnly()
+        let key = Curve25519.Signing.PrivateKey()
+        let fingerprint = SHA256.hash(data: key.publicKey.rawRepresentation).map { String(format: "%02x", $0) }.joined()
+        let encoded = key.rawRepresentation.base64EncodedString().replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        try local.ensurePrivateDirectory(layout.secretsRoot)
+        let credential = try JSONSerialization.data(withJSONObject: ["schemaVersion": 1, "bindingId": bindingID,
+            "generation": 1, "publicKeyFingerprint": fingerprint, "privateKey": encoded])
+        try local.atomicWrite(credential, to: layout.connectorCredential, permissions: 0o600)
+        let token = Data(String(repeating: "a", count: 43).utf8)
+        try local.atomicWrite(token, to: layout.hermesSessionToken, permissions: 0o600)
+        let connector = fixture.artifact(.connector), node = fixture.artifact(.nodeRuntime)
+        let connectorRoot = paths.managedRoot.appendingPathComponent("components/connector/" + connector.contentSHA256 + "/content")
+        let agent = try DesktopAccountConnectorLaunchAgent(connectorExecutable: connectorRoot.appendingPathComponent(connector.entrypoint),
+            credentialFile: layout.connectorCredential, gatewayURL: URL(string: "wss://example.test/v2/connect")!,
+            hermesBaseURL: DesktopHermesRuntimeContract.serveV1.baseURL, sessionTokenFile: layout.hermesSessionToken,
+            standardOutput: layout.logsRoot.appendingPathComponent("connector.log"), standardError: layout.logsRoot.appendingPathComponent("connector.error.log"),
+            nodeRuntimeRoot: paths.managedRoot.appendingPathComponent("components/node_runtime/" + node.contentSHA256 + "/content"))
+        try local.ensureOwnedDirectory(paths.launchAgentsRoot)
+        let agentData = try agent.encodedPropertyList()
+        try local.atomicWrite(agentData, to: layout.connectorLaunchAgent, permissions: 0o600)
+        try Data("damaged but regular".utf8).write(to: connectorRoot.appendingPathComponent(connector.entrypoint))
+        let calls = ContentRepairCalls()
+        let repair = try DesktopComponentContentRepair(paths: paths, gatewayURL: URL(string: "https://example.test")!,
+            stagingInstaller: { root in try fixture.installer(downloader: FixtureComponentDownloader(), storeRoot: root) },
+            identity: { .init(bindingID: bindingID, generation: 1, fingerprint: fingerprint, healthy: true,
+                              checkedAt: Date(timeIntervalSince1970: calls.started ? 200 : 100)) },
+            stop: {
+                calls.note("stop")
+                if changeCredentialDuringStop {
+                    try local.atomicWrite(Data("external".utf8), to: layout.connectorCredential, permissions: 0o600)
+                }
+            }, start: { calls.note("start") }, runtimeProof: { calls.started })
+        let preparation = try await repair.prepare(verified: fixture.verifiedManifest, healthProbe: executableProbe)
+        XCTAssertEqual(preparation.componentNames, ["connector"])
+        XCTAssertEqual(calls.events, [])
+        XCTAssertEqual(try String(contentsOf: connectorRoot.appendingPathComponent(connector.entrypoint)), "damaged but regular")
+        if changeCredentialDuringStop {
+            do {
+                try await repair.commit(preparation, confirmation: preparation.confirmationText)
+                XCTFail("changed credential must block replacement")
+            } catch { }
+            XCTAssertEqual(calls.events, ["stop"])
+            XCTAssertEqual(try String(contentsOf: connectorRoot.appendingPathComponent(connector.entrypoint)), "damaged but regular")
+            XCTAssertTrue(FileManager.default.fileExists(atPath: paths.migrationJournalRoot.appendingPathComponent("component-content-repair.json").path))
+            return
+        }
+        try await repair.commit(preparation, confirmation: preparation.confirmationText)
+        XCTAssertEqual(calls.events, ["stop", "start"])
+        XCTAssertEqual(try DesktopManagedComponentContentHasher().identify(directory: connectorRoot).sha256, connector.contentSHA256)
+        XCTAssertEqual(try journal.loadReadOnly(), beforeJournal)
+        XCTAssertEqual(try local.readOwnedPrivateFile(layout.connectorCredential), credential)
+        XCTAssertEqual(try local.readOwnedPrivateFile(layout.hermesSessionToken), token)
+        XCTAssertEqual(try local.readOwnedPrivateFile(layout.connectorLaunchAgent), agentData)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths.migrationJournalRoot.appendingPathComponent("component-content-repair.json").path))
+    }
+
     func testComponentUpgradeRetainsFileBudgetWithoutImportingOtherEnvironment() async throws {
         let fixture = try ComponentInstallFixture(); defer { fixture.remove() }
         let componentInstaller = try fixture.installer(downloader: FixtureComponentDownloader())
@@ -960,10 +1044,11 @@ private final class ComponentInstallFixture {
 
     func installer(
         downloader: FixtureComponentDownloader,
-        failExtractionFor failedKind: DesktopManagedComponentKind? = nil
+        failExtractionFor failedKind: DesktopManagedComponentKind? = nil,
+        storeRoot: URL? = nil
     ) throws -> DesktopComponentReleaseInstaller {
         try DesktopComponentReleaseInstaller(
-            storeRoot: store,
+            storeRoot: storeRoot ?? store,
             currentUserID: Darwin.getuid(),
             downloader: downloader,
             extractor: FixtureComponentExtractor(sources: sources, failedKind: failedKind)
@@ -1314,4 +1399,12 @@ private final class FailOncePreparedDiscardComponentInstaller:
     func discardInterruptedInstall(workspaceRoot: URL, runID: String) throws {
         try underlying.discardInterruptedInstall(workspaceRoot: workspaceRoot, runID: runID)
     }
+}
+
+private final class ContentRepairCalls: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [String] = []
+    var events: [String] { lock.lock(); defer { lock.unlock() }; return stored }
+    var started: Bool { events.contains("start") }
+    func note(_ name: String) { lock.lock(); defer { lock.unlock() }; stored.append(name) }
 }
