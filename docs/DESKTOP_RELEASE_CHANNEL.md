@@ -1,5 +1,22 @@
 # Desktop release channel
 
+## HG-258 approved release preparation: 0.2.53 / build 56
+
+On 2026-11-16 the owner approved Desktop 0.2.53/build 56 and component channel 0.4.18,
+retaining Node 22.23.2 and Connector 0.1.21. Feature PR #754 merged as
+f18e32f3df27c416f3f1a224c9d41622f2dba89a with successful PR and main gates.
+The owner explicitly approved a single-publication exception to sign 0.4.18 on the original
+trusted-key node because the protected GitHub environment lacks signing credentials/reviewers.
+Verify the existing key against the currently trusted public key; never generate, copy, export
+or upload a private key. All independent signature, exact-combination, clean-main, official
+publisher and full public-readback gates remain. This allocation is not publication evidence.
+
+Continue the established ad-hoc internal app channel. Publish components first, then validate
+the actual signed app/Node/Connector/upstream combination and use the unified internal publisher.
+Retain component 0.4.17 and app 0.2.52 rollback pointers, freeze the legacy release channel, and
+preserve the original public trust/configuration. No local installation or service restart;
+physical old-client update/recovery, UI and live-session business acceptance remain pending.
+
 ## Candidate prerequisite checks
 
 The official app and signed component candidate workflows run `scripts/release-preflight.mjs`
