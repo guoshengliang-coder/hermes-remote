@@ -48,6 +48,23 @@ struct SetupConfirmationSheets: ViewModifier {
             )) { preparation in
                 componentBootstrapConfirmationSheet(preparation)
             }
+            .sheet(item: Binding(get: { model.componentContentRepairPreparation }, set: { value in
+                if value == nil { Task { await model.cancelComponentContentRepair() } }
+            })) { preparation in
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("修复当前后台组件").font(.headline)
+                    Text(preparation.confirmationText)
+                    Text("仅恢复已签名且与当前安装记录一致的内容，不降级、不重建绑定。损坏内容会隔离保留；恢复未完成会阻止其他安装，需再次确认修复。")
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                    if model.isComponentContentRepairRunning { ProgressView("正在修复并核验连接…") }
+                    HStack {
+                        Button("取消") { Task { await model.cancelComponentContentRepair() } }
+                        Spacer()
+                        Button("确认修复并重连") { Task { await model.confirmComponentContentRepair() } }
+                            .buttonStyle(.borderedProminent)
+                    }.disabled(model.isComponentContentRepairRunning)
+                }.padding(26).frame(width: 560).interactiveDismissDisabled(model.isComponentContentRepairRunning)
+            }
             .sheet(isPresented: $model.isUpdateSheetPresented) {
                 updateAvailableSheet()
             }
@@ -58,6 +75,14 @@ struct SetupConfirmationSheets: ViewModifier {
             Label("Desktop 更新", systemImage: "arrow.down.circle.fill")
                 .font(.system(size: 19, weight: .bold)).foregroundStyle(Color.hermesBlue)
             Text(model.updateStatusText).font(.system(size: 15, weight: .semibold))
+            if let report = model.updateCheckState.report {
+                Text("应用：\(report.appState.summaryChinese)")
+                Text("后台组件：\(report.managedState.summaryChinese)")
+                if report.managedUpdate != nil && !model.canInstallDiscoveredComponents {
+                    Text("后台组件已发现；安装前需要登录并通过本机、绑定和服务器能力检查。")
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                }
+            }
             if let report = model.updateCheckState.report, report.hasUpdates {
                 let notes = (report.appUpdate?.releaseNotes ?? []) + (report.managedUpdate?.releaseNotes ?? [])
                 ScrollView {
@@ -73,6 +98,7 @@ struct SetupConfirmationSheets: ViewModifier {
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             }
             if let issue = model.appUpdateIssue { GateIssueBanner(issue: issue) }
+            if let issue = model.appUpdateTransactionIssue { GateIssueBanner(issue: issue) }
             if let message = model.appUpdateStatusMessage {
                 Text(message).font(.system(size: 12)).foregroundStyle(.secondary)
             }
@@ -81,13 +107,21 @@ struct SetupConfirmationSheets: ViewModifier {
                 Button(model.updateCheckState.report?.hasUpdates == true ? "稍后" : "确定") { model.isUpdateSheetPresented = false }
                     .disabled(model.isDesktopUpdateRunning).keyboardShortcut(.cancelAction)
                 Spacer()
+                if model.updateCheckState.report?.appRepairReference != nil {
+                    Button("修复当前版本…") { model.selectAppRepair() }
+                }
+                if model.updateCheckState.report?.appUpdate != nil && !model.canInstallDiscoveredComponents {
+                    Button("仅更新应用") { Task { await model.installDiscoveredAppOnly() } }
+                        .disabled(model.isDesktopUpdateRunning || model.isManagedBootstrapAccountLocked)
+                }
                 if model.updateCheckState.report?.hasUpdates == true {
-                    Button("更新 Desktop") {
+                    Button(model.updateCheckState.report?.appUpdate?.isRepair == true ? "确认修复当前版本" : "更新 Desktop") {
                         model.isUpdateSheetPresented = false
                         Task { await model.installDesktopUpdate() }
                     }
                         .buttonStyle(.borderedProminent)
-                        .disabled(model.isDesktopUpdateRunning || model.isManagedBootstrapAccountLocked)
+                        .disabled(model.isDesktopUpdateRunning || model.isManagedBootstrapAccountLocked
+                            || (model.updateCheckState.report?.managedUpdate != nil && !model.canInstallDiscoveredComponents))
                 }
             }
         }

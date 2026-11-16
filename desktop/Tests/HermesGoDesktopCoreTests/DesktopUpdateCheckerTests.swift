@@ -26,6 +26,54 @@ final class DesktopUpdateCheckerTests: XCTestCase {
         XCTAssertTrue(report.hasUpdates)
     }
 
+    func testAppFailureDoesNotHideManagedUpdate() async throws {
+        let managed = managedIndex(version: "0.4.4")
+        let appURL = appIndexURL
+        UpdateURLProtocol.handler = { request in
+            request.url == appURL ? (503, [:], Data()) : (200, [:], managed)
+        }
+        let report = try await checker().check(sources: sources(), installedAppVersion: "0.2.28",
+                                               installedManagedVersion: "0.4.3")
+        XCTAssertEqual(report.managedUpdate?.version, "0.4.4")
+    }
+
+    func testManagedFailureDoesNotHideAppUpdate() async throws {
+        let app = appIndex(version: "0.2.29")
+        let appURL = appIndexURL
+        UpdateURLProtocol.handler = { request in
+            request.url == appURL ? (200, [:], app) : (503, [:], Data())
+        }
+        let report = try await checker().check(sources: sources(), installedAppVersion: "0.2.28",
+                                               installedManagedVersion: "0.4.3")
+        XCTAssertEqual(report.appUpdate?.version, "0.2.29")
+    }
+
+    func testSameVersionRepairIsExplicitAndRequiresIdentityFailure() async throws {
+        stubIndexes(appVersion: "0.2.28", managedVersion: "0.4.3")
+        let referenceBuild = try DesktopAppUpdateIndex.resolve(appIndex(version: "0.2.28"), indexURL: appIndexURL,
+            expectedChannel: "internal", expectedArchitecture: "arm64").buildNumber
+        let healthy = try await checker().check(sources: sources(), installedAppVersion: "0.2.28",
+            installedAppBuild: referenceBuild, installedManagedVersion: "0.4.3")
+        XCTAssertNil(healthy.selectingAppRepair())
+        let damaged = try await checker().check(sources: sources(), installedAppVersion: "0.2.28",
+            installedAppBuild: referenceBuild, appIdentityNeedsRepair: true, installedManagedVersion: "0.4.3")
+        XCTAssertFalse(damaged.hasUpdates)
+        XCTAssertTrue(damaged.selectingAppRepair()?.appUpdate?.isRepair == true)
+        let newer = try await checker().check(sources: sources(), installedAppVersion: "0.2.28",
+            installedAppBuild: referenceBuild + 1, appIdentityNeedsRepair: true, installedManagedVersion: "0.4.3")
+        XCTAssertNil(newer.selectingAppRepair())
+    }
+
+    func testFinishingManagedUpdateCannotEraseAppSourceFailure() {
+        let report = DesktopUpdateReport(checkedAt: Date(), appUpdate: nil,
+            managedUpdate: DesktopUpdateAvailability(managedVersion: "0.4.4"), appState: .failed)
+        let remaining = report.afterManagedUpdate()
+        XCTAssertNil(remaining.managedUpdate)
+        XCTAssertTrue(remaining.hasFailures)
+        XCTAssertEqual(remaining.appState, .failed)
+        XCTAssertFalse(remaining.isFullyChecked)
+    }
+
     func testEqualVersionsProduceNoUpdate() async throws {
         stubIndexes(appVersion: "0.2.28", managedVersion: "0.4.3")
 
@@ -76,19 +124,21 @@ final class DesktopUpdateCheckerTests: XCTestCase {
         XCTAssertNil(report.managedUpdate)
     }
 
-    func testMalformedIndexFailsClosed() async throws {
+    func testMalformedIndexesReportBothFailures() async throws {
         UpdateURLProtocol.handler = { _ in (200, [:], Data("not json".utf8)) }
+        let report = try await checker().check(sources: sources(), installedAppVersion: "0.2.28",
+                                               installedManagedVersion: "0.4.3")
+        XCTAssertEqual(report.appState, .failed)
+        XCTAssertEqual(report.managedState, .failed)
+        XCTAssertFalse(report.isFullyChecked)
+        XCTAssertFalse(report.hasUpdates)
+    }
 
-        do {
-            _ = try await checker().check(
-                sources: sources(),
-                installedAppVersion: "0.2.28",
-                installedManagedVersion: "0.4.3"
-            )
-            XCTFail("Expected index failure")
-        } catch {
-            XCTAssertEqual(error as? DesktopUpdateCheckError, .indexUnavailable)
-        }
+    func testSameVersionHigherBuildIsDiscovered() async throws {
+        stubIndexes(appVersion: "0.2.28", managedVersion: "0.4.3")
+        let report = try await checker().check(sources: sources(), installedAppVersion: "0.2.28",
+                                               installedAppBuild: 1, installedManagedVersion: "0.4.3")
+        XCTAssertNotNil(report.appUpdate)
     }
 
     func testNoConfiguredSourceReportsNotConfigured() async throws {

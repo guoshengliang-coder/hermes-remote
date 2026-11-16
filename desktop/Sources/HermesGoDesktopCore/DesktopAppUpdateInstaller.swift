@@ -11,6 +11,7 @@ public enum DesktopAppUpdateInstallError: Error, Equatable, Sendable {
     case bundleMismatch
     case stagingFailed
     case launchFailed
+    case recoveryRequired
 }
 
 /// A fully downloaded, digest-checked, and staged replacement app. Nothing has been changed on disk
@@ -21,6 +22,8 @@ public struct DesktopPreparedAppUpdate: Equatable, Sendable {
     public let stagedAppURL: URL
     public let workspaceURL: URL
     public let mountPointURL: URL
+    public let destinationDigest: String
+    public let stagedDigest: String
 }
 
 /// Installs a new Desktop app from the index's signed-off DMG. Internal-test builds are ad-hoc signed,
@@ -30,14 +33,20 @@ public final class DesktopAppUpdateInstaller: @unchecked Sendable {
     private let downloader: DesktopReleaseDownloader
     private let fileManager: FileManager
     private let bundleIdentifier: String?
+    private let configuration: DesktopAppUpdateConfigurationState
+    private let componentConfiguration: DesktopComponentPreflightConfigurationState
     private let processID: Int32
 
     public init(
         downloader: DesktopReleaseDownloader = DesktopReleaseDownloader(),
         fileManager: FileManager = .default,
         bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        processID: Int32 = getpid()
+        processID: Int32 = getpid(),
+        configuration: DesktopAppUpdateConfigurationState = .load(),
+        componentConfiguration: DesktopComponentPreflightConfigurationState = .load()
     ) {
+        self.configuration = configuration
+        self.componentConfiguration = componentConfiguration
         self.downloader = downloader
         self.fileManager = fileManager
         self.bundleIdentifier = bundleIdentifier
@@ -48,9 +57,19 @@ public final class DesktopAppUpdateInstaller: @unchecked Sendable {
         reference: DesktopAppUpdateReference,
         destinationAppURL: URL,
         workspaceRoot: URL,
+        repair: Bool = false,
         currentMacOS: OperatingSystemVersion = ProcessInfo.processInfo.operatingSystemVersion
     ) async throws -> DesktopPreparedAppUpdate {
-        guard Self.validDestination(destinationAppURL) else {
+        guard Self.validDestination(destinationAppURL),
+              case .configured(let expected) = configuration,
+              reference.downloadURL.scheme == "https",
+              reference.downloadURL.host == expected.indexURL.host, reference.downloadURL.port == expected.indexURL.port,
+              reference.downloadURL.user == nil, reference.downloadURL.password == nil,
+              reference.downloadURL.query == nil, reference.downloadURL.fragment == nil,
+              reference.downloadURL.path == expected.indexURL.deletingLastPathComponent().path + "/\(reference.appVersion)/Hermes-Go-Desktop-\(reference.appVersion).dmg",
+              DesktopDistributionConfiguration.validSource(reference.sourceCommit), reference.buildNumber > 0,
+              reference.sha256.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil
+        else {
             throw DesktopAppUpdateInstallError.invalidRequest
         }
         if let minimum = Self.parseOperatingSystemVersion(reference.minimumMacOS),
@@ -58,6 +77,23 @@ public final class DesktopAppUpdateInstaller: @unchecked Sendable {
             throw DesktopAppUpdateInstallError.incompatibleSystem
         }
 
+        guard let currentBundle = Bundle(url: destinationAppURL),
+              let currentVersion = currentBundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+              let rawBuild = currentBundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
+              let currentBuild = Int(rawBuild),
+              DesktopSemanticVersion.isNewer(reference.appVersion, than: currentVersion)
+                || (reference.appVersion == currentVersion && reference.buildNumber > currentBuild)
+                || (repair && reference.appVersion == currentVersion && reference.buildNumber == currentBuild
+                    && (Self.identityNeedsRepair(bundle: currentBundle)
+                        || currentBundle.object(forInfoDictionaryKey: "HermesGoSourceCommit") as? String != reference.sourceCommit))
+        else { throw DesktopAppUpdateInstallError.invalidRequest }
+        let destinationDigest = try DesktopAppUpdateTransaction.digest(destinationAppURL)
+        try DesktopAppUpdateTransactions.withLock(root: workspaceRoot) {
+            if let previous = try DesktopAppUpdateTransactions.load(root: workspaceRoot),
+               previous.state != .completed && previous.state != .restored {
+                throw DesktopAppUpdateInstallError.recoveryRequired
+            }
+        }
         let workspace = workspaceRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let downloads = workspace.appendingPathComponent("downloads", isDirectory: true)
         let mountPoint = workspace.appendingPathComponent("mount", isDirectory: true)
@@ -69,6 +105,9 @@ public final class DesktopAppUpdateInstaller: @unchecked Sendable {
             throw DesktopAppUpdateInstallError.stagingFailed
         }
 
+        var stagedApp: URL?
+        var mounted = false
+        defer { if mounted { _ = detach(mountPoint) } }
         do {
             let dmg = try await downloader.download(
                 from: reference.downloadURL,
@@ -80,30 +119,42 @@ public final class DesktopAppUpdateInstaller: @unchecked Sendable {
                 throw DesktopAppUpdateInstallError.verificationFailed
             }
             try attach(dmg, at: mountPoint)
+            mounted = true
             let mountedApp: URL
             do {
                 mountedApp = try findMountedApp(at: mountPoint, reference: reference)
             } catch {
-                detach(mountPoint)
+                if detach(mountPoint) { mounted = false }
                 throw error
             }
+            try Task.checkCancellation()
             let staged = try stage(
                 mountedApp,
                 destinationAppURL: destinationAppURL
             )
-            detach(mountPoint)
+            stagedApp = staged
+            guard detach(mountPoint) else { throw DesktopAppUpdateInstallError.mountFailed }
+            mounted = false
+            try Task.checkCancellation()
             return DesktopPreparedAppUpdate(
                 reference: reference,
                 destinationAppURL: destinationAppURL,
                 stagedAppURL: staged,
                 workspaceURL: workspace,
-                mountPointURL: mountPoint
+                mountPointURL: mountPoint,
+                destinationDigest: destinationDigest,
+                stagedDigest: try DesktopAppUpdateTransaction.digest(staged)
             )
         } catch let error as DesktopAppUpdateInstallError {
-            try? fileManager.removeItem(at: workspace)
+            if mounted, detach(mountPoint) { mounted = false }
+            if let stagedApp { try? fileManager.removeItem(at: stagedApp) }
+            if !mounted { try? fileManager.removeItem(at: workspace) }
             throw error
         } catch {
-            try? fileManager.removeItem(at: workspace)
+            if mounted, detach(mountPoint) { mounted = false }
+            if let stagedApp { try? fileManager.removeItem(at: stagedApp) }
+            if !mounted { try? fileManager.removeItem(at: workspace) }
+            if Task.isCancelled { throw CancellationError() }
             throw DesktopAppUpdateInstallError.downloadFailed
         }
     }
@@ -111,38 +162,67 @@ public final class DesktopAppUpdateInstaller: @unchecked Sendable {
     /// Schedules the swap to run after this process exits, then returns. The caller is expected to
     /// terminate the app so the helper can replace it and relaunch.
     public func commit(_ prepared: DesktopPreparedAppUpdate) throws {
-        let script = prepared.workspaceURL.appendingPathComponent("apply-update.sh")
-        guard let data = Self.helperScript.data(using: .utf8) else {
-            throw DesktopAppUpdateInstallError.launchFailed
+        let root = prepared.workspaceURL.deletingLastPathComponent()
+        try DesktopAppUpdateTransactions.withLock(root: root) {
+            if let previous = try DesktopAppUpdateTransactions.load(root: root),
+               previous.state != .completed && previous.state != .restored {
+                throw DesktopAppUpdateInstallError.recoveryRequired
+            }
+            guard try DesktopAppUpdateTransaction.digest(prepared.destinationAppURL) == prepared.destinationDigest,
+                  try DesktopAppUpdateTransaction.digest(prepared.stagedAppURL) == prepared.stagedDigest else {
+                throw DesktopAppUpdateInstallError.verificationFailed
+            }
+            try verifyBundle(prepared.stagedAppURL, reference: prepared.reference)
+            if let previous = try DesktopAppUpdateTransactions.load(root: root) {
+                let history = root.appendingPathComponent("update-result-\(previous.id.uuidString).json")
+                if !fileManager.fileExists(atPath: history.path) {
+                    try JSONEncoder().encode(previous).write(to: history, options: .withoutOverwriting)
+                    try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: history.path)
+                }
+            }
+            let record = try DesktopAppUpdateTransaction(prepared: prepared, processID: processID)
+            try DesktopAppUpdateTransactions.save(record, root: root)
+            try scheduleHelper(root: root, id: record.id, restoring: false)
         }
-        do {
-            try data.write(to: script, options: [.atomic])
-            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
-        } catch {
-            throw DesktopAppUpdateInstallError.launchFailed
-        }
+    }
 
-        let label = "com.hermesgo.desktop.appupdate.\(UUID().uuidString)"
+    /// Only a confirmed exact transaction may restore its previous application. Unknown content
+    /// is never overwritten. The helper waits for this process to exit before moving anything.
+    public func restorePreviousApplication(root: URL, expectedID: UUID) throws {
+        try DesktopAppUpdateTransactions.withLock(root: root) {
+            guard var record = try DesktopAppUpdateTransactions.load(root: root), record.id == expectedID,
+                  [.recoveryRequired, .awaitingStartup, .replacing, .restoring].contains(record.state)
+            else { throw DesktopAppUpdateInstallError.recoveryRequired }
+            try DesktopAppUpdateTransactions.validateRestoration(record)
+            record.oldPID = processID; record.state = .restoring; record.changedAt = Date()
+            try DesktopAppUpdateTransactions.save(record, root: root)
+            try scheduleHelper(root: root, id: record.id, restoring: true)
+        }
+    }
+
+    private func scheduleHelper(root: URL, id: UUID, restoring: Bool) throws {
+        let helper = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/HermesGoUpdateHelper")
+        guard fileManager.isExecutableFile(atPath: helper.path) else { throw DesktopAppUpdateInstallError.launchFailed }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-        process.arguments = [
-            "submit", "-l", label, "--",
-            "/bin/sh", script.path,
-            String(processID),
-            prepared.destinationAppURL.path,
-            prepared.stagedAppURL.path,
-            prepared.workspaceURL.path,
-        ]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-        } catch {
-            throw DesktopAppUpdateInstallError.launchFailed
-        }
+        process.arguments = ["submit", "-l", "com.hermesgo.desktop.appupdate.\(id.uuidString).\(UUID().uuidString)", "--",
+                             helper.path, root.path, id.uuidString, restoring ? "restore" : "apply"]
+        process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { throw DesktopAppUpdateInstallError.launchFailed }
         process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            throw DesktopAppUpdateInstallError.launchFailed
+        guard process.terminationStatus == 0 else { throw DesktopAppUpdateInstallError.launchFailed }
+    }
+
+    public func discard(_ prepared: DesktopPreparedAppUpdate) throws {
+        let root = prepared.workspaceURL.deletingLastPathComponent()
+        try DesktopAppUpdateTransactions.withLock(root: root) {
+            if let active = try DesktopAppUpdateTransactions.load(root: root),
+               active.workspace == prepared.workspaceURL { throw DesktopAppUpdateInstallError.recoveryRequired }
+            guard try DesktopAppUpdateTransaction.digest(prepared.stagedAppURL) == prepared.stagedDigest else {
+                throw DesktopAppUpdateInstallError.verificationFailed
+            }
+            try fileManager.removeItem(at: prepared.stagedAppURL)
+            try fileManager.removeItem(at: prepared.workspaceURL)
         }
     }
 
@@ -169,14 +249,16 @@ public final class DesktopAppUpdateInstaller: @unchecked Sendable {
         else { throw DesktopAppUpdateInstallError.mountFailed }
     }
 
-    private func detach(_ mountPoint: URL) {
+    @discardableResult
+    private func detach(_ mountPoint: URL) -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
         process.arguments = ["detach", mountPoint.path, "-force"]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        guard (try? process.run()) != nil else { return }
+        guard (try? process.run()) != nil else { return false }
         process.waitUntilExit()
+        return process.terminationStatus == 0
     }
 
     private func findMountedApp(
@@ -204,9 +286,54 @@ public final class DesktopAppUpdateInstaller: @unchecked Sendable {
             if let bundleIdentifier, identifier != bundleIdentifier {
                 throw DesktopAppUpdateInstallError.bundleMismatch
             }
+            try verifyBundle(entry, reference: reference)
             return entry
         }
         throw DesktopAppUpdateInstallError.mountFailed
+    }
+
+    public static func identityNeedsRepair(bundle: Bundle) -> Bool {
+        guard (try? DesktopDistributionConfiguration.validate(bundle: bundle)) != nil else { return true }
+        let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        p.arguments = ["--verify", "--deep", "--strict", bundle.bundleURL.path]
+        p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return true }; p.waitUntilExit()
+        return p.terminationStatus != 0
+    }
+
+    private func verifyBundle(_ url: URL, reference: DesktopAppUpdateReference) throws {
+        guard let bundle = Bundle(url: url) else { throw DesktopAppUpdateInstallError.bundleMismatch }
+        guard case .configured(let expected) = configuration,
+              case .configured(let actual) = DesktopAppUpdateConfigurationState.load(bundle: bundle, environment: [:]),
+              expected == actual,
+              case .configured(let oldComponents) = componentConfiguration,
+              case .configured(let newComponents) = DesktopComponentPreflightConfigurationState.load(bundle: bundle, environment: [:]),
+              oldComponents.signingKeys.contains(where: { newComponents.signingKeys[$0.key] == $0.value }) else {
+            throw DesktopAppUpdateInstallError.bundleMismatch
+        }
+        try DesktopDistributionConfiguration.validate(bundle: bundle, version: reference.appVersion,
+                                                       build: reference.buildNumber, source: reference.sourceCommit)
+        guard bundle.object(forInfoDictionaryKey: "LSMinimumSystemVersion") as? String == reference.minimumMacOS else {
+            throw DesktopAppUpdateInstallError.bundleMismatch
+        }
+        let signature = Process(); signature.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        signature.arguments = ["--verify", "--deep", "--strict", url.path]
+        signature.standardOutput = FileHandle.nullDevice; signature.standardError = FileHandle.nullDevice
+        do { try signature.run() } catch { throw DesktopAppUpdateInstallError.verificationFailed }
+        signature.waitUntilExit()
+        guard signature.terminationStatus == 0 else { throw DesktopAppUpdateInstallError.verificationFailed }
+        let architecture = Process(), output = Pipe()
+        architecture.executableURL = URL(fileURLWithPath: "/usr/bin/lipo")
+        architecture.arguments = ["-archs", url.appendingPathComponent("Contents/MacOS/HermesGoDesktop").path]
+        architecture.standardOutput = output; architecture.standardError = FileHandle.nullDevice
+        do { try architecture.run() } catch { throw DesktopAppUpdateInstallError.verificationFailed }
+        let data = output.fileHandleForReading.readDataToEndOfFile(); architecture.waitUntilExit()
+        let configured = bundle.object(forInfoDictionaryKey: "HermesGoDesktopAppUpdateArchitecture") as? String
+        let values = Set((String(data: data, encoding: .utf8) ?? "").split(whereSeparator: { $0.isWhitespace }).map(String.init))
+        guard architecture.terminationStatus == 0,
+              configured == "universal" ? values == Set(["arm64", "x86_64"]) : values == Set([configured ?? ""]) else {
+            throw DesktopAppUpdateInstallError.bundleMismatch
+        }
     }
 
     private func stage(_ mountedApp: URL, destinationAppURL: URL) throws -> URL {
@@ -218,43 +345,18 @@ public final class DesktopAppUpdateInstaller: @unchecked Sendable {
         do {
             try fileManager.copyItem(at: mountedApp, to: staged)
         } catch {
+            try? fileManager.removeItem(at: staged)
             throw DesktopAppUpdateInstallError.stagingFailed
         }
         return staged
     }
-
-    static let helperScript = """
-    #!/bin/sh
-    set -eu
-    pid="$1"
-    dest="$2"
-    staged="$3"
-    work="$4"
-    while kill -0 "$pid" 2>/dev/null; do
-      sleep 0.5
-    done
-    backup="${dest}.previous-$$"
-    rm -rf "$backup"
-    if [ -e "$dest" ]; then
-      mv "$dest" "$backup"
-    fi
-    if mv "$staged" "$dest"; then
-      xattr -dr com.apple.quarantine "$dest" 2>/dev/null || true
-      rm -rf "$backup"
-    else
-      if [ -e "$backup" ]; then
-        mv "$backup" "$dest" 2>/dev/null || true
-      fi
-    fi
-    open "$dest" >/dev/null 2>&1 || true
-    rm -rf "$work"
-    """
 
     private static func validDestination(_ value: URL) -> Bool {
         guard value.isFileURL,
               value.path.hasPrefix("/"),
               value.path != "/",
               value.pathExtension == "app",
+              value.standardizedFileURL.path == value.resolvingSymlinksInPath().path,
               !value.pathComponents.contains("..")
         else { return false }
         return true

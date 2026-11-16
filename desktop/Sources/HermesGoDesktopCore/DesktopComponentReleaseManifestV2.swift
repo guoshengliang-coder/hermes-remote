@@ -143,9 +143,11 @@ public struct DesktopComponentReleaseManifestV2: Codable, Equatable, Sendable {
 /// manifest remains available for presentation and preflight, while installation requires this
 /// non-forgeable wrapper so an unsigned caller-constructed value cannot select download URLs.
 public struct VerifiedDesktopComponentReleaseManifestV2: Equatable, Sendable {
+    public let envelope: Data
     public let manifest: DesktopComponentReleaseManifestV2
 
-    fileprivate init(manifest: DesktopComponentReleaseManifestV2) {
+    fileprivate init(envelope: Data, manifest: DesktopComponentReleaseManifestV2) {
+        self.envelope = envelope
         self.manifest = manifest
     }
 }
@@ -267,7 +269,7 @@ public struct DesktopComponentReleaseManifestV2Verifier: Sendable {
         guard DesktopComponentReleaseActivationPlanner.validBootstrapManifest(manifest) else {
             throw DesktopComponentReleaseVerificationError.incompatibleRelease
         }
-        return VerifiedDesktopComponentReleaseManifestV2(manifest: manifest)
+        return VerifiedDesktopComponentReleaseManifestV2(envelope: envelopeData, manifest: manifest)
     }
 
     private func validate(_ manifest: DesktopComponentReleaseManifestV2) throws {

@@ -87,6 +87,7 @@ private struct DesktopAppUpdateConfigurationValues {
     let architecture: String?
 
     init(bundle: Bundle, environment: [String: String]) {
+        let environment = bundle.object(forInfoDictionaryKey: "HermesGoBuildPurpose") as? String == "distribution" ? [:] : environment
         func value(_ environmentKey: String, _ bundleKey: String) -> String? {
             if let environmentValue = environment[environmentKey] { return environmentValue }
             if let string = bundle.object(forInfoDictionaryKey: bundleKey) as? String { return string }

@@ -1653,3 +1653,13 @@ DMG replacement to acquire this updater fix; do not edit its journal or reinstal
 The approved HG-237 follow-up exposes the separately confirmed layout migration through the unified updater. Local Hermes detection and the existing managed agent must indicate local runtime before discovery may select the component channel for a bundled journal. Component preparation records the conversion intent and shows its distinct confirmation; coordinator commit revalidates the exact binding, local token contract and executable before any service stop. The existing durable upgrade snapshot and fresh local/Cloud health proofs cover failure and interrupted recovery. The old pointer/archive remain for recovery, with no automatic bundled-runtime fallback after component commit. No Hermes source/database is installed or migrated. The compatibility administration work in draft #673 is independent and is not required or enabled by this update.
 
 HG-244 adds the optional, strict `CONNECTOR_TRANSPORT_ISOLATION=0|1` LaunchAgent override alongside the existing file-rate override. Repair and component/bundled upgrades preserve only these allowlisted values, never arbitrary Node environment. No override is enabled automatically. Account device DTOs accept the optional connection-health overlay; legacy DTOs continue to decode.
+## HG-258 update closure — source implementation, not publication
+
+App and component discovery have independent outcomes and shared manual-check feedback. Public
+discovery does not authorize installation. Distribution builds and both publishers reuse the same
+bundle-configuration verifier as the receiving updater. Development apps remain visibly distinct.
+Application replacement retains its backup until the exact new process acknowledges startup;
+same-release component repair is separately confirmed, preserves the binding and Hermes, and can
+resume an interrupted quarantined-content transaction. See
+[implementation and acceptance](HG_258_DESKTOP_UPDATE_CLOSURE.md). No version, publication,
+installation or service restart is implied by this source change.

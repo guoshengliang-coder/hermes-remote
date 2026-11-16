@@ -274,7 +274,6 @@ export async function packageDesktopComponentArchivesV2({
       destination: stages.node_runtime,
       nodeBinary,
       version: config.nodeRuntime.version,
-      sourceCommit: config.sourceCommit,
       architecture: config.architecture,
     });
     await stageConnectorV2({
@@ -524,12 +523,14 @@ exec "$ROOT/runtime/node" "$ROOT/app/connector/dist/index.js" "$@"
   await writeIdentity(destination, { component: "connector", version, sourceCommit, architecture });
 }
 
-async function stageNodeRuntimeV2({ destination, nodeBinary, version, sourceCommit, architecture }) {
+async function stageNodeRuntimeV2({ destination, nodeBinary, version, architecture }) {
   await mkdir(path.join(destination, "bin"), { recursive: true, mode: 0o700 });
   await copyStrict(nodeBinary, path.join(destination, "bin/node"));
   await chmod(path.join(destination, "bin/node"), 0o700);
   await writeIdentityV2(destination, {
-    component: "node_runtime", version, sourceCommit, architecture,
+    component: "node_runtime", version, architecture,
+    // The runtime belongs to Node, not to this GO checkout. Keep GO provenance on Connector.
+    binarySHA256: await hashRegularFile(nodeBinary), packagingRevision: 1,
   });
 }
 

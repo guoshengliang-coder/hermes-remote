@@ -82,6 +82,26 @@ public actor DesktopComponentReleasePreflightRuntime {
         running = true
         defer { running = false }
 
+        let verifiedManifest = try await fetchVerified()
+        let result = try scanner.scan(
+            verifiedManifest: verifiedManifest,
+            healthProbe: healthProbe
+        )
+        return DesktopTrustedComponentPreflight(
+            result: result,
+            verifiedManifest: verifiedManifest
+        )
+    }
+
+    /// Signature-only acquisition for a content repair. A damaged local store must not prevent
+    /// authenticating its replacement; no install authorization is inferred from a failed scan.
+    public func loadVerified() async throws -> VerifiedDesktopComponentReleaseManifestV2 {
+        guard !running else { throw DesktopComponentReleasePreflightRuntimeError.operationInProgress }
+        running = true; defer { running = false }
+        return try await fetchVerified()
+    }
+
+    private func fetchVerified() async throws -> VerifiedDesktopComponentReleaseManifestV2 {
         let envelope: Data
         var indexReference: DesktopReleaseIndexReference?
         if manifestURL.lastPathComponent == "index.json" {
@@ -106,14 +126,7 @@ public actor DesktopComponentReleasePreflightRuntime {
            indexReference.releaseVersion != verifiedManifest.manifest.releaseVersion {
             throw DesktopReleaseIndexError.manifestIdentityMismatch
         }
-        let result = try scanner.scan(
-            verifiedManifest: verifiedManifest,
-            healthProbe: healthProbe
-        )
-        return DesktopTrustedComponentPreflight(
-            result: result,
-            verifiedManifest: verifiedManifest
-        )
+        return verifiedManifest
     }
 
     private static func validManifestURL(_ value: URL) -> Bool {

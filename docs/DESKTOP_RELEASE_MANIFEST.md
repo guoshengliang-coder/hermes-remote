@@ -513,3 +513,20 @@ A real release still requires all of the following outside this local implementa
 - explicitly authorize staging flags, soak, production deployment, and later default enablement.
 
 No source-code merge implicitly performs any of these operations.
+## HG-258 distribution and repair additions (unreleased)
+
+New DMG builds require `HermesGoBuildPurpose=distribution`, an exact `HermesGoSourceCommit`, and
+complete enabled application/managed/component discovery with matching channel, architecture,
+origin and signing trust. The shared `DesktopDistributionConfiguration` verifier is used at build,
+publication and installation. New publication also requires exact isolated-combination evidence;
+see [the operational contract](HG_258_DESKTOP_UPDATE_CLOSURE.md). Old app-index schema 1 remains
+unchanged. Same-version repair is an explicit intent, never a general downgrade exception.
+An application transaction preserves the backup until a matching live startup acknowledgement;
+a component-content repair accepts only the signed identities already referenced by the current
+account-active component installation. Failure leaves a durable recovery barrier.
+
+
+HG-258 combination evidence binds `app.bundleSHA256` to the normalized entire signed application
+bundle, including helpers and configuration, in addition to the main executable digest. Evidence
+without this digest must be regenerated. Publication checks the index against the bundle's version,
+build, channel, architecture and minimum OS; a passing main-executable identity alone is insufficient.

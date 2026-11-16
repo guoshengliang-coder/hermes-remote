@@ -99,6 +99,26 @@ test("v2 portability gate rejects Homebrew and unresolved runtime dependencies",
   assert.deepEqual(dependencies, ["@rpath/libnode.127.dylib", "/opt/homebrew/opt/libuv/lib/libuv.1.dylib"]);
 });
 
+test("Node bytes and content identity do not change with the GO source commit", async (t) => {
+  const fixture = await makeFixture(t);
+  const first = await build(fixture);
+  await writeFile(path.join(fixture.repo, "unrelated.txt"), "another GO change");
+  const secondCommit = initializeGit(fixture.repo);
+  const config = JSON.parse(await readFile(fixture.configPath, "utf8"));
+  config.sourceCommit = secondCommit;
+  await writeFile(fixture.configPath, JSON.stringify(config));
+  fixture.output = path.join(fixture.root, "output-second");
+  await mkdir(fixture.output);
+  const second = await build(fixture);
+  assert.equal(first.artifacts[0].contentSHA256, second.artifacts[0].contentSHA256);
+  assert.equal(first.artifacts[0].sha256, second.artifacts[0].sha256);
+  assert.notEqual(first.artifacts[1].contentSHA256, second.artifacts[1].contentSHA256);
+  await writeFile(fixture.nodeBinary, "different Node bytes", { mode: 0o700 });
+  fixture.output = path.join(fixture.root, "output-third"); await mkdir(fixture.output);
+  const third = await build(fixture);
+  assert.notEqual(second.artifacts[0].contentSHA256, third.artifacts[0].contentSHA256);
+});
+
 async function build(fixture) {
   return packageDesktopComponentArchivesV2({
     configPath: fixture.configPath,

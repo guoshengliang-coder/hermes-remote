@@ -26,7 +26,7 @@ case "${DESKTOP_DMG_KIND:-dev}" in
     ;;
 esac
 
-"$desktop_dir/scripts/build-app.sh"
+DESKTOP_BUILD_PURPOSE=distribution "$desktop_dir/scripts/build-app.sh"
 
 if [ "${DESKTOP_DMG_KIND:-dev}" = dev ]; then
   rm -f "$dmg"

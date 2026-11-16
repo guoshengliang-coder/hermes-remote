@@ -119,6 +119,8 @@ public enum DesktopIssueCode: String, Codable, Equatable, Sendable {
     /// The downloaded app package failed its size or SHA-256 check and was discarded.
     case appUpdateVerificationFailed = "HR-DESKUPDATE-004"
     /// The verified app package could not be staged or scheduled for replacement.
+    case installedUpdateIdentityMismatch = "HR-DESKUPDATE-007"
+    case appUpdateRecoveryRequired = "HR-DESKUPDATE-006"
     case appUpdateInstallFailed = "HR-DESKUPDATE-005"
 }
 
@@ -331,6 +333,10 @@ public struct DesktopIssue: Error, Equatable, Sendable {
             ("更新下载失败", "Update download failed", "新版本下载失败，请稍后重试。", "The update download failed. Try again shortly.", true, .retry)
         case .appUpdateVerificationFailed:
             ("更新包校验未通过", "Update package failed verification", "下载的更新包未通过完整性校验，已停止安装，请重新下载。", "The downloaded update failed its integrity check and was not installed. Download it again.", true, .retry)
+        case .installedUpdateIdentityMismatch:
+            ("安装身份待修复", "Installed identity needs repair", "本机安装身份未通过校验，请查看详情并确认修复。", "The installed identity could not be verified. Review the details before confirming repair.", false, .details)
+        case .appUpdateRecoveryRequired:
+            ("应用更新待确认", "App update unconfirmed", "应用更新尚未确认，请查看更新结果；旧版本备份会保留，可确认后恢复。", "The app update is unconfirmed. Review the result; the previous app is retained for confirmed recovery.", false, .details)
         case .appUpdateInstallFailed:
             ("未能安装新版本", "Couldn't install the new version", "新版本已下载并校验，但未能安排替换安装，请重试或手动安装。", "The new version was downloaded and verified, but the replacement could not be scheduled. Retry or install it manually.", true, .retry)
         case .localHermesMissingWithoutFallback:
@@ -473,6 +479,7 @@ public struct DesktopIssue: Error, Equatable, Sendable {
     }
 
     public static func appUpdateInstall(_ error: Error) -> DesktopIssue {
+        if error as? DesktopAppUpdateInstallError == .recoveryRequired { return DesktopIssue(code: .appUpdateRecoveryRequired) }
         switch error as? DesktopAppUpdateInstallError {
         case .downloadFailed:
             return DesktopIssue(code: .appUpdateDownloadFailed, technicalCause: String(describing: error))

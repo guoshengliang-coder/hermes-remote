@@ -70,6 +70,8 @@ check_plist HermesGoDesktopReleaseSigningPublicKey "$expected_public_key"
 check_plist HermesGoManagedBootstrapEnabled true
 check_plist HermesGoComponentPreflightEnabled true
 
+swift run --package-path "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)" DesktopReleaseVerifier "$app" "$expected_version" "$expected_build" \
+  "$(git rev-parse HEAD)"
 codesign --verify --deep --strict --verbose=2 "$app"
 signature_details="$(codesign --display --verbose=4 "$app" 2>&1)"
 printf '%s\n' "$signature_details" | grep -Fx "TeamIdentifier=$expected_team" >/dev/null || {

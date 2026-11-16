@@ -711,10 +711,30 @@ struct SettingsView: View {
                         .controlSize(.small)
                         .disabled(isCheckingUpdates || model.isDesktopUpdateRunning || model.isManagedBootstrapAccountLocked)
                     }
+                    if model.canCheckComponentContentRepair {
+                        Button("检查并修复当前后台组件…") { Task { await model.prepareComponentContentRepair() } }
+                            .disabled(model.isManagedBootstrapAccountLocked)
+                    }
+                    if model.appUpdateTransaction?.state == .prepared {
+                        Button("取消尚未替换的应用更新") { model.cancelUnappliedAppUpdate() }
+                    }
+                    if let transaction = model.appUpdateTransaction,
+                       [.recoveryRequired, .awaitingStartup, .replacing, .restoring].contains(transaction.state) {
+                        Button("恢复更新前的应用…") { model.isAppRecoveryConfirmationPresented = true }
+                            .disabled(model.isManagedBootstrapAccountLocked)
+                            .confirmationDialog("恢复更新前的应用？Desktop 将退出并重新打开，保留账号与后台组件。",
+                                isPresented: $model.isAppRecoveryConfirmationPresented) {
+                                Button("确认恢复旧版应用") { model.restorePreviousAppUpdate() }
+                            }
+                    }
+                    if let issue = model.appUpdateTransactionIssue { GateIssueBanner(issue: issue) }
+                    if let outcome = model.appUpdateOutcomeMessage {
+                        Text("上次应用更新：\(outcome)").font(.system(size: 12)).foregroundStyle(.secondary)
+                    }
                     if let issue = model.appUpdateIssue {
                         GateIssueBanner(issue: issue)
                     }
-                    if let message = model.appUpdateStatusMessage, message != model.updateStatusText, !isUpToDate {
+                    if let message = model.appUpdateStatusMessage, message != model.updateStatusText {
                         Text(message)
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
@@ -732,20 +752,20 @@ struct SettingsView: View {
 
     private var versionAndStatus: some View {
         HStack(spacing: 10) {
-            Text(model.appVersion).textSelection(.enabled)
+            Text(model.appVersionLabel).textSelection(.enabled)
             Label(updateBadge, systemImage: updateSymbol)
                 .font(.system(size: 12)).foregroundStyle(.secondary)
         }
     }
     private var isUpToDate: Bool {
-        if case .upToDate = model.updateCheckState { return true }
+        if case .upToDate(let report) = model.updateCheckState { return report.isFullyChecked && !report.hasFailures }
         return false
     }
     private var updateBadge: String {
         switch model.updateCheckState {
         case .idle: model.isUpdateConfigured ? "尚未检查" : "未配置更新"
         case .checking: "检查中"
-        case .upToDate: "已是最新"
+        case .upToDate(let report): report.hasFailures ? "部分检查失败" : (report.isFullyChecked ? "已是最新" : "查看检查结果")
         case .available: "有新版本"
         case .failed: "检查失败"
         }

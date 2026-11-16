@@ -79,6 +79,7 @@ public actor DesktopManagedServiceRepair<Runner: CommandRunning> {
     private let hermesHome: URL
     private let identity: IdentityReader
     private let loadedArguments: LoadedArguments
+    private let runtimeIdentity: @Sendable () -> Bool
     private let connectorProcess: @Sendable () -> DesktopConnectorProcessState
     private var preparing = false
     private let localDetector: LocalDetector
@@ -100,8 +101,10 @@ public actor DesktopManagedServiceRepair<Runner: CommandRunning> {
         readiness: (any DesktopHermesCandidateReadinessChecking)? = nil,
         shutdown: any DesktopHermesShutdownChecking = DesktopHermesShutdownChecker(),
         polls: Int = 75, delay: UInt64 = 1_000_000_000,
-        connectorProcess: @escaping @Sendable () -> DesktopConnectorProcessState = { .unknown }
+        connectorProcess: @escaping @Sendable () -> DesktopConnectorProcessState = { .unknown },
+        runtimeIdentity: @escaping @Sendable () -> Bool = { true }
     ) {
+        self.runtimeIdentity = runtimeIdentity
         self.installer = installer; self.journal = journal; self.agents = agents
         self.gatewayURL = gatewayURL; self.hermesHome = hermesHome; self.identity = identity
         self.loadedArguments = loadedArguments; self.localDetector = localDetector
@@ -648,7 +651,7 @@ public actor DesktopManagedServiceRepair<Runner: CommandRunning> {
     private func waitForHealth(_ record: DesktopMigrationJournal, newerThan checkpoint: Date?) async throws {
         for attempt in 0..<polls {
             let remote = try await requireIdentity(record)
-            if remote.healthy, let time = remote.checkedAt, checkpoint.map({ time > $0 }) ?? true { return }
+            if runtimeIdentity(), remote.healthy, let time = remote.checkedAt, checkpoint.map({ time > $0 }) ?? true { return }
             if attempt + 1 < polls, delay > 0 { try await Task.sleep(nanoseconds: delay) }
         }
         throw DesktopManagedServiceRepairError.healthFailed
@@ -729,7 +732,8 @@ public extension DesktopManagedServiceRepair where Runner == SystemCommandRunner
                 else { throw DesktopManagedServiceRepairError.unknownService }
                 return args
             }, localDetector: { detector.detect() },
-            connectorProcess: { DesktopConnectorProcessState.inspect(userID: userID) }
+            connectorProcess: { DesktopConnectorProcessState.inspect(userID: userID) },
+            runtimeIdentity: { DesktopConnectorRuntimeIdentity.verify(launchAgentURL: layout.connectorLaunchAgent, userID: userID) }
         )
     }
 }
