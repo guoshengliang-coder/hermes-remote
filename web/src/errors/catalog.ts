@@ -74,6 +74,7 @@ export const CATALOG = {
   "HR-COMPAT-003": { zh: "这台 Mac 上的 Hermes 版本低于 Hermes GO 已验证的最低版本，部分功能可能异常。请更新 Hermes。", en: "The Hermes on this Mac is older than the oldest version Hermes GO was verified with, so some features may misbehave. Update Hermes.", retryable: false, action: "none" },
   "HR-COMPAT-004": { zh: "无法确认这台 Mac 的归档接口兼容性，请重新连接后查看。", en: "Archive compatibility on this Mac could not be established. Reconnect and check again.", retryable: false, action: "reconnect" },
   "HR-SESS-025": { zh: "归档状态尚未确认，请刷新列表核对后再操作。", en: "The archive state is unconfirmed. Refresh the list before another action.", retryable: false, action: "details" },
+  "HR-SESS-029": { zh: "无法确认会话所属的身份，请检查 Mac 上的 Hermes 版本后重新打开会话。", en: "The conversation profile could not be confirmed. Check the Hermes version on your Mac and reopen the conversation.", retryable: false, action: "details" },
   "HR-SESS-026": { zh: "当前无法更改归档状态，请查看详情并刷新列表。", en: "The archive state cannot be changed now. View details and refresh the list.", retryable: false, action: "details" },
   "HR-SESS-027": { zh: "操作结果尚未确认，请刷新列表核对后再操作。", en: "The operation outcome is unconfirmed. Refresh the list before another action.", retryable: false, action: "details" },
   "HR-SESS-028": { zh: "当前无法更改会话，请查看详情并刷新列表。", en: "The session cannot be changed now. View details and refresh the list.", retryable: false, action: "details" },

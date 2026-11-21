@@ -11,6 +11,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Test
@@ -114,9 +115,22 @@ class ChatRepositoryTest {
     // Regression: a new chat created with no profile is bound to the gateway's DEFAULT profile,
     // so its messages land in a db the (active-profile-scoped) session list never scans → the chat
     // is invisible in both the Android and Desktop apps. session.create MUST carry the active profile.
+    @Test fun explicitCreationRejectsUnknownAndMismatchedOwners() = runTest {
+        val client = mockk<HermesGatewayClient>(relaxed = true)
+        for (owner in listOf(null, "other")) {
+            coEvery { client.call(any(), any()) } returns buildJsonObject {
+                put("session_id", "live")
+                if (owner != null) put("info", buildJsonObject { put("profile_name", owner) })
+            }
+            val repo = ChatRepository(client)
+            assertTrue(runCatching { repo.createSession("work") }.exceptionOrNull() is IllegalStateException)
+            assertTrue(runCatching { repo.resume("stored", "work") }.exceptionOrNull() is IllegalStateException)
+        }
+    }
+
     @Test fun createSession_passes_active_profile() = runTest {
         val client = mockk<HermesGatewayClient>(relaxed = true)
-        coEvery { client.call(any(), any()) } returns buildJsonObject { put("session_id", "abc") }
+        coEvery { client.call(any(), any()) } returns buildJsonObject { put("session_id", "abc"); put("info", buildJsonObject { put("profile_name", "acme") }) }
         val repo = ChatRepository(client)
 
         val created = repo.createSession(profile = "acme")
@@ -131,7 +145,7 @@ class ChatRepositoryTest {
         val client = mockk<HermesGatewayClient>(relaxed = true)
         coEvery { client.call(any(), any()) } returns buildJsonObject {
             put("session_id", "abc")
-            put("info", buildJsonObject { put("cwd", "/Users/me/proj") })
+            put("info", buildJsonObject { put("cwd", "/Users/me/proj"); put("profile_name", "acme") })
         }
         val repo = ChatRepository(client)
 
@@ -141,9 +155,9 @@ class ChatRepositoryTest {
         coVerify { client.call("session.create", match { it["cwd"]?.jsonPrimitive?.content == "/Users/me/proj" }) }
     }
 
-    @Test fun createSession_omits_cwd_when_null_and_tolerates_missing_info() = runTest {
+    @Test fun createSession_omits_cwd_when_null_and_preserves_owner() = runTest {
         val client = mockk<HermesGatewayClient>(relaxed = true)
-        coEvery { client.call(any(), any()) } returns buildJsonObject { put("session_id", "abc") }
+        coEvery { client.call(any(), any()) } returns buildJsonObject { put("session_id", "abc"); put("info", buildJsonObject { put("profile_name", "acme") }) }
         val repo = ChatRepository(client)
 
         val created = repo.createSession(profile = "acme", cwd = null)
@@ -192,6 +206,7 @@ class ChatRepositoryTest {
         coEvery { client.call(any(), any()) } returns buildJsonObject {
             put("session_id", "live-1")
             put("stored_session_id", "stored-1")
+            put("info", buildJsonObject { put("profile_name", "personal") })
         }
 
         val id = ChatRepository(client).createSession(profile = "personal").id
@@ -352,7 +367,7 @@ class ChatRepositoryTest {
     // session stored before this shipped (source=tui) still gets this client's platform block.
     @Test fun resumeSession_identifies_this_client_to_hermes() = runTest {
         val client = mockk<HermesGatewayClient>(relaxed = true)
-        coEvery { client.call(any(), any()) } returns buildJsonObject { put("session_id", "live-1") }
+        coEvery { client.call(any(), any()) } returns buildJsonObject { put("session_id", "live-1"); put("info", buildJsonObject { put("profile_name", "acme") }) }
         val repo = ChatRepository(client)
 
         repo.resume("stored-1", profile = "acme")

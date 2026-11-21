@@ -13,38 +13,13 @@ import { describe, expect, it } from "vitest";
  * the source — the same split `jumpLatest.test.ts` uses for the footer anchor.
  */
 const chatPage = readFileSync(resolve(process.cwd(), "src/ui/ChatPage.tsx"), "utf8");
-const css = readFileSync(resolve(process.cwd(), "src/styles.css"), "utf8");
-
-function block(selector: string): string {
-  const start = css.indexOf(`\n${selector} {`);
-  if (start < 0) return "";
-  const open = css.indexOf("{", start);
-  const end = css.indexOf("}", open);
-  return css.slice(open + 1, end).replace(/\s+/g, " ").trim();
-}
-
-describe("the new-session greeting carries the account identity (HG-183)", () => {
-  it("puts the account avatar above the greeting, before the title", () => {
-    const greeting = chatPage.indexOf('class="greeting"');
-    const avatar = chatPage.indexOf('class="greeting-avatar"');
-    const title = chatPage.indexOf('class="greeting-title"');
-    expect(greeting).toBeGreaterThan(-1);
-    expect(avatar).toBeGreaterThan(greeting);
-    expect(avatar).toBeLessThan(title);
-    expect(chatPage.slice(avatar, title)).toContain("AccountAvatar");
+describe("new-session profile choice", () => {
+  it("makes the central avatar the profile selector", () => {
+    expect(chatPage).toContain('class="greeting-avatar identity-picker"');
+    expect(chatPage).toContain("setSelected(event.currentTarget.value)");
+    expect(chatPage).toContain("preferences.label(newProfile)");
   });
-
-  it("joins the signed-in Web account name to the greeting", () => {
-    expect(chatPage).toContain("greetingForHour(new Date().getHours(), language, accountName)");
-    // The name comes from the Web account, not a leftover profile identity.
-    expect(chatPage).toContain("app.account?.displayName");
-  });
-
-  it("keeps the rest of the empty state, including the project pill", () => {
+  it("preserves the project greeting", () => {
     expect(chatPage).toContain('class="greeting-pill mono"');
-  });
-
-  it("sizes the avatar for the greeting rather than reusing the 44px card size", () => {
-    expect(block(".greeting-avatar .account-avatar")).toContain("width: 4rem");
   });
 });

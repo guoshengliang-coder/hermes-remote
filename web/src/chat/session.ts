@@ -413,6 +413,8 @@ export class ChatSession {
     const { method, params } = sessionResume(this.storedId, { profile: this.o.profile });
     const run = this.call<SessionResumeResult>(method, params, 60_000).then(
       (result) => {
+        this.resuming = null;
+        this.confirmProfile(result.info);
         const live = typeof result?.session_id === "string" && result.session_id ? result.session_id : this.storedId!;
         this.liveId = live;
         this.resuming = null;
@@ -474,11 +476,21 @@ export class ChatSession {
     return this.create();
   }
 
+  private confirmProfile(info?: { profile_name?: unknown; [key: string]: unknown } | null): void {
+    if (this.o.profile && info?.profile_name !== this.o.profile) {
+      this.liveId = null;
+      const error = new Error("session owner unconfirmed");
+      this.o.dispatch({type: "notice", error: appError("HR-SESS-029"), terminal: true});
+      throw error;
+    }
+  }
+
   private create(): Promise<string> {
     this.creating ??= (async () => {
       const { method, params } = sessionCreate({ cwd: this.o.cwd, profile: this.o.profile });
       try {
         const result = await this.call<SessionCreateResult>(method, params);
+        this.confirmProfile(result.info);
         this.liveId = result.session_id;
         this.storedId = result.stored_session_id || result.session_id;
         this.o.onStored?.(this.storedId);

@@ -1,3 +1,5 @@
+import { inboxKey } from "./inbox";
+import { explicitProfile } from "./profile";
 import type { SessionListItem } from "../hermes/types";
 
 // Session list grouping (docs/DESIGN.md §5.2 `groupByRecency`): needs-you first, then rolling
@@ -56,7 +58,7 @@ export function groupSessions(
   const buckets = new Map<GroupId, SessionListItem[]>(GROUP_ORDER.map((id) => [id, []]));
   for (const session of sessions) {
     if (session.archived) continue;
-    const id = needsYou.has(session.id)
+    const id = needsYou.has(inboxKey(session.id, explicitProfile(session)))
       ? "needs-you"
       : isPinned(session)
         ? "pinned"

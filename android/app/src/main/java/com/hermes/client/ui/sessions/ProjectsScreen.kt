@@ -1,5 +1,6 @@
 package com.hermes.client.ui.sessions
 
+import com.hermes.client.domain.Session
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -50,7 +51,7 @@ fun ProjectsScreen(
     val introSeen by vm.introSeen.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val creator = rememberSessionCreator(vm, activeProfile, onOpen)
-    val openSession = rememberSessionOpener(vm, onOpen)
+    val openSession = { session: Session -> onOpen(ChatLaunch.existing(session)) }
     val scope = projectsState.scope
 
     // Which sheet is open, and what the folder picker (if showing) is picking FOR. Both are page

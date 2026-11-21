@@ -149,8 +149,8 @@ class SearchViewModel @Inject constructor(
         pinStore.pinned.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptySet())
 
     /** The live or archived session a message hit belongs to (null when it is not in scope). */
-    fun sessionFor(sessionId: String): Session? =
-        live.firstOrNull { it.id == sessionId } ?: archived.firstOrNull { it.id == sessionId }
+    fun sessionFor(sessionId: String, profile: String? = profileManager.active.value): Session? =
+        live.firstOrNull { it.id == sessionId && it.profile == profile } ?: archived.firstOrNull { it.id == sessionId && it.profile == profile }
 
     // Live + archived rows for the active profile. First frame comes from the repository cache;
     // refresh() re-pulls both lists.
@@ -162,7 +162,7 @@ class SearchViewModel @Inject constructor(
 
     init {
         restoreSelectedRoute()
-        live = scoped(sessions.cachedAllProfiles())
+        live = sessions.cachedAllProfiles()
         applyFilter()
         refresh()
         viewModelScope.launch {
@@ -178,10 +178,6 @@ class SearchViewModel @Inject constructor(
         }
     }
 
-    private fun scoped(all: List<Session>): List<Session> {
-        val active = profileManager.active.value
-        return if (active.isNullOrBlank()) all else all.filter { it.profile == active }
-    }
 
     fun refresh() = viewModelScope.launch { refreshNow() }
 
@@ -197,8 +193,8 @@ class SearchViewModel @Inject constructor(
             val refreshedLive = sessions.listAllProfiles()
             val refreshedArchived = sessions.archivedAllProfiles()
             if (active != profileManager.active.value) return false
-            live = scoped(refreshedLive)
-            archived = scoped(refreshedArchived)
+            live = refreshedLive
+            archived = refreshedArchived
             applyFilter()
             refreshResolvedHits()
             true
@@ -265,7 +261,11 @@ class SearchViewModel @Inject constructor(
             _state.value = _state.value.copy(messages = MessageSearch.Searching(q))
             val profile = profileManager.active.value
             val result = try {
-                Result.success(sessions.search(q, profile))
+                val owners = (live + archived).mapNotNull { it.profile }.toSet() + listOfNotNull(profile)
+                val hits = owners.flatMap { owner ->
+                    sessions.search(q, owner).map { owner to it }
+                }
+                Result.success(hits)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (e: Exception) {
@@ -291,7 +291,7 @@ class SearchViewModel @Inject constructor(
         }
     }
 
-    private var lastHits: List<SearchResultDto> = emptyList()
+    private var lastHits: List<Pair<String, SearchResultDto>> = emptyList()
 
     /** Re-resolve rows after a list refresh so titles/times follow the fresher session rows. */
     private fun refreshResolvedHits() {
@@ -299,17 +299,17 @@ class SearchViewModel @Inject constructor(
         _state.value = _state.value.copy(messages = current.copy(hits = resolveHits(lastHits, current.query)))
     }
 
-    private fun resolveHits(dtos: List<SearchResultDto>, q: String): List<MessageHit> {
+    private fun resolveHits(dtos: List<Pair<String, SearchResultDto>>, q: String): List<MessageHit> {
         val defaultPath = defaultProjectPath.value
         return dtos
             // Defensive: the request already excludes these sources; drop any that slip through.
-            .filterNot { it.source != null && it.source in SessionRepository.EXCLUDED_SOURCES }
-            .map { dto ->
-                val session = sessionFor(dto.sessionId)
+            .filterNot { (_, hit) -> hit.source in SessionRepository.EXCLUDED_SOURCES }
+            .map { (owner, dto) ->
+                val session = sessionFor(dto.sessionId, owner)
                 MessageHit(
                     sessionId = dto.sessionId,
                     deviceId = session?.deviceId ?: sessions.currentDeviceId(),
-                    profile = session?.profile ?: profileManager.active.value,
+                    profile = owner,
                     title = session?.title ?: dto.title?.ifBlank { null } ?: dto.sessionId,
                     snippet = centerSnippet(dto.snippet, q),
                     lastActiveMs = session?.lastActive ?: dto.lastActive?.let { (it * 1000).toLong() },
@@ -339,11 +339,7 @@ class SearchViewModel @Inject constructor(
         if (accountSessions?.restoreSelectedDeviceRoute() == true) chat?.reconnect() else chat?.connect()
     }
 
-    /** Ensure the tapped session's profile is active before the chat opens (same as the list). */
-    suspend fun prepareOpen(session: Session): Boolean {
-        val target = session.profile ?: return true
-        return target == profileManager.active.value || profileManager.switchTo(target)
-    }
+
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -354,15 +350,20 @@ fun SearchScreen(
     vm: SearchViewModel = hiltViewModel(),
 ) {
     val language = LocalAppLanguage.current
-    val context = LocalContext.current
     val keyboard = LocalSoftwareKeyboardController.current
-    val state by vm.state.collectAsStateWithLifecycle()
+    val raw by vm.state.collectAsStateWithLifecycle()
+    val hidden = com.hermes.client.ui.components.LocalHiddenProfiles.current
+    val messageResults = raw.messages
+    val state = raw.copy(
+        titleMatches = raw.titleMatches.filterNot { (it.session.profile ?: "default") in hidden },
+        messages = if (messageResults is MessageSearch.Results) {
+            val visible = messageResults.hits.filterNot { (it.profile ?: "default") in hidden }
+            if (visible.isEmpty()) MessageSearch.Empty(messageResults.query) else messageResults.copy(hits = visible)
+        } else messageResults,
+    )
     val defaultProjectPath by vm.defaultProjectPath.collectAsStateWithLifecycle()
     val pinnedTokens by vm.pinnedTokens.collectAsStateWithLifecycle()
-    val scope = rememberCoroutineScope()
     val focus = remember { FocusRequester() }
-    var openRequestJob by remember { mutableStateOf<Job?>(null) }
-    var openRequestSerial by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     val nowMs = remember(state.messages) { System.currentTimeMillis() }
     LaunchedEffect(Unit) { focus.requestFocus() }
 
@@ -371,21 +372,13 @@ fun SearchScreen(
     fun openExisting(session: Session) {
         keyboard?.hide()
         vm.noteOpened()
-        val request = ++openRequestSerial
-        openRequestJob?.cancel()
-        openRequestJob = scope.launch {
-            if (vm.prepareOpen(session) && request == openRequestSerial) {
-                onOpen(ChatLaunch.existing(session, initialQuery = query))
-            } else if (request == openRequestSerial) {
-                Toast.makeText(context, localized(language, "无法切换到该会话所属身份，请稍后重试", "Could not switch to this session's profile. Try again."), Toast.LENGTH_SHORT).show()
-            }
-        }
+        onOpen(ChatLaunch.existing(session, initialQuery = query))
     }
 
     fun openHit(hit: MessageHit) {
         keyboard?.hide()
         vm.noteOpened()
-        val session = vm.sessionFor(hit.sessionId)
+        val session = vm.sessionFor(hit.sessionId, hit.profile)
         if (session != null) {
             openExisting(session)
         } else {
@@ -477,7 +470,7 @@ fun SearchScreen(
                         item(key = "h-msg") {
                             SearchSectionHeader(localized(language, "消息匹配", "Message matches"), trailing = messages.hits.size.toString())
                         }
-                        items(messages.hits, key = { "m-${it.sessionId}" }) { hit ->
+                        items(messages.hits, key = { "m-${it.profile}:${it.sessionId}" }) { hit ->
                             MessageHitRow(hit = hit, query = query, nowMs = nowMs, onClick = { openHit(hit) })
                             HorizontalDivider()
                         }

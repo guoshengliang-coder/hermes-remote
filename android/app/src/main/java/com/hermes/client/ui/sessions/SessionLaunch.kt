@@ -1,5 +1,6 @@
 package com.hermes.client.ui.sessions
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.widget.Toast
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.size
@@ -56,12 +57,17 @@ internal fun rememberSessionCreator(
     val context = LocalContext.current
     val language = LocalAppLanguage.current
     var creating by remember { mutableStateOf(false) }
-    return SessionCreator(creating) { cwd ->
+    var choosing by remember { mutableStateOf(false) }
+    var folder by remember { mutableStateOf<String?>(null) }
+    val profiles by vm.profiles.collectAsStateWithLifecycle()
+    if (choosing) com.hermes.client.ui.chat.NewProfileChat(profiles, { choosing = false }) { owner ->
+        choosing = false
+        val cwd = folder.takeIf { owner == activeProfile }
         if (!creating) {
             creating = true
             scope.launch {
                 try {
-                    val created = vm.createSession(cwd)
+                    val created = vm.createSession(cwd, owner)
                     if (created.fellBackToDefault) {
                         // The folder is gone on the Mac and the gateway silently used its own
                         // launch dir instead — say so rather than leave the chat in a surprise
@@ -73,7 +79,7 @@ internal fun rememberSessionCreator(
                         )
                         Toast.makeText(context, error.localizedMessage(language), Toast.LENGTH_LONG).show()
                     }
-                    onOpen(ChatLaunch.new(created.id, activeProfile, created.deviceId))
+                    onOpen(ChatLaunch.new(created.id, owner, created.deviceId))
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -87,42 +93,7 @@ internal fun rememberSessionCreator(
             }
         }
     }
-}
-
-/**
- * Opens an existing session. Sessions span profiles, so the active profile is switched (and
- * awaited) first — otherwise the chat resumes against the wrong state.db. Latest tap wins: a
- * second tap cancels the first, and a stale result never navigates.
- */
-@Composable
-internal fun rememberSessionOpener(
-    vm: SessionsViewModel,
-    onOpen: (ChatLaunch) -> Unit,
-): (Session) -> Unit {
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-    val language = LocalAppLanguage.current
-    var job by remember { mutableStateOf<Job?>(null) }
-    var serial by remember { mutableLongStateOf(0L) }
-    return { session ->
-        val request = ++serial
-        job?.cancel()
-        job = scope.launch {
-            if (vm.prepareOpen(session) && request == serial) {
-                onOpen(ChatLaunch.existing(session))
-            } else if (request == serial) {
-                Toast.makeText(
-                    context,
-                    localized(
-                        language,
-                        "无法切换到该会话所属身份，请稍后重试",
-                        "Could not switch to this session's profile. Try again.",
-                    ),
-                    Toast.LENGTH_SHORT,
-                ).show()
-            }
-        }
-    }
+    return SessionCreator(creating) { cwd -> if (!creating) { folder = cwd; choosing = true } }
 }
 
 /** The new-chat FAB. One definition so the Chats list and the Projects page cannot diverge. */

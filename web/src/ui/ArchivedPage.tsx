@@ -1,13 +1,15 @@
+import { loadProfileSessionPages } from "../app/profileSessionPages";
+import { useProfilePreferences } from "../app/profilePreferences";
+import { explicitProfile } from "../app/profile";
 import { useEffect, useLayoutEffect, useState } from "preact/hooks";
 import { useListReturn } from "../app/useListReturn";
 import { useStartupPage } from "../startup/readiness";
-import { hermesPaths } from "../api/gateway";
 import { toAppError } from "../app/failures";
 import { defaultProjectPath } from "../app/localPrefs";
 import { navigate } from "../app/router";
 import { useApp } from "../app/store";
 import type { AppError } from "../errors";
-import type { ProfileSessionsResponse, SessionListItem } from "../hermes/types";
+import type { SessionListItem } from "../hermes/types";
 import { ErrorNotice } from "./ErrorNotice";
 import { BackIcon } from "./icons";
 import { SessionActionSheet } from "./SessionActions";
@@ -32,17 +34,20 @@ export function ArchivedPage() {
     if (!deviceId) return;
     let live = true;
     setError(null);
-    client
-      .deviceApi<ProfileSessionsResponse>(deviceId, "GET", `${hermesPaths.profileSessions}?limit=500&order=recent&archived=only`)
+    const controller = new AbortController();
+    loadProfileSessionPages(client, deviceId, controller.signal, true)
       .then(
-        (body) => live && setRows(Array.isArray(body?.sessions) ? body.sessions.filter((s) => s.archived !== false) : []),
+        (items) => live && setRows(items.filter(s => s.archived !== false)),
         (e: unknown) => live && setError(toAppError(e, "device")),
       );
     return () => {
       live = false;
+      controller.abort();
     };
   }, [deviceId, attempt]);
 
+  const prefs = useProfilePreferences();
+  const visible = rows?.filter(s => !prefs.hidden(explicitProfile(s) ?? "default"));
   const now = Date.now();
   const defaultProject = deviceId ? defaultProjectPath(deviceId) : null;
   return (
@@ -60,23 +65,23 @@ export function ArchivedPage() {
         <main class="content">
           {error ? <ErrorNotice error={error} language={language} onRetry={() => setAttempt(attempt + 1)} /> : null}
           {!rows && !error ? <div class="center-spinner"><span class="spinner" /></div> : null}
-          {rows && rows.length === 0 ? (
+          {visible && visible.length === 0 ? (
             <div class="empty-state">
               <p class="empty-line">{t("暂无归档会话", "No archived conversations")}</p>
             </div>
           ) : null}
-          {rows?.map((s) => (
+          {visible?.map((s) => (
             <SessionRow
               showTime
-              key={s.id}
+              key={JSON.stringify([s.profile, s.id])}
               session={s}
               now={now}
               defaultProject={defaultProject}
-              onOpen={() => navigate({ name: "chat", sessionId: s.id })}
+              onOpen={() => navigate({ name: "chat", sessionId: s.id, profile: explicitProfile(s) ?? undefined })}
               onLongPress={() => setActionFor(s)}
             />
           ))}
-          {rows?.length ? <p class="list-hint">{t("长按会话可取消归档或删除。", "Press and hold a conversation to unarchive or delete it.")}</p> : null}
+          {visible?.length ? <p class="list-hint">{t("长按会话可取消归档或删除。", "Press and hold a conversation to unarchive or delete it.")}</p> : null}
         </main>
       </div>
       {actionFor ? (
@@ -84,7 +89,7 @@ export function ArchivedPage() {
           session={actionFor}
           archived
           onClose={() => setActionFor(null)}
-          onChanged={() => setRows((current) => current?.filter((r) => r.id !== actionFor.id) ?? null)}
+          onChanged={() => setRows((current) => current?.filter((r) => r.id !== actionFor.id || explicitProfile(r) !== explicitProfile(actionFor)) ?? null)}
         />
       ) : null}
     </div>

@@ -86,7 +86,7 @@ class RpcParamContractTest {
             put("ref_text", "@file:/tmp/x")
             put("state", "available")
             put("status", "ok")
-            putJsonObject("info") { put("cwd", "/tmp") }
+            putJsonObject("info") { put("cwd", "/tmp"); put("profile_name", "p") }
         }
     }
 

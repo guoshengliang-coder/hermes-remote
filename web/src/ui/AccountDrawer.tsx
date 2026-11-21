@@ -1,3 +1,4 @@
+import { ProfileDisplaySheet } from "./ProfileDisplaySheet";
 import { appError } from "../errors";
 import { deviceHealthText } from "./device-health";
 import { useEffect, useState } from "preact/hooks";
@@ -16,7 +17,7 @@ import { ErrorNotice } from "./ErrorNotice";
 import { BellIcon, ChevronIcon, CloseIcon, CubeIcon, GlobeIcon, MacIcon, MicIcon, MoonIcon, SunIcon, TextSizeIcon } from "./icons";
 
 type Translate = (zh: string, en: string) => string;
-type SheetKind = "theme" | "language" | "fontSize" | "model" | "voiceFeedback" | "push" | "layout";
+type SheetKind = "profiles" | "theme" | "language" | "fontSize" | "model" | "voiceFeedback" | "push" | "layout";
 
 const themeLabel = (mode: ThemeMode, t: Translate) =>
   mode === "system" ? t("跟随系统", "Follow system") : mode === "light" ? t("温润浅色", "Warm light") : t("黑曜石深色", "Obsidian dark");
@@ -113,6 +114,9 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
             <ChevronIcon />
           </button>
           <div class="drawer-shortcuts">
+            <button type="button" class="drawer-shortcut" onClick={() => setSheet("profiles")}>
+              <span class="drawer-shortcut-title">{t("Profile 显示设置","Profile visibility")}</span><ChevronIcon/>
+            </button>
             <button type="button" class="drawer-shortcut" aria-label={t("大屏布局", "Large screen layout")} onClick={() => setSheet("layout")}><MacIcon size={20}/><span class="drawer-shortcut-title">{t("大屏布局", "Large screen layout")}</span><span class="drawer-shortcut-value">{layoutOptions.find(option => option.id === workspace.mode)?.label}</span><ChevronIcon/></button>
             <button type="button" class="drawer-shortcut" aria-label={t("恢复默认栏宽", "Reset list width")} onClick={() => { workspace.resetWidth(); app.flash(t("已恢复默认栏宽", "List width reset")); }}><TextSizeIcon size={20}/><span class="drawer-shortcut-title">{t("恢复默认栏宽", "Reset list width")}</span></button>
             {pushStatus !== "unsupported" ? (
@@ -165,6 +169,7 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
         <footer class="drawer-footer"><span class="drawer-footer-rule" aria-hidden="true"><i />✦<i /></span><span>Your AI Agent, in Your Pocket</span></footer>
       </aside>
 
+      {sheet === "profiles" && <ProfileDisplaySheet onClose={closeSheet}/>}
       {sheet === "push" ? <PushNotifications onClose={closeSheet}/> : null}
       {sheet === "layout" ? <ChoiceSheet title={t("大屏布局", "Large screen layout")} options={layoutOptions} inUse={workspace.mode}
         onSave={choice => { workspace.setMode(choice); closeSheet(); }} onClose={closeSheet} t={t}/> : null}

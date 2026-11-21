@@ -8,7 +8,7 @@ export const BASE = "/app/";
 
 export type Route =
   | { name: "list" }
-  | { name: "chat"; sessionId: string }
+  | { name: "chat"; sessionId: string; profile?: string }
   | { name: "new" }
   | { name: "archived" }
   | { name: "account" }
@@ -25,11 +25,16 @@ export function matchRoute(pathname: string): Route {
   if (rest === "archived") return { name: "archived" };
   if (rest === "account") return { name: "account" };
   if (rest === "login") return { name: "login" };
-  const chat = /^s\/([^/]+)$/.exec(rest);
+  const chat = /^s\/([^/]+)(?:\/p\/([^/]+))?$/.exec(rest);
   if (chat) {
     let id: string;
     try {
       id = decodeURIComponent(chat[1]!);
+      if (chat[2]) {
+        const profile = decodeURIComponent(chat[2]);
+        if (!SESSION_ID.test(id) || !/^[\p{L}\p{N}_. -]{1,64}$/u.test(profile) || profile === "." || profile === "..") return { name: "list" };
+        return { name: "chat", sessionId: id, profile };
+      }
     } catch {
       return { name: "list" };
     }
@@ -51,7 +56,7 @@ export function routePath(route: Route): string {
     case "login":
       return `${BASE}login`;
     case "chat":
-      return `${BASE}s/${encodeURIComponent(route.sessionId)}`;
+      return `${BASE}s/${encodeURIComponent(route.sessionId)}${route.profile ? "/p/" + encodeURIComponent(route.profile) : ""}`;
   }
 }
 

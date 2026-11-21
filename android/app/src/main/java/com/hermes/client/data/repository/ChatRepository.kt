@@ -158,6 +158,14 @@ class ChatRepository(private val client: HermesGatewayClient) {
      * default project). The returned [CreatedSession.cwd] is the folder the gateway actually
      * resolved, so a caller can detect a requested folder that no longer exists on the Mac.
      */
+    private fun confirmProfile(expected: String?, result: JsonObject?) {
+        if (expected.isNullOrBlank()) return
+        val info = result?.get("info") as? JsonObject
+        if (info?.get("profile_name")?.jsonPrimitive?.contentOrNull != expected) {
+            throw com.hermes.client.data.error.SessionOwnerUnconfirmed()
+        }
+    }
+
     suspend fun createSession(profile: String? = null, cwd: String? = null): CreatedSession {
         val result = client.call("session.create", buildJsonObject {
             put("source", clientSource)
@@ -173,6 +181,7 @@ class ChatRepository(private val client: HermesGatewayClient) {
         val id = obj["stored_session_id"]?.jsonPrimitive?.contentOrNull
             ?: obj["session_id"]?.jsonPrimitive?.contentOrNull
             ?: error("session.create returned no id")
+        confirmProfile(profile, obj)
         val resolvedCwd = (obj["info"] as? JsonObject)?.get("cwd")?.jsonPrimitive?.contentOrNull?.ifBlank { null }
         return CreatedSession(id = id, cwd = resolvedCwd)
     }
@@ -225,6 +234,7 @@ class ChatRepository(private val client: HermesGatewayClient) {
         })
         // `open_requests` in this answer is handled by the socket itself, in frame order
         // (HermesGatewayClient.onResumeAnswered).
+        confirmProfile(profile, result as? JsonObject)
         return (result as? JsonObject)?.get("session_id")?.jsonPrimitive?.content
     }
 

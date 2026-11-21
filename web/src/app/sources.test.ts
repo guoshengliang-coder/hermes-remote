@@ -16,10 +16,10 @@ describe("session sources (SessionRepository.EXCLUDED_SOURCES)", () => {
 });
 
 describe("explicitProfile", () => {
-  it("names only a non-default profile", () => {
+  it("routes a known default explicitly even when the backend launched under another profile", () => {
     expect(explicitProfile({ profile: "work", is_default_profile: false })).toBe("work");
-    expect(explicitProfile({ profile: "main", is_default_profile: true })).toBeNull();
-    expect(explicitProfile({ profile: "default" })).toBeNull();
+    expect(explicitProfile({ profile: "main", is_default_profile: true })).toBe("default");
+    expect(explicitProfile({ profile: "default" })).toBe("default");
     expect(explicitProfile({ profile: " " })).toBeNull();
     expect(explicitProfile(null)).toBeNull();
   });

@@ -38,6 +38,7 @@ interface WorkspaceValue {
   width: number;
   listWidth: number;
   selectedId: string | null;
+  selectedProfile?: string;
   listVisible?: boolean;
   toggleList: () => void;
   resetWidth: () => void;

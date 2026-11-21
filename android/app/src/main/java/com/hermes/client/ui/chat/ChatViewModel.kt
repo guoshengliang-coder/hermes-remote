@@ -1594,10 +1594,15 @@ class ChatViewModel @Inject constructor(
         _state.value.pendingAttachments.firstOrNull { it.id == id }
 
     /** Create a fresh chat in the currently active profile for the top-bar + action. */
-    suspend fun createNewSession(): String? =
-        runCatching { chat.createSession(profileManager.active.value) }
-            .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
-            .getOrNull()?.id
+    suspend fun resolveLegacyOwner(id: String, device: String?): String? {
+        val route = accountSessions?.routingContext()
+        if (device != null && route?.deviceId != device) return null
+        val rows = sessions.listAllProfiles() + sessions.archivedAllProfiles()
+        if (route != accountSessions?.routingContext()) return null
+        return rows.filter { it.id == id }.map { it.profile }.distinct().singleOrNull()
+    }
+
+    suspend fun createNewSession(profile: String): String = chat.createSession(profile).id
 
     /**
      * Archives the open conversation. Returns null on success, or the error to show. Carries the

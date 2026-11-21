@@ -35,6 +35,9 @@ import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 /** Per-profile personalisation (from ProfileIdentityStore), provided at the app root. */
+val LocalHiddenProfiles = staticCompositionLocalOf<Set<String>> { emptySet() }
+val LocalDeviceProfileHidden = staticCompositionLocalOf<(String?, String) -> Boolean> { { _, _ -> false } }
+val LocalSetProfileHidden = staticCompositionLocalOf<(String, Boolean) -> Unit> { { _, _ -> } }
 val LocalProfileIdentities = staticCompositionLocalOf<Map<String, ProfileIdentity>> { emptyMap() }
 
 /** Where avatar photo files live (ProfileIdentityStore.avatarDir); null = photos unavailable. */

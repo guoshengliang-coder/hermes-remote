@@ -1,14 +1,19 @@
+import { loadProfileSessionPages } from "../app/profileSessionPages";
+import { conversationScope } from "../app/conversationMemory";
+import { inboxKey } from "../app/inbox";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { useListReturn } from "../app/useListReturn";
 import { useStartupPage } from "../startup/readiness";
 import { BackClose } from "../app/useBackClose";
-import { GatewayHttpError, hermesPaths } from "../api/gateway";
 import { botSections, botSourceLabel, botStatusLine } from "../app/bots";
-import { DRAFT_CHANGED, draftSessions } from "../app/drafts";
+import { DRAFT_CHANGED, draftKey, hasDraft } from "../app/drafts";
 import { toAppError } from "../app/failures";
 import { groupSessions, type GroupId } from "../app/grouping";
 import { createListRefresher, type ListRefresher } from "../app/listRefresh";
 import { defaultProjectPath } from "../app/localPrefs";
+import { useProfileNames, useProfilePreferences } from "../app/profilePreferences";
+import { explicitProfile } from "../app/profile";
+import { pinToken } from "../app/pins";
 import { deriveProjects, disambiguatedLabels, inProject } from "../app/projects";
 import { navigate } from "../app/router";
 import { rowView } from "../app/rowStatus";
@@ -16,7 +21,7 @@ import { isBotSession, isListable } from "../app/sources";
 import { useApp } from "../app/store";
 import { useWorkspace } from "../app/workspace";
 import { appError, type AppError } from "../errors";
-import type { ProfileSessionsResponse, SessionListItem, SessionListResponse } from "../hermes/types";
+import type { SessionListItem } from "../hermes/types";
 import { ErrorNotice } from "./ErrorNotice";
 import { AccountDrawer } from "./AccountDrawer";
 import { HealthStrip } from "./HealthStrip";
@@ -54,27 +59,12 @@ export function loadSessions(client: ReturnType<typeof useApp>["client"], device
   const pending = requests.get(deviceId);
   if (pending) return pending.promise;
   const controller = new AbortController();
-  const promise = loadSessionRows(client, deviceId, controller.signal).finally(() => {
+  const promise = loadProfileSessionPages(client, deviceId, controller.signal).finally(() => {
     if (requests!.get(deviceId)?.promise === promise) requests!.delete(deviceId);
   });
   requests.set(deviceId, { promise, controller });
   return promise;
 }
-async function loadSessionRows(client: ReturnType<typeof useApp>["client"], deviceId: string, signal: AbortSignal): Promise<SessionListItem[]> {
-  try {
-    const body = await client.deviceApi<ProfileSessionsResponse>(deviceId, "GET", `${hermesPaths.profileSessions}?limit=500&order=recent`, { signal });
-    return Array.isArray(body?.sessions) ? body.sessions : [];
-  } catch (error) {
-    // Older Hermes without the cross-profile list: fall back to the default profile's.
-    if (!signal.aborted && error instanceof GatewayHttpError && error.status === 404) {
-      // Upstream `/api/sessions` rejects limit > 100 (422).
-      const body = await client.deviceApi<SessionListResponse>(deviceId, "GET", `${hermesPaths.sessions}?limit=100&offset=0&order=recent`, { signal });
-      return Array.isArray(body?.sessions) ? body.sessions : [];
-    }
-    throw error;
-  }
-}
-
 function GroupHeader({ id, label, count, folded, onToggle }: { id: string; label: string; count: number; folded: boolean; onToggle: () => void }) {
   return (
     <h2 class="group-heading">
@@ -90,6 +80,11 @@ function GroupHeader({ id, label, count, folded, onToggle }: { id: string; label
 
 export function SessionList() {
   const app = useApp();
+  const prefs = useProfilePreferences();
+  const names = useProfileNames().filter(name => !prefs.hidden(name));
+  const [chosenFilter, setProfileFilter] = useState("");
+  const profileFilter = names.includes(chosenFilter) ? chosenFilter : "";
+  const visibleSessions = useMemo(() => app.sessions.filter(s => !prefs.hidden(explicitProfile(s) ?? "default")), [app.sessions, prefs.hidden]);
   const { t, language, device, client } = app;
   const paneActive = useWorkspace().listVisible !== false;
   const listReturn = useListReturn(`sessions:${device?.deviceId}`, { searching: false, query: "", botFolded: [] as string[] });
@@ -206,35 +201,40 @@ export function SessionList() {
     return () => port.removeEventListener("scroll", onScroll);
   }, [reveal]);
 
-  const listable = useMemo(() => app.sessions.filter((s) => isListable(s) && !isBotSession(s)), [app.sessions]);
-  const bots = useMemo(() => botSections(app.sessions), [app.sessions]);
+  const listable = useMemo(() => visibleSessions.filter((s) => isListable(s) && !isBotSession(s) && (!profileFilter || explicitProfile(s) === profileFilter)), [visibleSessions, profileFilter]);
+  const bots = useMemo(() => botSections(visibleSessions), [visibleSessions]);
   const showBots = bots.length > 0;
   const segment = showBots ? app.listSegment : "chats";
 
   const rows = useMemo(() => {
     // A session waiting on the user but not in the loaded page still gets a row.
-    const known = new Set(app.sessions.map((s) => s.id));
+    const known = new Set(app.sessions.map((s) => inboxKey(s.id, explicitProfile(s))));
     const extra: SessionListItem[] = [];
     for (const id of app.needsYou) {
-      if (known.has(id)) continue;
+      if (known.has(id) || prefs.hasHidden || profileFilter) continue;
       const entry = app.inbox.latest[id];
-      extra.push({ id, title: entry?.title ?? null, last_active: entry ? entry.occurredAtMs / 1000 : null });
+      if (!entry?.profile || prefs.hidden(entry.profile)) continue;
+      extra.push({ id: entry.storedSessionId, profile: entry.profile, title: entry?.title ?? null, last_active: entry ? entry.occurredAtMs / 1000 : null });
     }
     return [...extra, ...listable];
-  }, [listable, app.needsYou, app.inbox.latest]);
+  }, [listable, app.needsYou, app.inbox.latest, prefs.hasHidden, profileFilter]);
 
   const projects = useMemo(() => deriveProjects(listable), [listable]);
   const projectLabels = useMemo(() => disambiguatedLabels(projects), [projects]);
-  const shown = useMemo(() => (filter ? rows.filter((r) => app.needsYou.has(r.id) || inProject(r, filter.path)) : rows), [rows, filter, app.needsYou]);
+  const shown = useMemo(() => (filter ? rows.filter((r) => app.needsYou.has(inboxKey(r.id, explicitProfile(r))) || inProject(r, filter.path)) : rows), [rows, filter, app.needsYou]);
   const groups = useMemo(() => groupSessions(shown, app.needsYou, now, app.isPinned), [shown, app.needsYou, now, app.isPinned]);
-  const drafts = useMemo(() => (deviceId ? draftSessions(deviceId, app.account?.id) : new Set<string>()), [deviceId, app.account?.id, app.sessions, draftVersion]);
+  const drafts = useMemo(() => new Set(visibleSessions.filter(row => {
+    if (!deviceId) return false;
+    const owner = explicitProfile(row);
+    return hasDraft(draftKey(deviceId, row.id, conversationScope(app.account?.id, deviceId, owner, row.id)));
+  }).map(row => inboxKey(row.id, explicitProfile(row)))), [deviceId, app.account?.id, visibleSessions, draftVersion]);
   const noFolderLabel = t("未指定文件夹", "No folder");
   const projectName = (path: string | null, fallback: string) =>
     path === null ? noFolderLabel : defaultProject && path === defaultProject ? t("默认项目", "Default project") : (projectLabels.get(path) ?? fallback);
 
-  function open(id: string, inChatQuery: string | null = null) {
+  function open(id: string, inChatQuery: string | null = null, profile?: string | null) {
     app.setChatSearchSeed(inChatQuery);
-    navigate({ name: "chat", sessionId: id });
+    navigate({ name: "chat", sessionId: id, profile: profile ?? undefined });
   }
 
   function closeSearch() {
@@ -266,14 +266,14 @@ export function SessionList() {
           </div>
         ) : (
           <div class="topbar-row">
-            {/* HG-170: the drawer entry is a menu glyph, not the account avatar. Web has no
-                profile switching, so the lettered block carried an identity with nothing behind
-                it; a three-rule icon in chrome tone says "this opens the sidebar" and no more. */}
             <button type="button" class="icon-button drawer-trigger" aria-label={t("打开侧边栏", "Open sidebar")} aria-expanded={drawerOpen} onClick={() => setDrawerOpen(true)}>
-              <MenuIcon />
+              {names.length ? names.slice(0,3).map(name => <span class="profile-initial" key={name}>{prefs.label(name).slice(0,1)}</span>) : <MenuIcon />}
             </button>
             <span class="topbar-spacer" />
             <h1 class="topbar-title">{t("会话", "Chats")}</h1>
+            {names.length > 1 && <select aria-label={t("筛选身份","Filter by profile")} value={profileFilter} onChange={e => setProfileFilter(e.currentTarget.value)}>
+              <option value="">{t("全部","All")}</option>{names.map(name => <option key={name} value={name}>{prefs.display(name, names)}</option>)}
+            </select>}
             <button type="button" class="icon-button" aria-label={t("搜索", "Search")} onClick={() => setSearching(true)}>
               <SearchIcon />
             </button>
@@ -361,7 +361,7 @@ export function SessionList() {
                     {folded
                       ? null
                       : section.sessions.map((s) => (
-                          <SessionRow key={s.id} session={s} now={now} pinned={app.isPinned(s)} bot={{ statusLine: botStatusLine(s, now, language) }} onOpen={() => open(s.id)} onLongPress={() => setActionFor(s)} />
+                          <SessionRow key={pinToken(s)} session={s} now={now} pinned={app.isPinned(s)} bot={{ statusLine: botStatusLine(s, now, language) }} onOpen={() => open(s.id, null, explicitProfile(s))} onLongPress={() => setActionFor(s)} />
                         ))}
                   </section>
                 );
@@ -388,16 +388,16 @@ export function SessionList() {
                       ? null
                       : group.sessions.map((session) => (
                           <SessionRow
-                            key={session.id}
+                            key={pinToken(session)}
                             session={session}
                             now={now}
-                            view={rowView(session.id, app.inbox, app.needsYou)}
+                            view={rowView(inboxKey(session.id, explicitProfile(session)), app.inbox, app.needsYou)}
                             pinned={app.isPinned(session)}
-                            draft={drafts.has(session.id)}
+                            draft={drafts.has(inboxKey(session.id, explicitProfile(session)))}
                             inProject={Boolean(filter)}
                             defaultProject={defaultProject}
-                            onOpen={() => open(session.id)}
-                            onLongPress={app.needsYou.has(session.id) && !app.sessions.some((s) => s.id === session.id) ? undefined : () => setActionFor(session)}
+                            onOpen={() => open(session.id, null, explicitProfile(session))}
+                            onLongPress={app.needsYou.has(inboxKey(session.id, explicitProfile(session))) && !app.sessions.some((s) => s.id === session.id) ? undefined : () => setActionFor(session)}
                           />
                         ))}
                   </section>
@@ -433,7 +433,7 @@ export function SessionList() {
       {actionFor ? (
         <SessionActionSheet
           session={actionFor}
-          busy={rowView(actionFor.id, app.inbox, app.needsYou).trailing === "spinner"}
+          busy={rowView(inboxKey(actionFor.id, explicitProfile(actionFor)), app.inbox, app.needsYou).trailing === "spinner"}
           onClose={() => setActionFor(null)}
         />
       ) : null}
@@ -474,7 +474,7 @@ export function SessionList() {
                     aria-pressed={selected}
                     key={project.path ?? "__no_folder__"}
                     onClick={() => {
-                      app.setProjectFilter({ path: project.path, label });
+                      app.setProjectFilter({ path: project.path, label, profile: profileFilter || undefined });
                       setProjectsOpen(false);
                     }}
                   >

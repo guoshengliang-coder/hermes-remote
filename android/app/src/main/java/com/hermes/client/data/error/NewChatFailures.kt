@@ -25,7 +25,10 @@ private const val UNSTABLE_CONNECTION_THRESHOLD = 3
  * [droppedConnections] is the client's own count of connections that died without proving
  * themselves, which is what lets this distinguish "retry now" from "this will keep happening".
  */
+class SessionOwnerUnconfirmed : IllegalStateException("Session owner unconfirmed")
+
 fun newChatFailure(error: Throwable, droppedConnections: Int): AppError = when {
+    error is SessionOwnerUnconfirmed -> AppError(AppErrorCode.SESSION_PROFILE_UNCONFIRMED, false, stage = "session.owner")
     error is GatewayResponseTimeoutException -> AppError(
         code = AppErrorCode.SESSION_CREATE_UNCONFIRMED,
         retryable = true,

@@ -1,3 +1,4 @@
+import { conversationScope } from "../app/conversationMemory";
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { draftKey, saveDraft } from "../app/drafts";
 import { toAppError } from "../app/failures";
@@ -90,6 +91,10 @@ export function SessionActionSheet({
   }
 
   async function run(work: () => Promise<unknown>, change: SessionChange, done: string | null) {
+    if (!profile) {
+      setError(appError("HR-SESS-029"));
+      return;
+    }
     setWorking(true);
     setError(null);
     try {
@@ -97,7 +102,7 @@ export function SessionActionSheet({
       if (archiveAbort.signal.aborted) return;
       if (change === "deleted") {
         if (pinned) app.togglePin(session);
-        if (deviceId) saveDraft(draftKey(deviceId, session.id), "");
+        if (deviceId) saveDraft(draftKey(deviceId, session.id, conversationScope(app.account?.id, deviceId, profile, session.id)), "");
       }
       onClose();
       if (done) app.flash(done);

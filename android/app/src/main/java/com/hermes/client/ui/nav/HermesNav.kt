@@ -546,11 +546,11 @@ fun HermesNav(
                     vm = vm,
                     onMenu = backToList,
                     onSearchAll = { q -> nav.navigate("search?q=${Uri.encode(q)}") { launchSingleTop = true } },
-                    onNewChat = { id ->
-                        openStackedChat(chatRoute(ChatLaunch.new(id)))
+                    onNewChat = { launch ->
+                        openStackedChat(chatRoute(launch))
                     },
                     onSessionRecreated = { id ->
-                        openCanonicalChat(chatRoute(ChatLaunch.new(id)))
+                        openCanonicalChat(chatRoute(ChatLaunch.new(id, entry.arguments?.getString("profile"), entry.arguments?.getString("device"))))
                     },
                     onManagePrompts = { nav.navigate("settings_prompts") { launchSingleTop = true } },
                     // HG-40: delivering into another conversation goes there canonically, NOT

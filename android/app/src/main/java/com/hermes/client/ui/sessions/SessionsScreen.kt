@@ -108,9 +108,16 @@ fun SessionsScreen(
     selectedDevice: String? = null,
     selectedProfile: String? = null,
 ) {
-    val state by vm.state.collectAsStateWithLifecycle()
+    val rawState by vm.state.collectAsStateWithLifecycle()
     val activeProfile by vm.activeProfile.collectAsStateWithLifecycle()
     val profiles by vm.profiles.collectAsStateWithLifecycle()
+    val hidden = com.hermes.client.ui.components.LocalHiddenProfiles.current
+    val names = profiles.map { if (it.isDefault) "default" else it.name }.filterNot(hidden::contains)
+    var filter by remember(names) { mutableStateOf<String?>(null) }
+    val state = rawState.copy(
+        sessions = rawState.sessions.filter { (it.profile ?: "default") !in hidden && (filter == null || it.profile == filter) },
+        botSessions = rawState.botSessions.filter { (it.profile ?: "default") !in hidden },
+    )
     val pinnedTokens by vm.pinnedTokens.collectAsStateWithLifecycle()
     val health by vm.health.collectAsStateWithLifecycle()
     val viewMode by vm.viewMode.collectAsStateWithLifecycle()
@@ -138,7 +145,7 @@ fun SessionsScreen(
     // The Chats list always creates in the gateway's launch directory — the default project.
     // Creating INTO a project is the Projects page's job (docs/DESIGN.md §5.3).
     val creator = rememberSessionCreator(vm, activeProfile, onOpen)
-    val openExisting = rememberSessionOpener(vm, onOpen)
+    val openExisting = { session: Session -> onOpen(ChatLaunch.existing(session)) }
 
     // I1: route to Setup when a 401 is received
     LaunchedEffect(state.unauthorized) {
@@ -186,6 +193,8 @@ fun SessionsScreen(
             Column {
                 ChatsTopBar(
                     activeProfile = activeProfile,
+                    visibleProfiles = names,
+                    onFilter = { filter = it },
                     onOpenCard = onOpenCard,
                     onOpenSearch = onOpenSearch,
                     onOpenProjects = onOpenProjects,
@@ -978,6 +987,8 @@ internal fun ChatsTopBar(
     onOpenSearch: () -> Unit,
     onOpenProjects: () -> Unit,
     onOpenArchived: () -> Unit,
+    visibleProfiles: List<String> = listOfNotNull(activeProfile),
+    onFilter: (String?) -> Unit = {},
 ) {
     val language = LocalAppLanguage.current
     var menuOpen by remember { mutableStateOf(false) }
@@ -987,10 +998,11 @@ internal fun ChatsTopBar(
             // The active profile's avatar IS the identity signal — and the door to
             // the card page, the app's only profile-switch point.
             IconButton(onClick = onOpenCard) {
-                com.hermes.client.ui.components.ProfileAvatar(
-                    activeProfile,
-                    size = com.hermes.client.ui.tuning.tunedAvatarSize(), // TUNING-TEMP
-                )
+                if (visibleProfiles.isEmpty()) Icon(com.hermes.client.ui.nav.GearIcon, localized(language, "设置", "Settings")) else Row(horizontalArrangement = Arrangement.spacedBy((-6).dp)) {
+                    visibleProfiles.take(3).forEach { name ->
+                        com.hermes.client.ui.components.ProfileAvatar(name, size = if (visibleProfiles.size == 1) com.hermes.client.ui.tuning.tunedAvatarSize() else 18.dp)
+                    }
+                }
             }
         },
         centered = true,
@@ -1000,6 +1012,19 @@ internal fun ChatsTopBar(
             // to copy: it only ever paints on `hover:bg-stone-200/50`, so at rest those 32px are
             // invisible and the glyph is the whole of what is drawn. Sizing the button to 32dp
             // would import nothing visible and cost the touch target — Android has no hover.
+            if (visibleProfiles.size > 1) {
+                var filtering by remember { mutableStateOf(false) }
+                Box {
+                    androidx.compose.material3.TextButton(onClick = { filtering = true }) { Text(localized(language, "筛选", "Filter")) }
+                    DropdownMenu(expanded = filtering, onDismissRequest = { filtering = false }) {
+                        DropdownMenuItem(text = { Text(localized(language, "全部", "All")) }, onClick = { onFilter(null); filtering = false })
+                        visibleProfiles.forEach { name ->
+                            DropdownMenuItem(text = { Text(com.hermes.client.ui.components.LocalProfileIdentities.current[name]?.displayName ?: name) },
+                                onClick = { onFilter(name); filtering = false })
+                        }
+                    }
+                }
+            }
             IconButton(onClick = onOpenSearch) {
                 Icon(
                     Icons.Rounded.Search,

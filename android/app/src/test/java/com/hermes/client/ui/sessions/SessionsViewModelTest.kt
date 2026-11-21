@@ -179,7 +179,7 @@ class SessionsViewModelTest {
 
     // Ported from the deleted ArchivedSessionsViewModelTest: the Archived page loads the
     // active profile's archived sessions, and unarchive re-pulls both lists.
-    @Test fun archived_page_loads_scoped_list_and_unarchive_reloads() = runTest {
+    @Test fun archived_page_loads_all_profiles_and_unarchive_reloads() = runTest {
         coEvery { sessionRepo.listAllProfiles() } returns emptyList()
         coEvery { sessionRepo.archivedAllProfiles() } returns listOf(
             session("x", "Old chat", profile = "personal"),
@@ -188,7 +188,7 @@ class SessionsViewModelTest {
         val vm = buildVm()
         vm.loadArchived()
         advanceUntilIdle()
-        assertEquals(listOf("x"), vm.archivedState.value.sessions.map { it.id })
+        assertEquals(listOf("x", "y"), vm.archivedState.value.sessions.map { it.id })
 
         coEvery { sessionRepo.archive("x", false, "personal") } returns Unit
         vm.unarchive(vm.archivedState.value.sessions.first())
@@ -391,9 +391,7 @@ class SessionsViewModelTest {
         assertEquals("one settle pass, not a ladder", before + 3, fetches)
     }
 
-    // The list is scoped to the active profile (one tenant at a time, like the desktop): a session
-    // from another profile is filtered out, and each shown session keeps its own true profile.
-    @Test fun list_is_scoped_to_active_profile() = runTest {
+    @Test fun list_preserves_all_profile_owners() = runTest {
         coEvery { sessionRepo.listAllProfiles() } returns listOf(
             session("s1", "mine", profile = "personal"),
             session("s2", "client", profile = "odos"),
@@ -401,8 +399,8 @@ class SessionsViewModelTest {
         val vm = buildVm() // active profile is "personal"
         advanceUntilIdle()
 
-        assertEquals(listOf("s1"), vm.state.value.sessions.map { it.id })
-        assertEquals("personal", vm.state.value.sessions.single().profile)
+        assertEquals(listOf("s1", "s2"), vm.state.value.sessions.map { it.id })
+        assertEquals(listOf("personal", "odos"), vm.state.value.sessions.map { it.profile })
     }
 
     // T5: in the cross-profile list, a session is pinned by its OWN profile token — so a pin made
@@ -522,39 +520,6 @@ class SessionsViewModelTest {
         advanceUntilIdle()
         assertEquals("HR-SESS-027", vm.rowMutationFailed.value?.code?.value)
         assertFalse(vm.rowMutationFailed.value!!.retryable)
-    }
-
-    // T3: opening a session from another profile must switch the active profile first, so the
-    // chat resumes against the correct per-profile DB.
-    @Test fun prepareOpen_switches_to_session_profile_when_different() = runTest {
-        coEvery { sessionRepo.listAllProfiles() } returns emptyList()
-        coEvery { profileManager.switchTo("odos") } returns true
-        val vm = buildVm() // active is "personal"
-        advanceUntilIdle()
-
-        assertTrue(vm.prepareOpen(session("s2", "client", profile = "odos")))
-        advanceUntilIdle()
-        io.mockk.coVerify { profileManager.switchTo("odos") }
-    }
-
-    @Test fun prepareOpen_blocks_navigation_when_profile_switch_fails() = runTest {
-        coEvery { sessionRepo.listAllProfiles() } returns emptyList()
-        coEvery { profileManager.switchTo("odos") } returns false
-        val vm = buildVm()
-        advanceUntilIdle()
-
-        assertFalse(vm.prepareOpen(session("s2", "client", profile = "odos")))
-    }
-
-    // T3: no switch when the session is already in the active profile.
-    @Test fun prepareOpen_is_noop_for_active_profile_session() = runTest {
-        coEvery { sessionRepo.listAllProfiles() } returns emptyList()
-        val vm = buildVm() // active is "personal"
-        advanceUntilIdle()
-
-        assertTrue(vm.prepareOpen(session("s1", "mine", profile = "personal")))
-        advanceUntilIdle()
-        io.mockk.coVerify(exactly = 0) { profileManager.switchTo(any()) }
     }
 
     @Test fun setViewMode_persists_the_mode() = runTest {
@@ -700,7 +665,7 @@ class SessionsViewModelTest {
         advanceUntilIdle()
 
         assertTrue(vm.recoverArchivedForForeground())
-        assertEquals(listOf("x"), vm.archivedState.value.sessions.map { it.id })
+        assertEquals(listOf("x", "y"), vm.archivedState.value.sessions.map { it.id })
 
         coEvery { sessionRepo.archivedAllProfiles() } throws RuntimeException("net down")
         assertFalse(vm.recoverArchivedForForeground())
@@ -927,7 +892,7 @@ class SessionsViewModelTest {
 
     @Test fun createSession_in_a_project_passes_its_cwd_and_flags_a_silent_fallback() = runTest {
         // The gateway falls back to its launch dir when the requested folder is gone (HR-SESS-006).
-        coEvery { chatRepo.createSession("personal", "/u/proj") } returns
+        coEvery { chatRepo.createSession("default", "/u/proj") } returns
             com.hermes.client.data.repository.CreatedSession("s9", "/Users/me")
         val vm = buildVm()
         advanceUntilIdle()
@@ -940,7 +905,7 @@ class SessionsViewModelTest {
     }
 
     @Test fun createSession_in_a_project_that_exists_is_not_a_fallback() = runTest {
-        coEvery { chatRepo.createSession("personal", "/u/proj") } returns
+        coEvery { chatRepo.createSession("default", "/u/proj") } returns
             com.hermes.client.data.repository.CreatedSession("s9", "/u/proj/")
         val vm = buildVm()
         advanceUntilIdle()
@@ -949,7 +914,7 @@ class SessionsViewModelTest {
     }
 
     @Test fun create_failure_reaches_the_fab_instead_of_becoming_a_silent_null() = runTest {
-        coEvery { chatRepo.createSession("personal", null) } throws
+        coEvery { chatRepo.createSession("default", null) } throws
             com.hermes.client.data.network.GatewayResponseTimeoutException("gateway response timeout")
         val vm = buildVm()
         advanceUntilIdle()
@@ -960,7 +925,7 @@ class SessionsViewModelTest {
     }
 
     @Test fun top_level_create_lands_in_the_default_project_and_teaches_its_path() = runTest {
-        coEvery { chatRepo.createSession("personal", null) } returns
+        coEvery { chatRepo.createSession("default", null) } returns
             com.hermes.client.data.repository.CreatedSession("s1", "/Users/me/")
         val vm = buildVm()
         advanceUntilIdle()
@@ -974,9 +939,10 @@ class SessionsViewModelTest {
 
     @Test fun create_restores_selected_mac_and_returns_that_device_affinity() = runTest {
         val accountSessions = mockk<com.hermes.client.data.auth.AccountSessionManager>()
+        every { accountSessions.routingContext() } returns null
         every { accountSessions.restoreSelectedDeviceRoute() } returns true
         every { sessionRepo.currentDeviceId() } returns "mac-default"
-        coEvery { chatRepo.createSession("personal", null) } returns
+        coEvery { chatRepo.createSession("default", null) } returns
             com.hermes.client.data.repository.CreatedSession("s-device", "/Users/me/")
         val vm = buildVm(accountSessions)
         advanceUntilIdle()
@@ -986,7 +952,7 @@ class SessionsViewModelTest {
         assertEquals("mac-default", result.deviceId)
         io.mockk.verify { accountSessions.restoreSelectedDeviceRoute() }
         io.mockk.verify { chatRepo.reconnect() }
-        io.mockk.verify { sessionRepo.bindConversation("personal", "s-device", "mac-default") }
+        io.mockk.verify { sessionRepo.bindConversation("default", "s-device", "mac-default") }
     }
 
     @Test fun moveToProject_maps_gateway_refusals_to_registered_errors() = runTest {

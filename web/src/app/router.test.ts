@@ -29,6 +29,7 @@ describe("router", () => {
 
   it("round-trips every route", () => {
     const routes: Route[] = [{ name: "list" }, { name: "new" }, { name: "login" }, { name: "chat", sessionId: "20260921_1_x" }];
+    routes.push({ name: "chat", sessionId: "same", profile: "研究" });
     for (const route of routes) expect(matchRoute(routePath(route))).toEqual(route);
   });
 
