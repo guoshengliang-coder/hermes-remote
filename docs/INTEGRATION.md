@@ -111,3 +111,15 @@ CI selects both clients when that directory changes. Gateway serves the fixed ch
 with an opaque script-only sandbox and no connect permission; the normal Web shell only adds
 same-origin frame permission. Deploying the Web bundle therefore also requires this Gateway
 CSP change. No shared wire protocol, upstream RPC, Connector or Desktop contract changes.
+
+## MissionGo 发布批次
+
+Hermes GO 的发布前置走本仓库的 `node scripts/release-readiness.mjs --candidates <完整分页JSON> --batch <原批次JSON>`。
+使用包含最新 `origin/main` 的独立工作树。输入保持完整，包括无需发布记录。该入口只读，绑定当前 GitHub
+主线、实际 PR head、冻结范围及本仓库发布工具的 Git 对象。它不要求覆盖其他产品的全机发布工具安装。
+
+对本仓库的 Android 和 Web 批次，`node scripts/hermes-release-publish.mjs` 校验精确 `--head`、全量
+`--candidates`、同份候选的 `--candidates-digest` 与产物范围（`--android-version <version>` 和／或
+`--web`）。默认只检查。经发布授权后加 `--publish`，仍走 Android 官方标签发布与 Web 原子切换。
+它要求每条待发布交付的实际合并提交都包含在本次产物来源中。遇到未知来源、范围或其他产物时停止。
+发布后还必须独立核实公开产物并完成原批次逐项交接。成功退出不能代替发布凭据或人工验收。
