@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StoredLifecycleEvent } from "../hermes/types";
-import { applyLiveReport, deriveNeedsYou, initialInbox, settledMark, needsYouFromInbox, noticeCount, reduceInbox, undeliveredIds, type InboxState } from "./inbox";
+import { inboxKey, applyLiveReport, deriveNeedsYou, initialInbox, settledMark, needsYouFromInbox, noticeCount, reduceInbox, undeliveredIds, type InboxState } from "./inbox";
 
 let seq = 0;
 function ev(storedSessionId: string, event: string, extra: Partial<StoredLifecycleEvent> = {}, deviceId = "mac"): StoredLifecycleEvent {
@@ -96,4 +96,17 @@ describe("foreground notices", () => {
     const events = [ev("a", "run.started"), ev("a", "run.completed", { deliveredAt: "2026-09-21T10:00:01Z" })];
     expect(undeliveredIds(events)).toEqual([events[0]!.event.eventId]);
   });
+});
+
+it("keeps activity and unread markers separate for matching ids across profiles", () => {
+  const first = ev("shared", "run.waiting");
+  first.event.profile = "default";
+  const second = ev("shared", "run.completed");
+  second.event.profile = "studio";
+  const state = page({...initialInbox, primed: true}, [first, second]);
+  const work = inboxKey("shared", "studio");
+  const home = inboxKey("shared", "default");
+  expect([...deriveNeedsYou(state, new Set())]).toEqual([home]);
+  expect(Object.keys(state.unseen).sort()).toEqual([home, work].sort());
+  expect(Object.keys(reduceInbox(state, {type: "seen", storedSessionId: work}).unseen)).toEqual([home]);
 });

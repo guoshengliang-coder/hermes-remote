@@ -1,3 +1,6 @@
+import { loadProfileSessionPages } from "../app/profileSessionPages";
+import { useProfileNames, useProfilePreferences } from "../app/profilePreferences";
+import { explicitProfile } from "../app/profile";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { hermesPaths } from "../api/gateway";
 import { toAppError } from "../app/failures";
@@ -8,7 +11,7 @@ import { BOT_SOURCES, INTERNAL_SESSION_SOURCES, isListable } from "../app/source
 import { useApp } from "../app/store";
 import { appError, type AppError } from "../errors";
 import { buildSearchQuery } from "../hermes/search-query";
-import type { ProfileSessionsResponse, SessionListItem } from "../hermes/types";
+import type { SessionListItem } from "../hermes/types";
 import { ErrorNotice } from "./ErrorNotice";
 import { Highlighted } from "./Highlighted";
 import { CloseIcon } from "./icons";
@@ -20,6 +23,7 @@ import { projectLabelOf, SessionRow } from "./SessionRow";
 // failed (HR-SEARCH-001 with Retry — the title matches stay).
 
 interface SearchHit {
+  profile?: string;
   session_id?: string;
   id?: string;
   title?: string | null;
@@ -46,9 +50,12 @@ export function SearchView({
   /** Bumped when the keyboard's search key is pressed: search now. */
   submitNonce: number;
   defaultProject: string | null;
-  onOpen: (sessionId: string, inChatQuery: string | null) => void;
+  onOpen: (sessionId: string, inChatQuery: string | null, profile?: string | null) => void;
   onPickRecent: (query: string) => void;
 }) {
+  const prefs = useProfilePreferences();
+  const visibleProfiles = useProfileNames().filter(name => !prefs.hidden(name));
+  const profileScope = JSON.stringify(visibleProfiles);
   const app = useApp();
   const { t, language, client, device } = app;
   const deviceId = device?.deviceId ?? null;
@@ -65,11 +72,12 @@ export function SearchView({
   useEffect(() => {
     if (!deviceId) return;
     let live = true;
-    client
-      .deviceApi<ProfileSessionsResponse>(deviceId, "GET", `${hermesPaths.profileSessions}?limit=500&order=recent&archived=only`)
-      .then((body) => live && setArchived(Array.isArray(body?.sessions) ? body.sessions : []), () => undefined);
+    const controller = new AbortController();
+    loadProfileSessionPages(client, deviceId, controller.signal, true)
+      .then((items) => live && setArchived(items), () => undefined);
     return () => {
       live = false;
+      controller.abort();
     };
   }, [deviceId]);
 
@@ -77,11 +85,12 @@ export function SearchView({
     if (!q) return [];
     const seen = new Set<string>();
     return [...app.sessions.filter(isListable), ...archived.map((s) => ({ ...s, archived: true }))].filter((s) => {
-      if (seen.has(s.id)) return false;
-      seen.add(s.id);
+      const key = JSON.stringify([explicitProfile(s), s.id]);
+      if (seen.has(key) || prefs.hidden(explicitProfile(s) ?? "default")) return false;
+      seen.add(key);
       return titleMatches(s.title || s.display_name || "", projectLabelOf(s, defaultProject), q);
     });
-  }, [q, app.sessions, archived, defaultProject]);
+  }, [q, app.sessions, archived, defaultProject, prefs.hidden]);
 
   useEffect(() => {
     if (!deviceId || q.length < 2) {
@@ -95,8 +104,13 @@ export function SearchView({
     const run = async () => {
       setMessage({ kind: "searching" });
       try {
-        const body = await client.deviceApi<{ results?: SearchHit[]; sessions?: SearchHit[] }>(deviceId, "GET", `${hermesPaths.search(built, EXCLUDED)}&limit=30`, { signal: controller.signal });
-        const hits = body?.results ?? body?.sessions ?? [];
+        const groups = await Promise.all(visibleProfiles.map(async profile => {
+          const body = await client.deviceApi<{results?: SearchHit[]; sessions?: SearchHit[]}>(deviceId, "GET",
+            `${hermesPaths.search(built, EXCLUDED)}&limit=30&profile=${encodeURIComponent(profile)}`, {signal: controller.signal});
+          return (body.results ?? body.sessions ?? []).map(hit => ({...hit, profile}));
+        }));
+        if (controller.signal.aborted) return;
+        const hits = groups.flat().sort((a, b) => (b.last_active ?? 0) - (a.last_active ?? 0));
         setMessage({ kind: "done", hits });
         setRecent(addRecentSearch(deviceId, q));
       } catch (e) {
@@ -114,11 +128,11 @@ export function SearchView({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [q, deviceId, submitNonce, attempt]);
+  }, [q, deviceId, submitNonce, attempt, profileScope]);
 
-  function open(id: string, inChat: boolean) {
+  function open(id: string, inChat: boolean, profile?: string | null) {
     if (deviceId && q) setRecent(addRecentSearch(deviceId, q));
-    onOpen(id, inChat ? q : null);
+    onOpen(id, inChat ? q : null, profile);
   }
 
   if (!q) {
@@ -163,14 +177,14 @@ export function SearchView({
       {titleHits.map((s) => (
         <SessionRow
           showTime
-          key={`t-${s.id}`}
+          key={JSON.stringify([explicitProfile(s), s.id])}
           session={s}
           now={now}
           pinned={app.isPinned(s)}
           archived={s.archived}
           defaultProject={defaultProject}
           query={q}
-          onOpen={() => open(s.id, false)}
+          onOpen={() => open(s.id, false, explicitProfile(s))}
         />
       ))}
       <div class="search-section-head">
@@ -186,9 +200,11 @@ export function SearchView({
             const id = hit.session_id ?? hit.id ?? "";
             if (!id) return null;
             const project = projectLabelOf(hit, defaultProject);
-            const row = app.sessions.find((s) => s.id === id);
+            if (!hit.profile || prefs.hidden(hit.profile)) return null;
+            const matches = app.sessions.filter(s => s.id === id && explicitProfile(s) === hit.profile);
+            const row = matches.length === 1 ? matches[0] : undefined;
             return (
-              <button type="button" class="session-row with-divider hit-row" key={`${id}-${i}`} onClick={() => open(id, true)}>
+              <button type="button" class="session-row with-divider hit-row" key={`${id}-${i}`} onClick={() => open(id, true, hit.profile)}>
                 <span class="row-main">
                   <span class="row-title">
                     {hit.title || row?.title || t("未命名会话", "Untitled")}

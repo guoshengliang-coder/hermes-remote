@@ -125,6 +125,17 @@ describe("loadSessions", () => {
     expect(await retry).toEqual([{ id: "new" }]);
     expect(signals).toHaveLength(2);
   });
+  it("pages past pinned spillover and keeps duplicate ids from separate profiles", async () => {
+    const first = Array.from({ length: 500 }, (_, i) => ({ id: String(i), profile: "default" }));
+    const pinned = { id: "0", profile: "work", pinned: true };
+    const calls: string[] = [];
+    const client = { deviceApi: async (_device: string, _method: string, path: string) => {
+      calls.push(path);
+      return { total: 501, sessions: path.includes("offset=500") ? [pinned] : [...first, pinned] };
+    } } as unknown as Parameters<typeof loadSessions>[0];
+    expect(await loadSessions(client, "mac")).toEqual([...first, pinned]);
+    expect(calls).toHaveLength(2);
+  });
   it("asks the cross-profile list for 500 rows and falls back to the default profile's list at limit=100", async () => {
     const calls: string[] = [];
     const client = {
@@ -137,4 +148,19 @@ describe("loadSessions", () => {
     expect(await loadSessions(client, "mac")).toEqual([{ id: "s1" }]);
     expect(calls).toEqual(["profiles/sessions?limit=500&order=recent", "sessions?limit=100&offset=0&order=recent"]);
   });
+});
+
+it("keeps same-id archived conversations from separate profiles across pages without a total", async () => {
+  const { loadProfileSessionPages } = await import("./profileSessionPages");
+  const paths: string[] = [];
+  const first = Array.from({ length: 500 }, (_, i) => ({ id: String(i), profile: "default" }));
+  const client = { deviceApi: async (_device: string, _method: string, path: string) => {
+    paths.push(path);
+    return { sessions: path.includes("offset=500") ? [first[0], { id: "0", profile: "work" }] : first };
+  } } as unknown as Parameters<typeof loadProfileSessionPages>[0];
+  const rows = await loadProfileSessionPages(client, "mac", new AbortController().signal, true);
+  expect(rows).toHaveLength(501);
+  expect(rows.at(-1)).toEqual({ id: "0", profile: "work" });
+  expect(paths).toHaveLength(2);
+  expect(paths.every(path => path.includes("archived=only"))).toBe(true);
 });

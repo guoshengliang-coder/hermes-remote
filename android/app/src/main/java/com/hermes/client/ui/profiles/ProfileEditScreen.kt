@@ -101,8 +101,13 @@ class ProfileEditViewModel @Inject constructor(
     private val importer: AvatarPhotoImporter,
     /** File deletes run here (any off-main dispatcher will do; tests inject theirs). */
     @com.hermes.client.di.DefaultDispatcher private val io: CoroutineDispatcher,
+    accountSessions: com.hermes.client.data.auth.AccountSessionManager? = null,
 ) : ViewModel() {
     val profile: String = savedState.get<String>("profile").orEmpty()
+
+    private val storageKey = if (accountSessions == null) profile else accountSessions.routingContext()?.let {
+        ProfileIdentityStore.scopePrefix(it.accountId, it.deviceId) + profile
+    }
 
     data class Draft(
         val displayName: String = "",
@@ -148,7 +153,7 @@ class ProfileEditViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            val saved = store.get(profile)
+            val saved = storageKey?.let { store.get(it) } ?: return@launch
             _state.update { it.copy(saved = saved, draft = Draft.of(saved), loaded = true) }
         }
     }
@@ -188,7 +193,7 @@ class ProfileEditViewModel @Inject constructor(
         _state.update { it.copy(saving = true) }
         viewModelScope.launch {
             val next = s.preview
-            val result = runCatching { store.save(profile, next) }
+            val result = runCatching { store.save(requireNotNull(storageKey), next) }
             result.onSuccess {
                 val keep = next.avatarFile
                 val stale = (pending + listOfNotNull(s.saved.avatarFile)).filter { it != keep }

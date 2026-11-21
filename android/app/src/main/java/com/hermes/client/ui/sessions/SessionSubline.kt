@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Text
@@ -65,7 +66,8 @@ fun SessionSubline(
     } else {
         raw
     }
-    if (parts.isEmpty && !pinned && !hasDraft) return
+    val owner = session.profile?.takeUnless { isBot }
+    if (parts.isEmpty && !pinned && !hasDraft && owner == null) return
     // One step lighter than ListItem's onSurfaceVariant, matching the design's "muted" tier
     // (decision 2026-09-10). The glyph goes a further step down to the design's faint tier
     // (SublineFaint) — 2.39:1 on paper, adopted 2026-09-11 when the contrast floors were dropped
@@ -74,7 +76,16 @@ fun SessionSubline(
         androidx.compose.material3.LocalContentColor provides MaterialTheme.colorScheme.outline,
     ) {
         androidx.compose.material3.ProvideTextStyle(com.hermes.client.ui.tuning.tunedSubline()) { // TUNING-TEMP
-            SublineContent(parts, lead, pinned, hasDraft, modifier)
+            Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+                if (owner != null) {
+                    com.hermes.client.ui.components.ProfileAvatar(owner, size = 16.dp)
+                    Spacer(Modifier.width(4.dp))
+                    Text(com.hermes.client.ui.components.LocalProfileIdentities.current[owner]?.displayName ?: owner, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 96.dp))
+                    Spacer(Modifier.width(6.dp))
+                }
+                SublineContent(parts, lead, pinned, hasDraft, Modifier.weight(1f, fill = false))
+            }
         }
     }
 }

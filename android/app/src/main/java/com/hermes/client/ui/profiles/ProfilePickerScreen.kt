@@ -118,23 +118,15 @@ fun ProfilePickerScreen(
     val language = LocalAppLanguage.current
     val context = LocalContext.current
     val profiles by vm.profiles.collectAsStateWithLifecycle()
-    val active by vm.active.collectAsStateWithLifecycle()
     val activity by vm.activity.collectAsStateWithLifecycle()
-    val switching by vm.switching.collectAsStateWithLifecycle()
-    val switchFailed by vm.switchFailed.collectAsStateWithLifecycle()
+    val hidden = com.hermes.client.ui.components.LocalHiddenProfiles.current
+    val setHidden = com.hermes.client.ui.components.LocalSetProfileHidden.current
     val identities = LocalProfileIdentities.current
-
-    LaunchedEffect(switchFailed) {
-        switchFailed?.let {
-            Toast.makeText(context, localized(language, "切换身份失败，仍在当前身份", "Couldn't switch profile — staying on the current one"), Toast.LENGTH_SHORT).show()
-            vm.clearSwitchFailed()
-        }
-    }
 
     Scaffold(
         topBar = {
             HermesTopBar(
-                title = localized(language, "身份", "Profiles"),
+                title = localized(language, "Profile 显示设置", "Profile visibility"),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = localized(language, "返回", "Back"))
@@ -145,47 +137,30 @@ fun ProfilePickerScreen(
     ) { padding ->
         LazyColumn(Modifier.padding(padding).fillMaxSize()) {
             items(profiles, key = { it.name }) { p ->
-                val isActive = p.name == active
-                val identity = identities[p.name]
-                val a = activity[p.name]
+                val name = if (p.isDefault) "default" else p.name
+                val identity = identities[name]
+                val a = activity[name]
                 val status = when {
-                    isActive -> localized(language, "当前身份", "Active profile")
+                    name in hidden -> localized(language, "已隐藏", "Hidden")
                     a != null && a.waiting > 0 -> localized(language, "${a.waiting} 待处理", "${a.waiting} waiting")
                     a != null && a.running > 0 -> localized(language, "${a.running} 个进行中", "${a.running} running")
                     else -> null
                 }
                 // Subline: the profile name only when a custom display name has taken the
                 // headline, then the status — joined with a middle dot.
-                val sub = listOfNotNull(p.name.takeIf { identity.hasCustomName() }, status)
+                val sub = listOfNotNull(name.takeIf { identity.hasCustomName() }, status)
                     .takeIf { it.isNotEmpty() }?.joinToString(" · ")
                 ListItem(
-                    leadingContent = { ProfileAvatar(p.name, size = 44.dp, identity = identity) },
-                    headlineContent = { Text(displayNameFor(p.name, identity)) },
+                    leadingContent = { ProfileAvatar(name, size = 44.dp, identity = identity) },
+                    headlineContent = { Text(displayNameFor(name, identity)) },
                     supportingContent = sub?.let { { Text(it) } },
                     trailingContent = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            when {
-                                switching == p.name -> com.hermes.client.ui.components.LoadingDots(size = 20.dp)
-                                isActive -> Icon(
-                                    Icons.Rounded.CheckCircle,
-                                    contentDescription = localized(language, "当前身份", "Active"),
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                            IconButton(onClick = { onEdit(p.name) }) {
-                                Icon(
-                                    PencilStrokeIcon,
-                                    contentDescription = localized(language, "身份设置", "Profile settings"),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(22.dp),
-                                )
-                            }
-                        }
+                        androidx.compose.material3.Switch(
+                            checked = name !in hidden,
+                            onCheckedChange = { visible -> setHidden(name, !visible) },
+                        )
                     },
-                    modifier = Modifier.clickable(enabled = switching == null) {
-                        if (isActive) onBack()
-                        else vm.switchProfile(p.name) { ok -> if (ok) onBack() }
-                    },
+                    modifier = Modifier.clickable { onEdit(name) },
                 )
                 HorizontalDivider()
             }

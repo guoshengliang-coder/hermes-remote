@@ -223,6 +223,31 @@ describe("ChatSession", () => {
     session.dispose();
   });
 
+  it.each([undefined, "other"])("does not submit to an unconfirmed profile (%s)", async reported => {
+    let ws!: FakeWebSocket;
+    const actions: ChatAction[] = [];
+    const session = new ChatSession({
+      client: {settled: async () => undefined} as GatewayClient, deviceId: "mac", storedSessionId: null, profile: "work",
+      dispatch: action => actions.push(action),
+      socketFactory: url => new HermesSocket({url, factory: () => (ws = new FakeWebSocket())}),
+    });
+    session.start();
+    await tick();
+    ws.receive({jsonrpc: "2.0", method: "event", params: {type: "gateway.ready", payload: {}}});
+    ws.receive({jsonrpc: "2.0", id: ws.last("client.capabilities")!.id, result: {server_requests: []}});
+    await tick();
+    const sent = session.send("key", "private message", []);
+    await tick();
+    ws.receive({jsonrpc: "2.0", id: ws.last("session.create")!.id, result: {
+      session_id: "live", stored_session_id: "stored", info: {profile_name: reported},
+    }});
+    expect(await sent).toBe(false);
+    expect(ws.last("prompt.submit")).toBeUndefined();
+    expect(actions).toContainEqual(expect.objectContaining({type: "notice", terminal: true,
+      error: expect.objectContaining({code: "HR-SESS-029", retryable: false})}));
+    session.dispose();
+  });
+
   describe("new chat folder (project filter)", () => {
     async function createParams(cwd: string | null | undefined) {
       let ws!: FakeWebSocket;

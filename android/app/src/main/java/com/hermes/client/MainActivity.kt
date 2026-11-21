@@ -119,10 +119,17 @@ class MainActivity : ComponentActivity() {
                     controller.isAppearanceLightNavigationBars = !dark
                 }
             }
-            val identities by profileIdentityStore.identities.collectAsState(initial = emptyMap())
+            val allIdentities by profileIdentityStore.identities.collectAsState(initial = emptyMap())
             val startupState by startupViewModel.state.collectAsState()
             val repairCompletion by startupViewModel.repairCompletion.collectAsState()
             val accountSession by accountSessions.session.collectAsState()
+            val prefix = accountSession?.let { session ->
+                session.selectedDeviceId?.let { mac -> com.hermes.client.data.repository.ProfileIdentityStore.scopePrefix(session.accountId, mac) }
+            }
+            val storedHiddenKeys by profileIdentityStore.hiddenKeys.collectAsState(initial = null)
+            val hiddenKeys = storedHiddenKeys ?: return@setContent
+            val identities = if (prefix == null) emptyMap() else allIdentities.filterKeys { it.startsWith(prefix) }.mapKeys { it.key.removePrefix(prefix) }
+            val hidden = if (prefix == null) emptySet() else hiddenKeys.filter { it.startsWith(prefix) }.map { it.removePrefix(prefix) }.toSet()
             // Provided here rather than per screen: assistant Markdown is rendered by the chat,
             // by the bot transcript and by the share/export paths, and an icon that appears in a
             // table cell in one of them has to appear in all of them.
@@ -134,6 +141,16 @@ class MainActivity : ComponentActivity() {
             }
             CompositionLocalProvider(
                 LocalAppLanguage provides language,
+                com.hermes.client.ui.components.LocalHiddenProfiles provides hidden,
+                com.hermes.client.ui.components.LocalDeviceProfileHidden provides { device, name ->
+                    val owner = accountSession
+                    val mac = device ?: owner?.selectedDeviceId
+                    owner != null && mac != null &&
+                        (com.hermes.client.data.repository.ProfileIdentityStore.scopePrefix(owner.accountId, mac) + name) in hiddenKeys
+                },
+                com.hermes.client.ui.components.LocalSetProfileHidden provides { name, value ->
+                    if (prefix != null) lifecycleScope.launch { profileIdentityStore.setHidden(prefix + name, value) }
+                },
                 com.hermes.client.ui.components.LocalProfileIdentities provides identities,
                 com.hermes.client.ui.components.LocalAvatarDir provides profileIdentityStore.avatarDir,
                 com.hermes.client.ui.chat.LocalMarkdownImageLoader provides markdownImages,

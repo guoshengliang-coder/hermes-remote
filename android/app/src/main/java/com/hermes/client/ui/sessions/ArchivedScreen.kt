@@ -56,7 +56,9 @@ fun ArchivedScreen(
     val language = LocalAppLanguage.current
     val archivedState by vm.archivedState.collectAsStateWithLifecycle()
     val defaultProjectPath by vm.defaultProjectPath.collectAsStateWithLifecycle()
-    val openSession = rememberSessionOpener(vm, onOpen)
+    val hidden = com.hermes.client.ui.components.LocalHiddenProfiles.current
+    val visible = archivedState.sessions.filterNot { (it.profile ?: "default") in hidden }
+    val openSession = { session: Session -> onOpen(ChatLaunch.existing(session)) }
     val context = LocalContext.current
 
     LaunchedEffect(Unit) { vm.loadArchived() }
@@ -97,20 +99,20 @@ fun ArchivedScreen(
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             when {
-                archivedState.loading && archivedState.sessions.isEmpty() ->
+                archivedState.loading && visible.isEmpty() ->
                     com.hermes.client.ui.components.ListLoadingState()
                 archivedState.error != null ->
                     com.hermes.client.ui.components.ErrorState(
                         error = archivedState.error!!,
                         onRetry = { vm.loadArchived() },
                     )
-                archivedState.sessions.isEmpty() ->
+                visible.isEmpty() ->
                     com.hermes.client.ui.components.EmptyState(
                         title = localized(language, "暂无归档会话", "Nothing archived"),
                         subtitle = localized(language, "长按会话可将它归档。", "Long-press a session to archive it."),
                     )
                 else -> LazyColumn {
-                    items(archivedState.sessions, key = { "a-${it.profile.orEmpty()}:${it.id}" }) { s ->
+                    items(visible, key = { "a-${it.profile.orEmpty()}:${it.id}" }) { s ->
                         ArchivedRow(
                             session = s,
                             defaultProjectPath = defaultProjectPath,

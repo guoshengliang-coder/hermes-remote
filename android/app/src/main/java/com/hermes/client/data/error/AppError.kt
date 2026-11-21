@@ -133,6 +133,7 @@ enum class AppErrorCode(val value: String) {
     SESSION_ARCHIVE_UNCONFIRMED("HR-SESS-025"),
     SESSION_MUTATION_UNCONFIRMED("HR-SESS-027"),
     SESSION_MUTATION_REFUSED("HR-SESS-028"),
+    SESSION_PROFILE_UNCONFIRMED("HR-SESS-029"),
     SESSION_ARCHIVE_REFUSED("HR-SESS-026"),
     ARCHIVE_INCOMPATIBLE("HR-COMPAT-004"),
     // Fetching ANOTHER conversation's transcript failed while turning it into a Markdown

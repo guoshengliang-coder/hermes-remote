@@ -41,7 +41,7 @@ vi.mock("../chat/session", () => ({ ChatSession: class {
 } }));
 let host: HTMLElement;
 const app = { t: (zh: string) => zh, language: "zh", account: { id: "account" }, device: { deviceId: "mac" }, client: {}, features: new Set(),
-  sessions: [{ id: "a", title: "A" }, { id: "b", title: "B" }], inbox: initialInbox, markSeen: () => {}, reportLiveQuestion: () => {},
+  sessions: [{ id: "a", title: "A", profile: "default" }, { id: "b", title: "B", profile: "default" }], inbox: initialInbox, markSeen: () => {}, reportLiveQuestion: () => {},
   isPinned: () => false, chatSearchSeed: null, setChatSearchSeed: () => {} } as unknown as AppContextValue;
 let width: number;
 const startupReport = vi.fn();

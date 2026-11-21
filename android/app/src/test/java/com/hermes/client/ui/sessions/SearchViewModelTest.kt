@@ -65,10 +65,10 @@ class SearchViewModelTest {
 
     // Scope rule: title matches cover the ACTIVE profile only — live AND archived — and the same
     // rule (title OR project label) applies to both lists.
-    @Test fun title_matches_scope_to_active_profile_include_archived_and_match_project_label() = runTest {
+    @Test fun title_matches_across_profiles_include_archived_and_match_project_label() = runTest {
         coEvery { sessionRepo.listAllProfiles() } returns listOf(
             session("a", "Fix APK signing"),
-            session("b", "Fix roof", profile = "work"),
+            session("b", "Fix signing", profile = "work"),
             session("d", "Untitled", cwd = "/Users/me/signing-tools"),
         )
         coEvery { sessionRepo.archivedAllProfiles() } returns listOf(
@@ -79,7 +79,7 @@ class SearchViewModelTest {
         advanceUntilIdle()
         vm.onQueryChange("signing")
         val m = vm.state.value.titleMatches
-        assertEquals(listOf("a", "d", "c", "e"), m.map { it.session.id })
+        assertEquals(listOf("a", "b", "d", "c", "e"), m.map { it.session.id })
         assertTrue(m.first { it.session.id == "c" }.archived)
     }
 

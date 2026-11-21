@@ -1,3 +1,4 @@
+import { inboxKey } from "../app/inbox";
 import { Fragment } from "preact";
 import { useStartupPage } from "../startup/readiness";
 import { BackClose } from "../app/useBackClose";
@@ -24,7 +25,7 @@ import { formatTimeSeparator, greetingForHour, showsTimeSeparator } from "../cha
 import { appError } from "../errors";
 import type { AnswerPlan } from "../hermes/requests";
 import { Composer } from "./Composer";
-import { AccountAvatar } from "./AccountAvatar";
+import { useProfileNames, useProfilePreferences } from "../app/profilePreferences";
 import { ErrorNotice } from "./ErrorNotice";
 import { Sheet, SheetAction } from "./Sheet";
 import { SessionActionSheet } from "./SessionActions";
@@ -96,15 +97,21 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
   const app = useApp();
   const { t, language, device, client } = app;
   const workspace = useWorkspace();
-  // HG-183: the new-session greeting names the signed-in Web account (Android uses the profile
-  // identity name; Web has no profile switching, so it reads its own account).
-  const accountName = app.account?.displayName?.trim() || app.account?.email?.trim() || null;
+  const preferences = useProfilePreferences();
+  const profileNames = useProfileNames();
+  const [selected, setSelected] = useState("default");
+  useLayoutEffect(() => {
+    if (sessionId === null) setSelected("default");
+  }, [sessionId, device?.deviceId]);
+  const choices = profileNames.filter(name => !preferences.hidden(name));
+  const newProfile = choices.includes(selected) ? selected : null;
+  const accountName = newProfile ? preferences.label(newProfile) : null;
   const [state, dispatch] = useReducer(reduceChat, initialChatState);
   const stateRef = useRef(state);
   stateRef.current = state;
   const anchor = useRef<ScrollAnchor | null>(null);
   const page = useRef<HTMLDivElement>(null);
-  useStartupPage(sessionId === null ? "new" : "chat", state.historyLoaded && (sessionId !== null || state.connection === "ready"), state.notice, page);
+  useStartupPage(sessionId === null ? "new" : "chat", sessionId === null || state.historyLoaded, state.notice, page);
   const sessionRef = useRef<ChatSession | null>(null);
   const [storedId, setStoredId] = useState<string | null>(sessionId);
   const scroller = useRef<HTMLDivElement>(null);
@@ -144,7 +151,13 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
   const [processesOpen, setProcessesOpen] = useState(false);
   const [ownedElsewhere, setOwnedElsewhere] = useState(false);
 
-  const profile = profileHint !== undefined ? profileHint : explicitProfile(app.sessions.find(row => row.id === sessionId));
+  const ownedRow = (id: string | null) => app.sessions.find(row =>
+    row.id === id && (profileHint == null || explicitProfile(row) === profileHint));
+  const profile = sessionId === null ? newProfile : profileHint ?? explicitProfile(ownedRow(sessionId));
+  const ambiguous = sessionId !== null && profileHint == null &&
+    (profile == null || app.sessions.filter(row => row.id === sessionId).length !== 1);
+  const inaccessible = ambiguous || (!!profile && preferences.hidden(profile));
+  const boundRoute = useRef<string | null>(null);
   const viewKey = conversationScope(app.account?.id, device?.deviceId ?? "", profile, sessionId);
   const restoring = useRef<ScrollAnchor | null>(null);
   const view = useRef<ChatView>({ anchor: null, following: true, searchOpen: false, query: "", focus: 0 });
@@ -204,8 +217,20 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
   // One ChatSession per conversation; adopting the id a new chat just got keeps the socket.
   useLayoutEffect(() => {
     if (!device || !listReady) return;
+    if (inaccessible) {
+      sessionRef.current?.dispose();
+      sessionRef.current = null;
+      navigate({name: "list"}, {replace: true});
+      return;
+    }
+    if (sessionId === null && !profile) {
+      sessionRef.current?.dispose();
+      sessionRef.current = null;
+      dispatch({ type: "reset" });
+      return;
+    }
     const current = sessionRef.current;
-    if (current && sessionId !== null && current.storedSessionId === sessionId) return;
+    if (current && sessionId !== null && current.storedSessionId === sessionId && boundRoute.current === profile) return;
     current?.dispose();
     dispatch({ type: "reset" });
     setChosenModel(null);
@@ -216,15 +241,15 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
       client,
       deviceId: device.deviceId,
       storedSessionId: sessionId,
-      cwd: sessionId === null ? newChatProject.current?.path : null,
-      profile: sessionId === null ? null : profileHint !== undefined ? profileHint : explicitProfile(app.sessions.find((s) => s.id === sessionId)),
+      cwd: sessionId === null && (!newChatProject.current?.profile || newChatProject.current.profile === profile) ? newChatProject.current?.path : null,
+      profile,
       dispatch: action => { if (sessionRef.current === session) dispatch(action); },
       onStored: (id) => {
         if (sessionRef.current !== session) return;
         for (const receipt of creatingVoiceReceipts.current.get(session) ?? []) receipt.onStored?.(id);
         creatingVoiceReceipts.current.delete(session);
         setStoredId(id);
-        navigate({ name: "chat", sessionId: id }, { replace: true });
+        navigate({ name: "chat", sessionId: id, profile: profile ?? undefined }, { replace: true });
       },
       onAuthLost: app.authLost,
       // A top-level create lands in Hermes' launch folder: that is the default project (Android
@@ -233,10 +258,11 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
         if (sessionRef.current === session && !requestedCwd) rememberDefaultProject(device.deviceId, cwd);
       },
     });
+    boundRoute.current = profile;
     sessionRef.current = session;
     setStoredId(sessionId);
     session.start();
-  }, [sessionId, device?.deviceId, listReady]);
+  }, [sessionId, device?.deviceId, listReady, profile, inaccessible]);
 
   useEffect(() => () => {
     sessionRef.current?.dispose();
@@ -244,24 +270,26 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
   }, []);
 
   useEffect(() => {
-    if (storedId) app.markSeen(storedId, profileHint !== undefined ? profileHint : explicitProfile(app.sessions.find((s)=>s.id === storedId)));
-  }, [storedId, app.inbox.unseen]);
+    if (storedId) app.markSeen(storedId, profile);
+  }, [storedId, profile, app.inbox.unseen]);
 
   // Opened straight from a URL (or a just-created chat): fetch the list once for the title.
   const titleFetched = useRef<string | null>(null);
   useEffect(() => {
-    if (!device || !storedId || titleFetched.current === storedId) return;
-    if (app.sessions.some((s) => s.id === storedId)) return;
-    titleFetched.current = storedId;
+    if (!device || !storedId || titleFetched.current === viewKey || ownedRow(storedId)) return;
+    let current = true;
+    titleFetched.current = viewKey;
     const timer = setTimeout(() => {
-      loadSessions(client, device.deviceId).then(app.setSessions, () => undefined);
+      loadSessions(client, device.deviceId).then(rows => {
+        if (current) app.setSessions(rows);
+      }, () => undefined);
     }, state.generating ? 4000 : 0);
-    return () => clearTimeout(timer);
-  }, [storedId, device?.deviceId]);
+    return () => { current = false; clearTimeout(timer); };
+  }, [storedId, viewKey]);
 
   // Re-entering from a running list row and later lifecycle changes both re-check Hermes.
   // Inbox timestamps can lag the live socket, so they must not directly set generating.
-  const lifecycle = storedId ? app.inbox.latest[storedId] : undefined;
+  const lifecycle = storedId ? app.inbox.latest[inboxKey(storedId, profile)] : undefined;
   useEffect(() => {
     if (lifecycle && sessionRef.current?.storedSessionId === storedId) {
       sessionRef.current.reconcileLifecycle(lifecycle);
@@ -274,12 +302,12 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
   const wasOpen = useRef(false);
   useEffect(() => {
     if (!storedId) return;
-    if (open) app.reportLiveQuestion(storedId, "open");
-    else if (wasOpen.current) app.reportLiveQuestion(storedId, "settled");
+    if (open) app.reportLiveQuestion(inboxKey(storedId, profile), "open");
+    else if (wasOpen.current) app.reportLiveQuestion(inboxKey(storedId, profile), "settled");
     wasOpen.current = open;
   }, [storedId, open]);
   useEffect(() => () => {
-    if (storedId) app.reportLiveQuestion(storedId, "left");
+    if (storedId) app.reportLiveQuestion(inboxKey(storedId, profile), "left");
     wasOpen.current = false;
   }, [storedId]);
 
@@ -461,10 +489,11 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
 
   const voiceDeliveries = useRef(new Map<string, VoiceDeliveryReceipt>());
   function send(text: string, attachments: PendingAttachment[], confirmed = false, onDelivered?: VoiceDeliveryReceipt) {
+    if (inaccessible || (sessionId === null && !newProfile)) return;
     const session = sessionRef.current;
     if (!session) return;
     // First message into a bot conversation: say once, per channel, that it stays in Hermes (§5.16).
-    const bot = storedId ? app.sessions.find((s) => s.id === storedId) : undefined;
+    const bot = storedId ? ownedRow(storedId) : undefined;
     if (!confirmed && bot && isBotSession(bot) && !botNoticeSeen(bot.source!)) {
       setBotNotice({ text, attachments, onDelivered });
       return;
@@ -583,8 +612,8 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
     };
   }, [storedId, state.connection === "ready", app.features]);
 
-  const row = storedId ? app.sessions.find((s) => s.id === storedId) : undefined;
-  const title = row?.title || (storedId && app.inbox.latest[storedId]?.title) || (storedId ? t("会话", "Conversation") : t("新会话", "New chat"));
+  const row = storedId ? ownedRow(storedId) : undefined;
+  const title = row?.title || (storedId && app.inbox.latest[inboxKey(storedId, profile)]?.title) || (storedId ? t("会话", "Conversation") : t("新会话", "New chat"));
   const listRow = storedId ? (row ?? { id: storedId }) : null;
   const pinned = listRow ? app.isPinned(listRow) : false;
   const emptyNew = sessionId === null && state.items.length === 0;
@@ -628,10 +657,20 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
     ...(item.key === lastAssistantKey && !state.generating && !state.terminal ? { onRegenerate: regenerate } : {}),
   });
 
+  const [showOwner, setShowOwner] = useState(false);
+  useEffect(() => setShowOwner(false), [viewKey]);
+  const hasWorkspaceLine = !connectionLine && (workspaceLabel !== null || workspaceIsDefault);
+  const ownerBadge = !emptyNew && !botRow && profile && (
+    <button type="button" class="conversation-owner" aria-label={preferences.display(profile, choices)}
+      aria-expanded={showOwner} onClick={() => setShowOwner(value => !value)}>
+      <span class="profile-initial">{Array.from(preferences.label(profile))[0]}</span>
+      {showOwner && <span class="owner-caption">{preferences.display(profile, choices)}</span>}
+    </button>
+  );
   let previousMs: number | null = null;
 
   return (
-    <div class="page chat-page" ref={page}>
+    <div class="page chat-page" ref={page} hidden={inaccessible}>
       <header class="topbar">
         {searchOpen ? <BackClose onClose={() => { setSearchOpen(false); setSearchQuery(""); }} /> : null}
         {searchOpen ? (
@@ -658,7 +697,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
               {workspace.eligible ? <ListIcon /> : <BackIcon />}
             </button>
             <div class="chat-title">
-              <h1 class={`topbar-title left${title.length > 24 ? " long" : ""}`}>{emptyNew ? t("新会话", "New chat") : title}</h1>
+              <div class="owner-title-line">{!hasWorkspaceLine && ownerBadge}<h1 class={`topbar-title left${title.length > 24 ? " long" : ""}`}>{emptyNew ? t("新会话", "New chat") : title}</h1></div>
               {connectionLine ? (
                 <span class="chat-status">{connectionLine}</span>
               ) : botRow ? (
@@ -666,13 +705,13 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
               ) : (workspaceLabel !== null || workspaceIsDefault) && !emptyNew ? (
                 // The subtitle is also the way to move the chat (DESIGN §5.4); WorkspaceSubtitle
                 // carries the default-project label and the live/branch layout.
-                <WorkspaceSubtitle
+                <div class="owner-title-line">{ownerBadge}<WorkspaceSubtitle
                   projectLabel={workspaceLabel}
                   branch={workspaceBranch ?? null}
                   canMove={canMove}
                   enabled={!state.generating}
                   onClick={() => setManage("move")}
-                />
+                /></div>
               ) : null}
             </div>
             {emptyNew ? (
@@ -778,7 +817,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
           </div>
         ) : null}
         <div class="messages-inner">
-          {!state.historyLoaded ? <div class="center-spinner"><span class="spinner" /></div> : null}
+          {!state.historyLoaded && !(emptyNew && !newProfile) ? <div class="center-spinner"><span class="spinner" /></div> : null}
           {state.older.loading ? (
             <div class="older-history" role="status">
               <span class="spinner tiny" aria-hidden="true" />
@@ -787,13 +826,20 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
           ) : state.older.error ? (
             <ErrorNotice error={state.older.error} language={language} onRetry={loadOlder} variant="inline" />
           ) : null}
-          {state.historyLoaded && state.items.length === 0 && !state.generating ? (
+          {(state.historyLoaded || (emptyNew && !newProfile)) && state.items.length === 0 && !state.generating ? (
             sessionId === null ? (
               <div class="greeting">
-                <span class="greeting-avatar"><AccountAvatar account={app.account} /></span>
+                <label class="greeting-avatar identity-picker">
+                  <span aria-hidden="true">{accountName?.slice(0, 1).toUpperCase() || "…"}</span>
+                  <select aria-label={t("选择会话身份", "Choose conversation profile")} value={newProfile ?? ""}
+                    disabled={storedId !== null || state.generating} onChange={event => setSelected(event.currentTarget.value)}>
+                    {!newProfile && <option value="">{t("选择身份", "Choose profile")}</option>}
+                    {choices.map(name => <option key={name} value={name}>{preferences.display(name, choices)}</option>)}
+                  </select>
+                </label>
                 <p class="greeting-title">{greetingForHour(new Date().getHours(), language, accountName)}</p>
                 <p class="greeting-sub">
-                  {state.connection === "ready" || state.connection === "connecting"
+                  {!newProfile ? (choices.length ? t("点头像选择身份", "Tap the avatar to select a profile") : t("请在设置中检查可见身份", "Check visible profiles in settings")) : state.connection === "ready" || state.connection === "connecting"
                     ? t("有什么要做的，直接说。", "Whatever you need — just say it.")
                     : t("连接恢复后就能开始。", "Ready as soon as we reconnect.")}
                 </p>
@@ -815,7 +861,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
               <Fragment key={item.key}>
                 {separator ? <div class="time-separator">{formatTimeSeparator(item.timestampMs!, language)}</div> : null}
                 <MessageView item={item} actions={actionsFor(item)} chartContext={storedId ? {
-                  scope: [location.origin, app.account?.id ?? "", device?.deviceId ?? "", profileHint ?? explicitProfile(app.sessions.find(s => s.id === storedId)) ?? "", storedId, item.key],
+                  scope: [location.origin, app.account?.id ?? "", device?.deviceId ?? "", profile ?? "", storedId, item.key],
                   prompt: state.items.slice(0, index).reverse().find(row => row.role === "user" && !row.note)?.text ?? "",
                   source: `${t("会话", "Session")} ${storedId} · ${t("消息", "message")} ${item.key} ${item.text.split(/\r?\n/).filter(line => /来源|数据源|source/i.test(line) && !line.trim().startsWith("|")).join(" ").slice(0, 500)}`,
                   prepare: text => setSeed({ text, nonce: Date.now(), append: true }),
@@ -877,7 +923,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
           t={t}
           language={language}
           generating={state.generating}
-          disabled={state.terminal || !device}
+          disabled={state.terminal || !device || inaccessible || (sessionId === null && !newProfile)}
           voiceReady={state.connection === "ready"}
           onSend={(text, files, onDelivered) => send(text, files, false, onDelivered)}
           onInterrupt={() => void sessionRef.current?.interrupt()}

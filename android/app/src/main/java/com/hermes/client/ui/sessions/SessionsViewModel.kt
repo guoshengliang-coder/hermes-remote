@@ -231,10 +231,8 @@ class SessionsViewModel @Inject constructor(
     fun loadArchived() = viewModelScope.launch {
         _archived.value = _archived.value.copy(loading = true, error = null)
         try {
-            val active = profileManager.active.value
             val all = sessions.archivedAllProfiles()
-            val list = if (active.isNullOrBlank()) all else all.filter { it.profile == active }
-            _archived.value = ArchivedUiState(sessions = list)
+            _archived.value = ArchivedUiState(sessions = all)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -526,12 +524,7 @@ class SessionsViewModel @Inject constructor(
             unauthorized = false,
         )
         try {
-            val active = profileManager.active.value
-            val all = sessions.listAllProfiles()
-            // A profile switch during the request queues another pass. Do not briefly publish the
-            // previous profile's list while that newer request is waiting.
-            if (active != profileManager.active.value) return
-            val list = if (active.isNullOrBlank()) all else all.filter { it.profile == active }
+            val list = sessions.listAllProfiles()
             _state.value = _state.value.copy(
                 sessions = list,
                 loading = false,
@@ -628,10 +621,8 @@ class SessionsViewModel @Inject constructor(
     suspend fun recoverArchivedForForeground(): Boolean {
         restoreSelectedRoute()
         return try {
-            val active = profileManager.active.value
             val all = sessions.archivedAllProfiles()
-            val scoped = if (active.isNullOrBlank()) all else all.filter { it.profile == active }
-            _archived.value = ArchivedUiState(sessions = scoped)
+            _archived.value = ArchivedUiState(sessions = all)
             true
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
@@ -682,17 +673,6 @@ class SessionsViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Make [session]'s profile the active one before the chat opens. The list spans all profiles,
-     * but resume/history/slash resolve against the gateway's active per-profile DB — so opening a
-     * session from another tenant must switch the active profile first (and await it), or the chat
-     * loads against the wrong profile. No-op when the session is already in the active profile.
-     */
-    suspend fun prepareOpen(session: Session): Boolean {
-        val target = session.profile ?: return true
-        return target == profileManager.active.value || profileManager.switchTo(target)
-    }
-
     /** Outcome of [createSession]: the durable id, and whether a requested project folder was refused. */
     data class CreateResult(
         val id: String,
@@ -707,17 +687,20 @@ class SessionsViewModel @Inject constructor(
      * opens but [CreateResult.fellBackToDefault] is set so the UI can say so (HR-SESS-006).
      * Throws on failure so the shared FAB can explain it instead of silently dismissing its spinner.
      */
-    suspend fun createSession(cwd: String? = null): CreateResult {
+    suspend fun createSession(cwd: String? = null, profile: String = "default"): CreateResult {
         restoreSelectedRoute()
-        val created = chat.createSession(profileManager.active.value, cwd)
+        val route = accountSessions?.routingContext()
+        val device = sessions.currentDeviceId()
+        val created = chat.createSession(profile, cwd)
+        if (accountSessions?.routingContext() != route) throw kotlinx.coroutines.CancellationException("Conversation route changed")
         if (cwd.isNullOrBlank()) {
             created.cwd?.let { projectPrefs.setDefaultProjectPath(it) }
-            sessions.bindConversation(profileManager.active.value, created.id)
-            return CreateResult(created.id, fellBackToDefault = false, deviceId = sessions.currentDeviceId())
+            sessions.bindConversation(profile, created.id, device)
+            return CreateResult(created.id, fellBackToDefault = false, deviceId = device)
         }
         val fellBack = created.cwd != null && !isDefaultProjectPath(created.cwd, cwd)
-        sessions.bindConversation(profileManager.active.value, created.id)
-        return CreateResult(created.id, fellBackToDefault = fellBack, deviceId = sessions.currentDeviceId())
+        sessions.bindConversation(profile, created.id, device)
+        return CreateResult(created.id, fellBackToDefault = fellBack, deviceId = device)
     }
 
     private fun restoreSelectedRoute() {

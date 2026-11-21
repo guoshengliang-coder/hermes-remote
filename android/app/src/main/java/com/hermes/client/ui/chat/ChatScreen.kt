@@ -1,5 +1,7 @@
 package com.hermes.client.ui.chat
 
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import android.Manifest
 import android.app.Activity
 import android.content.ClipData
@@ -137,13 +139,13 @@ fun ChatScreen(
      * The top bar's ＋. This one STACKS on the current chat (HG-39) — it is the only chat entry
      * point that does, see HermesNav.openStackedChat.
      */
-    onNewChat: (String) -> Unit = {},
+    onNewChat: (ChatLaunch) -> Unit = {},
     /**
      * Upstream replaced this conversation with a fresh id. This one must REPLACE the entry, not
      * stack: it is the same conversation under a new name, and stacking would leave the dead id
      * one back-press away — and pile up another layer every time it happens.
      */
-    onSessionRecreated: (String) -> Unit = onNewChat,
+    onSessionRecreated: (String) -> Unit = { id -> onNewChat(ChatLaunch.new(id, sessionProfile, sessionDeviceId)) },
     /** Prompt library, reached from the composer's 常用提示 sheet — Settings no longer lists it. */
     onManagePrompts: () -> Unit = {},
     /**
@@ -156,6 +158,29 @@ fun ChatScreen(
 ) {
     val language = LocalAppLanguage.current
     val context = androidx.compose.ui.platform.LocalContext.current
+    var resolvedOwner by remember(sessionId, sessionDeviceId, sessionProfile) { mutableStateOf(sessionProfile) }
+    val ownerProfile = resolvedOwner
+    if (ownerProfile == null) {
+        LaunchedEffect(sessionId, sessionDeviceId) {
+            resolvedOwner = try {
+                vm.resolveLegacyOwner(sessionId, sessionDeviceId)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+            if (resolvedOwner == null) {
+                val error = com.hermes.client.data.error.AppError(com.hermes.client.data.error.AppErrorCode.SESSION_PROFILE_UNCONFIRMED, false)
+                android.widget.Toast.makeText(context, error.localizedMessage(language), android.widget.Toast.LENGTH_LONG).show()
+                onMenu()
+            }
+        }
+        return
+    }
+    if (com.hermes.client.ui.components.LocalDeviceProfileHidden.current(sessionDeviceId, ownerProfile)) {
+        LaunchedEffect(sessionId, ownerProfile) { onMenu() }
+        return
+    }
     androidx.compose.runtime.DisposableEffect(sessionId) {
         val safeSession = sessionId.hashCode()
         com.hermes.client.data.diagnostics.CrashReporter.breadcrumb("chat", "mount chat#$safeSession")
@@ -163,10 +188,10 @@ fun ChatScreen(
             com.hermes.client.data.diagnostics.CrashReporter.breadcrumb("chat", "dispose chat#$safeSession")
         }
     }
-    LaunchedEffect(sessionId, sessionDeviceId, sessionProfile, initialTitle, isNewSession) {
+    LaunchedEffect(sessionId, sessionDeviceId, ownerProfile, initialTitle, isNewSession) {
         vm.open(
             sessionId,
-            sessionProfile,
+            ownerProfile,
             initialTitle,
             isNewSession,
             language,
@@ -568,23 +593,9 @@ fun ChatScreen(
 
     // The top bar's ＋. Creation is a gateway round trip, so the button holds a spinner and
     // refuses re-entry until it settles — double-tapping used to create two conversations.
-    val startNewChat: () -> Unit = {
-        if (!creatingNewChat) {
-            creatingNewChat = true
-            exportScope.launch {
-                try {
-                    vm.createNewSession()?.let(onNewChat)
-                        ?: android.widget.Toast.makeText(
-                            context,
-                            localized(language, "无法新建对话，请重试。", "Couldn't start a new conversation. Retry."),
-                            android.widget.Toast.LENGTH_SHORT,
-                        ).show()
-                } finally {
-                    creatingNewChat = false
-                }
-            }
-        }
-    }
+    var choosingNewProfile by remember { mutableStateOf(false) }
+    val startNewChat: () -> Unit = { if (!creatingNewChat) choosingNewProfile = true }
+
 
     fun showAttachmentError(message: String?) {
         android.widget.Toast.makeText(
@@ -742,14 +753,14 @@ fun ChatScreen(
         }
     }
 
-    val fileMetadata = remember(vm, vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)) { ChatFileMetadataState(vm::fileMetadata) }
+    val fileMetadata = remember(vm, vm.workspaceUiKey(sessionId, ownerProfile, sessionDeviceId)) { ChatFileMetadataState(vm::fileMetadata) }
     val fileTasks by vm.fileDownloads.collectAsStateWithLifecycle()
-    var fileOwner by remember(vm, vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)) { mutableStateOf<String?>(null) }
-    LaunchedEffect(vm, vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)) { fileOwner = vm.fileDownloadOwner() }
+    var fileOwner by remember(vm, vm.workspaceUiKey(sessionId, ownerProfile, sessionDeviceId)) { mutableStateOf<String?>(null) }
+    LaunchedEffect(vm, vm.workspaceUiKey(sessionId, ownerProfile, sessionDeviceId)) { fileOwner = vm.fileDownloadOwner() }
     val scopedFileTasks = fileTasks.filter { it.owner == fileOwner &&
         (it.status != com.hermes.client.data.downloads.ArtifactDownloadStatus.COMPLETE || vm.completedDownload(it) != null) }
     val fileLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    var oversizedFile by remember(vm, vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)) { mutableStateOf<com.hermes.client.domain.ChatFile?>(null) }
+    var oversizedFile by remember(vm, vm.workspaceUiKey(sessionId, ownerProfile, sessionDeviceId)) { mutableStateOf<com.hermes.client.domain.ChatFile?>(null) }
     oversizedFile?.let { file ->
         AlertDialog(
             onDismissRequest = { oversizedFile = null },
@@ -761,9 +772,9 @@ fun ChatScreen(
         )
     }
 
-    var videoFile by rememberVideoFile(vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId))
+    var videoFile by rememberVideoFile(vm.workspaceUiKey(sessionId, ownerProfile, sessionDeviceId))
     videoFile?.let { file ->
-        val feedbackScope = vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)
+        val feedbackScope = vm.workspaceUiKey(sessionId, ownerProfile, sessionDeviceId)
         val completedTask = scopedFileTasks.firstOrNull { it.remotePath == file.remotePath && vm.completedDownload(it) != null }
         val complete = file.localPath?.let { java.io.File(it) }?.takeIf { it.isFile }
             ?: completedTask?.let(vm::completedDownload)
@@ -801,10 +812,10 @@ fun ChatScreen(
             localized(language, "正在准备文件…", "Preparing file…"),
             android.widget.Toast.LENGTH_SHORT,
         ).show()
-        val requestedWorkspace = vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)
+        val requestedWorkspace = vm.workspaceUiKey(sessionId, ownerProfile, sessionDeviceId)
         vm.fetchFile(file.copy(sizeBytes = info.sizeBytes, localPath = saved?.path ?: file.localPath)) fileResult@ { result ->
             if (!fileLifecycle.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) ||
-                requestedWorkspace != vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)) return@fileResult
+                requestedWorkspace != vm.workspaceUiKey(sessionId, ownerProfile, sessionDeviceId)) return@fileResult
             result.onSuccess { local ->
                 val contentUri = attachmentFileUri(context, local, file.name)
                 val intent = if (share) {
@@ -1257,7 +1268,7 @@ fun ChatScreen(
     val previewScope = androidx.compose.runtime.rememberCoroutineScope()
     val latestHandleFile by androidx.compose.runtime.rememberUpdatedState<(com.hermes.client.domain.ChatFile, Boolean) -> Unit>(::handleFile)
     val previewUriHandler by androidx.compose.runtime.rememberUpdatedState(com.hermes.client.ui.components.rememberSafeUriHandler())
-    val previewHost = remember(vm, vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)) {
+    val previewHost = remember(vm, vm.workspaceUiKey(sessionId, ownerProfile, sessionDeviceId)) {
         InlinePreviewHost(
             scope = previewScope,
             fetch = vm::previewDocument,
@@ -1297,6 +1308,11 @@ fun ChatScreen(
                 onSearchAll = onSearchAll,
             ) else ChatTopBar(
                 title = sessionTitle,
+                titlePrefix = {
+                    if (botOrigin == null && (workspace == null || workspaceProjects.none { it.id != com.hermes.client.ui.sessions.DEFAULT_PROJECT_ID })) {
+                        ConversationProfileBadge(ownerProfile)
+                    }
+                },
                 // HG-37: an empty new session keeps only 返回 and the title block.
                 actionsVisible = chatTopBarActionsVisible(isNewSession, state.messages.size, state.isGenerating),
                 creatingNewChat = creatingNewChat,
@@ -1355,12 +1371,15 @@ fun ChatScreen(
                             overflow = TextOverflow.Ellipsis,
                         )
                     } else if (ws != null && workspaceProjects.any { it.id != com.hermes.client.ui.sessions.DEFAULT_PROJECT_ID }) {
-                        WorkspaceSubtitle(
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            ConversationProfileBadge(ownerProfile)
+                            WorkspaceSubtitle(
                             projectLabel = ws.projectLabel,
                             branch = ws.branch,
                             enabled = !state.isGenerating,
                             onClick = { projectSheetOpen = true },
-                        )
+                            )
+                        }
                     }
                 },
             )
@@ -1806,7 +1825,7 @@ fun ChatScreen(
                         scrollToBottomTick = sendToBottomTick,
                         openPromptListTick = promptListTick,
                         openArtifactsTick = artifactsTick,
-                        artifactScope = vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId),
+                        artifactScope = vm.workspaceUiKey(sessionId, ownerProfile, sessionDeviceId),
                         viewportController = viewportController,
                         isGenerating = state.isGenerating,
                         onEditResend = { editUnsent(it) },
@@ -1857,8 +1876,8 @@ fun ChatScreen(
                         val effortSuffix = com.hermes.client.ui.models.reasoningLabel(reasoningEffort)
                             ?.let { " · " + it.resolve(language) } ?: ""
                         NewChatGreeting(
-                            profile = sessionProfile,
-                            identityName = identities[sessionProfile]?.displayName,
+                            profile = ownerProfile,
+                            identityName = identities[ownerProfile]?.displayName,
                             modelLabel = modelChipLabel(currentModel, effortSuffix, isBot = false, language = language),
                             connection = connState,
                             imeVisible = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0,
@@ -2568,6 +2587,33 @@ fun ChatScreen(
         )
     }
 
+    if (choosingNewProfile) {
+        val choices by vm.profiles.collectAsStateWithLifecycle()
+        NewProfileChat(choices, {
+            choosingNewProfile = false
+            pendingShareFormat = null
+        }) { owner ->
+            choosingNewProfile = false
+            val format = pendingShareFormat
+            pendingShareFormat = null
+            if (!creatingNewChat) {
+                creatingNewChat = true
+                exportScope.launch {
+                    try {
+                        val target = ChatLaunch.new(vm.createNewSession(owner), owner, sessionDeviceId)
+                        if (format != null) deliverInto(target, format) else onNewChat(target)
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        val failure = com.hermes.client.data.error.newChatFailure(error, 0)
+                        android.widget.Toast.makeText(context, failure.localizedMessage(language), android.widget.Toast.LENGTH_LONG).show()
+                    } finally {
+                        creatingNewChat = false
+                    }
+                }
+            }
+        }
+    }
     if (sharePickerOpen) {
         com.hermes.client.ui.sessions.SessionPickerDialog(
             mode = com.hermes.client.ui.sessions.SessionPickerMode.Deliver,
@@ -2582,22 +2628,7 @@ fun ChatScreen(
             },
             onNewConversation = {
                 sharePickerOpen = false
-                val chosen = pendingShareFormat
-                pendingShareFormat = null
-                if (chosen != null) {
-                    exportScope.launch {
-                        val created = vm.createNewSession()
-                        if (created == null) {
-                            android.widget.Toast.makeText(
-                                context,
-                                localized(language, "无法新建对话，请重试。", "Couldn't start a new conversation. Retry."),
-                                android.widget.Toast.LENGTH_SHORT,
-                            ).show()
-                        } else {
-                            deliverInto(ChatLaunch.new(created), chosen)
-                        }
-                    }
-                }
+                if (pendingShareFormat != null) choosingNewProfile = true
             },
         )
     }
@@ -2698,7 +2729,7 @@ fun ChatScreen(
         val currentId = com.hermes.client.ui.sessions.projectOf(
             com.hermes.client.domain.Session(
                 id = sessionId, title = "", model = null, provider = null, messageCount = 0, // l10n-allow: lookup stub, never rendered
-                profile = sessionProfile, cwd = ws?.cwd, gitRepoRoot = ws?.gitRepoRoot,
+                profile = ownerProfile, cwd = ws?.cwd, gitRepoRoot = ws?.gitRepoRoot,
             ),
             workspaceProjects,
         )?.id
@@ -3046,5 +3077,16 @@ private fun ConnectionRecoveryBanner(message: String) {
             color = MaterialTheme.colorScheme.onSecondaryContainer,
             style = MaterialTheme.typography.bodySmall,
         )
+    }
+}
+
+@Composable
+private fun ConversationProfileBadge(profile: String) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val name = com.hermes.client.ui.components.LocalProfileIdentities.current[profile]?.displayName ?: profile
+    androidx.compose.material3.IconButton(onClick = {
+        android.widget.Toast.makeText(context, name, android.widget.Toast.LENGTH_SHORT).show()
+    }, modifier = Modifier.size(32.dp).semantics { contentDescription = name }) {
+        com.hermes.client.ui.components.ProfileAvatar(profile, size = 20.dp)
     }
 }

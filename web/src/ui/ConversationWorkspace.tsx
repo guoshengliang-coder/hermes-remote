@@ -52,7 +52,7 @@ export function ConversationWorkspace({ route, children }: { route: Route; child
     if (el.hasPointerCapture?.(id)) el.releasePointerCapture(id);
   };
   return <WorkspaceContext.Provider value={{ mode, setMode, eligible, split, width: geometry.width,
-    listWidth: budget.list, selectedId: route.name === "chat" ? route.sessionId : null, listVisible: showList,
+    listWidth: budget.list, selectedProfile: route.name === "chat" ? route.profile : undefined, selectedId: route.name === "chat" ? route.sessionId : null, listVisible: showList,
     toggleList: () => setCollapsed(value => !value), resetWidth }}>
     <div class="conversation-workspace" data-split={String(split)} ref={root} style={{ "--session-pane-width": `${budget.list}px` }}>
       <section class="workspace-list" id="conversation-list-pane" hidden={!showList} inert={!showList} aria-label={t("会话列表", "Conversations")}>

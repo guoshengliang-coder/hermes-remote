@@ -3,7 +3,12 @@ import type { StoredLifecycleEvent } from "../hermes/types";
 // Relay inbox (lifecycle events) → "needs you" and foreground notices. Pure state + reducer; the
 // polling loop lives in the app store.
 
+export function inboxKey(id: string, profile?: string | null): string {
+  return profile ? JSON.stringify([profile, id]) : id;
+}
+
 export interface SessionLifecycle {
+  profile?: string | null;
   storedSessionId: string;
   event: string;
   title: string | null;
@@ -47,22 +52,24 @@ export function reduceInbox(state: InboxState, action: InboxAction): InboxState 
       for (const stored of action.events) {
         const e = stored.event;
         if (!e || e.deviceId !== action.deviceId || !e.storedSessionId) continue;
-        const prev = latest[e.storedSessionId];
+        const key = inboxKey(e.storedSessionId, e.profile);
+        const prev = latest[key];
         if (prev && prev.sequence >= stored.sequence) continue;
         const occurred = Date.parse(e.occurredAt);
         const entry: SessionLifecycle = {
           storedSessionId: e.storedSessionId,
+          profile: e.profile,
           event: e.event,
           title: e.title ?? prev?.title ?? null,
           sequence: stored.sequence,
           occurredAtMs: Number.isNaN(occurred) ? 0 : occurred,
         };
-        latest = { ...latest, [e.storedSessionId]: entry };
-        if (state.primed && NOTIFYING.has(e.event) && e.storedSessionId !== action.currentSessionId) {
-          unseen = { ...unseen, [e.storedSessionId]: entry };
-        } else if (e.storedSessionId in unseen && !NOTIFYING.has(e.event)) {
+        latest = { ...latest, [key]: entry };
+        if (state.primed && NOTIFYING.has(e.event) && key !== action.currentSessionId) {
+          unseen = { ...unseen, [key]: entry };
+        } else if (key in unseen && !NOTIFYING.has(e.event)) {
           unseen = { ...unseen };
-          delete unseen[e.storedSessionId];
+          delete unseen[key];
         }
       }
       return { ...state, latest, unseen, cursor: Math.max(state.cursor, action.nextCursor) };
@@ -73,7 +80,7 @@ export function reduceInbox(state: InboxState, action: InboxAction): InboxState 
 /** Sessions whose latest lifecycle event says the run is waiting on the user. */
 export function needsYouFromInbox(state: InboxState): Set<string> {
   const out = new Set<string>();
-  for (const entry of Object.values(state.latest)) if (entry.event === "run.waiting") out.add(entry.storedSessionId);
+  for (const entry of Object.values(state.latest)) if (entry.event === "run.waiting") out.add(inboxKey(entry.storedSessionId, entry.profile));
   return out;
 }
 
@@ -100,8 +107,8 @@ export function deriveNeedsYou(
   const out = new Set<string>();
   for (const entry of Object.values(inbox.latest)) {
     if (entry.event !== "run.waiting") continue;
-    if ((liveSettled.get(entry.storedSessionId) ?? -Infinity) >= entry.sequence) continue;
-    out.add(entry.storedSessionId);
+    if ((liveSettled.get(inboxKey(entry.storedSessionId, entry.profile)) ?? -Infinity) >= entry.sequence) continue;
+    out.add(inboxKey(entry.storedSessionId, entry.profile));
   }
   for (const id of liveOpen) out.add(id);
   return out;

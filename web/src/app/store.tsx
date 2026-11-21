@@ -16,6 +16,7 @@ export const DEVICE_STORAGE_KEY = "hermes-go.deviceId";
 
 /** The list narrowed to one derived project (app/projects.ts); `path: null` = sessions without a folder. */
 export interface ProjectFilter {
+  profile?: string;
   path: string | null;
   label: string;
 }

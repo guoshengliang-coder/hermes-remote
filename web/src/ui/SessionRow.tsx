@@ -1,3 +1,5 @@
+import { useProfilePreferences } from "../app/profilePreferences";
+import { explicitProfile } from "../app/profile";
 import { lastActiveMs, relativeTime } from "../app/grouping";
 import { projectKeyOf, projectLabelOfPath } from "../app/projects";
 import type { RowView } from "../app/rowStatus";
@@ -39,9 +41,14 @@ export function projectLabelOf(session: Pick<SessionListItem, "git_repo_root" | 
 }
 
 export function SessionRow({ session, now, view, pinned, draft, archived, inProject, bot, defaultProject, query = "", divider, showTime = false, onOpen, onLongPress }: SessionRowProps) {
+  const prefs = useProfilePreferences();
+  const owner = explicitProfile(session);
+  const alias = !bot && owner ? prefs.label(owner) : null;
+  const ownerName = alias && alias !== owner ? alias + " · " + owner : alias;
   const press = useLongPress(onLongPress);
   const { t, language } = useApp();
-  const selected = useWorkspace().selectedId === session.id;
+  const workspace = useWorkspace();
+  const selected = workspace.selectedId === session.id && (!workspace.selectedProfile || workspace.selectedProfile === owner);
   const project = bot || inProject ? null : projectLabelOf(session, defaultProject);
   const model = session.model?.trim() || (bot ? t("模型未知", "Model unknown") : "");
   const lead = inProject ? session.git_branch?.trim() ?? "" : "";
@@ -61,8 +68,9 @@ export function SessionRow({ session, now, view, pinned, draft, archived, inProj
         <span class="row-title">
           <Highlighted text={title} query={query} />
         </span>
-        {pinned || draft || project || hasSubline || archived ? (
+        {ownerName || pinned || draft || project || hasSubline || archived ? (
           <span class="row-subline mono">
+            {ownerName && <><i class="profile-initial" aria-hidden="true">{ownerName.slice(0,1)}</i>{ownerName}</>}
             {pinned ? <PinMark label={t("已置顶", "Pinned")} /> : null}
             {draft ? <span class="row-draft">{t("草稿", "Draft")}</span> : null}
             {project ? (

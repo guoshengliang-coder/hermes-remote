@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -107,6 +108,8 @@ fun CardPage(
 ) {
     val language = LocalAppLanguage.current
     val active by vm.active.collectAsStateWithLifecycle()
+    val profiles by vm.profiles.collectAsStateWithLifecycle()
+    val hidden = com.hermes.client.ui.components.LocalHiddenProfiles.current
     val state by vm.state.collectAsStateWithLifecycle()
     val health by vm.health.collectAsStateWithLifecycle()
     val themeMode by vm.themeMode.collectAsStateWithLifecycle()
@@ -132,6 +135,7 @@ fun CardPage(
     ) {
         CardPageContent(
             activeProfile = active,
+            visibleProfiles = profiles.map { if (it.isDefault) "default" else it.name }.filterNot(hidden::contains),
             state = state,
             health = health,
             themeMode = themeMode,
@@ -189,6 +193,7 @@ fun CardPageContent(
     /** Null when this build has no feedback channel: the row is then absent, not disabled. */
     onFeedback: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    visibleProfiles: List<String> = listOfNotNull(activeProfile),
 ) {
     val language = LocalAppLanguage.current
     val dark = isDarkSurface()
@@ -225,7 +230,7 @@ fun CardPageContent(
                 CardHeader(buildBadge = buildBadge, onSettings = { onNavigate("settings") })
 
                 Spacer(Modifier.height(16.dp))
-                IdentityCard(activeProfile = activeProfile, onClick = { onNavigate("profiles") })
+                IdentityCard(profiles = visibleProfiles, onClick = { onNavigate("profiles") })
 
                 Spacer(Modifier.height(16.dp))
                 RemoteNodeCard(state = state, health = health, onClick = { onNavigate("remote_devices") })
@@ -410,27 +415,31 @@ private fun CardTile(
 }
 
 @Composable
-private fun IdentityCard(activeProfile: String?, onClick: () -> Unit) {
+private fun IdentityCard(profiles: List<String>, onClick: () -> Unit) {
     val language = LocalAppLanguage.current
     CardTile(onClick = onClick) {
         Row(
             Modifier.fillMaxWidth().padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ProfileAvatar(activeProfile, size = 44.dp)
-            // With a custom display name the big line is that name and the profile name moves to
-            // the subline; otherwise the card reads exactly as before.
-            val identity = com.hermes.client.ui.components.LocalProfileIdentities.current[activeProfile]
+            if (profiles.isEmpty()) {
+                Icon(GearIcon, null, Modifier.size(32.dp))
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy((-8).dp)) {
+                    profiles.take(3).forEach { name ->
+                        ProfileAvatar(name, size = if (profiles.size == 1) 44.dp else 24.dp)
+                    }
+                }
+            }
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 Text(
-                    com.hermes.client.data.repository.displayNameFor(activeProfile, identity),
+                    localized(language, "Profile 显示设置", "Profile visibility"),
                     style = CardIdentityName,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    if (identity.hasCustomName()) activeProfile.orEmpty()
-                    else localized(language, "当前身份", "Active profile"),
+                    localized(language, "名称、头像与显示", "Names, avatars and visibility"),
                     style = CardIdentitySub,
                     color = MaterialTheme.colorScheme.outline,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -654,7 +663,7 @@ private fun strokeIcon(
  * simplification read as a brightness/sun glyph next to the theme row. Ring path per the
  * classic stroke-gear construction (Lucide-style), same 1.7 brush as the rest of the set.
  */
-private val GearIcon by lazy {
+internal val GearIcon by lazy {
     androidx.compose.ui.graphics.vector.ImageVector.Builder(
         name = "ThinGear",
         defaultWidth = 24.dp, defaultHeight = 24.dp,

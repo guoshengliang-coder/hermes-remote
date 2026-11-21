@@ -31,6 +31,23 @@ class ProfileIdentityStoreTest {
             produceFile = { File(tmp.root, "$name.preferences_pb") },
         )
 
+    @Test fun namesAndVisibilityBelongToOneAccountMacAndProfile() = scope.runTest {
+        val store = ProfileIdentityStore(prefs("visibility"), File(tmp.root, "avatars"))
+        val first = ProfileIdentityStore.scopePrefix("one", "mac") + "work"
+        val second = ProfileIdentityStore.scopePrefix("one", "mac2") + "work"
+        val third = ProfileIdentityStore.scopePrefix("two", "mac") + "work"
+        store.save("work", ProfileIdentity(displayName = "legacy"))
+        store.save(first, ProfileIdentity(displayName = "Studio"))
+        store.setHidden(first, true)
+        assertEquals(setOf(first), store.hiddenKeys.first())
+        assertTrue(store.get(second).isDefault)
+        assertTrue(store.get(third).isDefault)
+        store.setHidden(first, false)
+        assertTrue(store.hiddenKeys.first().isEmpty())
+        assertEquals("Studio", store.get(first).displayName)
+        assertEquals("legacy", store.get("work").displayName)
+    }
+
     @Test fun save_and_read_round_trip_stamps_updatedAt() = scope.runTest {
         var now = 1_000L
         val store = ProfileIdentityStore(prefs("a"), File(tmp.root, "avatars"), clock = { now })

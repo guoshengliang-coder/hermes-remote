@@ -19,7 +19,7 @@ import { detectLanguage, translator } from "./app/i18n";
 import { applyFontSize, applyTheme, effectiveLanguage, readFontSize, readLanguagePreference, readThemeMode, saveFontSize, saveLanguagePreference, saveThemeMode, type FontSize, type LanguagePreference, type ThemeMode } from "./app/appearance";
 import {
   applyLiveReport,
-  deriveNeedsYou,
+  deriveNeedsYou, inboxKey,
   initialInbox,
   noticeCount,
   reduceInbox,
@@ -54,6 +54,7 @@ import { ChatPage } from "./ui/ChatPage";
 import { DevicePicker } from "./ui/DevicePicker";
 import { ErrorNotice } from "./ui/ErrorNotice";
 import { Login } from "./ui/Login";
+import { useScopedProfilePreferences } from "./app/profilePreferences";
 import { SessionToast } from "./ui/SessionToast";
 import { ConversationWorkspace } from "./ui/ConversationWorkspace";
 import { clearConversationMemory } from "./app/conversationMemory";
@@ -130,7 +131,8 @@ export function App() {
     open: new Set(),
     settled: new Map(),
   });
-  const [toast, setToast] = useState<{ id: string; title: string; waiting: boolean; event: LifecycleEvent["event"] } | null>(null);
+  const profileDisplay = useScopedProfilePreferences(account?.id, device?.deviceId);
+  const [toast, setToast] = useState<{ id: string; profile: string | null; deviceId: string; title: string; waiting: boolean; event: LifecycleEvent["event"] } | null>(null);
   const [pinVersion, setPinVersion] = useState(0);
   const [collapsed, setCollapsed] = useState<ReadonlySet<GroupId>>(new Set());
   const [projectFilter, setProjectFilter] = useState<ProjectFilter | null>(null);
@@ -355,7 +357,7 @@ export function App() {
   const currentRef = useRef(currentSessionId);
   currentRef.current = currentSessionId;
   const profileRef = useRef<string | null>(null);
-  profileRef.current = pushRoute && pushRoute.sessionId === currentSessionId && pushRoute.deviceId === device?.deviceId
+  profileRef.current = route.name === "chat" && route.profile ? route.profile : pushRoute && pushRoute.sessionId === currentSessionId && pushRoute.deviceId === device?.deviceId
     ? pushRoute.profile : explicitProfile(sessions.find((s)=>s.id === currentSessionId));
 
   useEffect(() => {
@@ -374,7 +376,7 @@ export function App() {
         for (let guard = 0; guard < 10 && !stopped; guard++) {
           const before = inboxRef.current;
           const page = await client.lifecycleEvents(before.cursor, 200);
-          apply({ type: "page", events: page.events, nextCursor: page.nextCursor, deviceId, currentSessionId: currentRef.current });
+          apply({ type: "page", events: page.events, nextCursor: page.nextCursor, deviceId, currentSessionId: currentRef.current ? inboxKey(currentRef.current, profileRef.current) : null });
           if (before.primed) {
             const events = page.events.map((e)=>e.event).filter((e)=>e?.deviceId === deviceId);
             const result = pushEnabled && account ? await messagePushWorker({type:"push-foreground",accountId:account.id,
@@ -405,9 +407,9 @@ export function App() {
 
   function announce(events: LifecycleEvent[]) {
     for (const e of events) {
-      if (e.storedSessionId === currentRef.current) continue;
+      if (e.storedSessionId === currentRef.current && e.profile === profileRef.current) continue;
       if (!["run.waiting","run.completed","run.interrupted","run.unknown"].includes(e.event)) continue;
-      setToast({ id: e.storedSessionId, title: e.title || t("一个会话", "A conversation"), waiting: e.event === "run.waiting",event:e.event });
+      setToast({ id: e.storedSessionId, profile: e.profile ?? null, deviceId: e.deviceId, title: e.title || t("一个会话", "A conversation"), waiting: e.event === "run.waiting",event:e.event });
     }
   }
 
@@ -527,7 +529,7 @@ export function App() {
   }, []);
 
   const markSeen = useCallback((id: string, profile: string | null = null) => {
-    dispatchInbox({ type: "seen", storedSessionId: id });
+    dispatchInbox({ type: "seen", storedSessionId: inboxKey(id, profile) });
     if (device) void messagePushWorker({type:"push-read",deviceId:device.deviceId,sessionId:id,profile:profile ?? "default"}).catch(()=>undefined);
   },[device?.deviceId]);
 
@@ -707,7 +709,7 @@ export function App() {
               language={language} t={t} error={pickerError} onRetry={() => void refreshPicker()}
               onSelect={selectDevice} onSignOut={() => void signOut()} onBack={() => {pickerRequest.current++;setPickingDevice(false);}} /></div> : null}
             <div style={{display:"contents"}} inert={pickingDevice}>
-            {toast ? (
+            {toast && toast.deviceId === device?.deviceId && !(toast.profile ? profileDisplay.hidden(toast.profile) : profileDisplay.hasHidden) ? (
               <SessionToast
                 title={toast.title}
                 waiting={toast.waiting}
@@ -715,7 +717,7 @@ export function App() {
                 t={t}
                 onOpen={() => {
                   setToast(null);
-                  navigate({ name: "chat", sessionId: toast.id });
+                  navigate({ name: "chat", sessionId: toast.id, profile: toast.profile ?? undefined });
                 }}
                 onClose={() => setToast(null)}
               />
@@ -731,7 +733,7 @@ export function App() {
               <AccountPage />
             ) : (
               <ConversationWorkspace key={`${account?.id}:${device?.deviceId}`} route={route}>
-                {route.name === "chat" || route.name === "new" ? <ChatPage key={device?.deviceId} sessionId={route.name === "chat" ? route.sessionId : null} profileHint={pushRoute && pushRoute.deviceId === device?.deviceId && route.name === "chat" && pushRoute.sessionId === route.sessionId ? pushRoute.profile === "default" ? null : pushRoute.profile : undefined} /> : null}
+                {route.name === "chat" || route.name === "new" ? <ChatPage key={device?.deviceId} sessionId={route.name === "chat" ? route.sessionId : null} profileHint={route.name === "chat" && route.profile ? route.profile : pushRoute && pushRoute.deviceId === device?.deviceId && route.name === "chat" && pushRoute.sessionId === route.sessionId ? pushRoute.profile : undefined} /> : null}
               </ConversationWorkspace>
             )}
             </div>

@@ -76,6 +76,7 @@ internal fun ChatTopBar(
     onArchive: () -> Unit,
     onArtifacts: () -> Unit = {},
     modifier: Modifier = Modifier,
+    titlePrefix: @Composable () -> Unit = {},
     subtitle: @Composable () -> Unit = {},
 ) {
     val language = LocalAppLanguage.current
@@ -107,15 +108,18 @@ internal fun ChatTopBar(
                 .padding(horizontal = 12.dp),
             verticalArrangement = Arrangement.Center,
         ) {
-            Text(
-                title,
-                style = MaterialTheme.typography.titleLarge.copy(
-                    fontSize = adaptiveSessionTitleSize(title).sp,
-                    lineHeight = (adaptiveSessionTitleSize(title) + 4).sp,
-                ),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                titlePrefix()
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontSize = adaptiveSessionTitleSize(title).sp,
+                        lineHeight = (adaptiveSessionTitleSize(title) + 4).sp,
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             subtitle()
         }
         // Fades on the same 150ms beat as the new-session greeting it disappears with

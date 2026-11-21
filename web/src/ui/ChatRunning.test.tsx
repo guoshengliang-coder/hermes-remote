@@ -28,7 +28,7 @@ beforeEach(() => {
   localStorage.clear(); clearConversationMemory();
   host = document.createElement("div"); document.body.append(host);
   app = { t: (zh: string) => zh, language: "zh", account: { id: "account" }, device: { deviceId: "mac" }, client: {}, features: new Set(),
-    sessions: [{ id: "a", title: "A" }, { id: "b", title: "B" }], inbox: initialInbox, markSeen: () => {}, reportLiveQuestion: () => {},
+    sessions: [{ id: "a", title: "A", profile: "default" }, { id: "b", title: "B", profile: "default" }], inbox: initialInbox, markSeen: () => {}, reportLiveQuestion: () => {},
     isPinned: () => false, chatSearchSeed: null, setChatSearchSeed: () => {} } as unknown as AppContextValue;
 });
 afterEach(() => { act(() => render(null, host)); host.remove(); clearConversationMemory(); resetOverlays(); });
@@ -47,10 +47,10 @@ it("HG-228 shows dots and Stop before the first token, keeps one status during s
 });
 it("HG-228 consumes lifecycle invalidations once per entry and routes them to the selected conversation", async () => {
   const entry = { storedSessionId: "a", event: "run.started", sequence: 12, occurredAtMs: 1, title: null };
-  app = { ...app, inbox: { ...initialInbox, latest: { a: entry } } };
+  app = { ...app, inbox: { ...initialInbox, latest: { [JSON.stringify(["default","a"])]: entry } } };
   await draw(); expect(fixture.probes).toEqual([12]);
   await draw(); expect(fixture.probes).toEqual([12]);
-  app = { ...app, inbox: { ...initialInbox, latest: { a: { ...entry, event: "run.completed", sequence: 13 } } } };
+  app = { ...app, inbox: { ...initialInbox, latest: { [JSON.stringify(["default","a"])]: { ...entry, event: "run.completed", sequence: 13 } } } };
   await draw(); expect(fixture.probes).toEqual([12, 13]);
   await draw("b"); expect(fixture.probes).toEqual([12, 13]);
   expect(host.querySelector(".loading-dots")).toBeNull();

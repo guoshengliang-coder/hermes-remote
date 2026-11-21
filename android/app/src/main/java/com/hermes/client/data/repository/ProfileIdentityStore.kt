@@ -41,6 +41,19 @@ class ProfileIdentityStore(
         .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
         .map { decodeIdentities(it) }
 
+    val hiddenKeys: Flow<Set<String>> = store.data.map { prefs ->
+        prefs.asMap().entries.mapNotNull { (key, value) ->
+            key.name.takeIf { value == true && it.startsWith("hidden:") }?.removePrefix("hidden:")
+        }.toSet()
+    }
+
+    suspend fun setHidden(key: String, hidden: Boolean) {
+        store.edit { prefs ->
+            val pref = booleanPreferencesKey("hidden:$key")
+            if (hidden) prefs[pref] = true else prefs.remove(pref)
+        }
+    }
+
     suspend fun get(profile: String): ProfileIdentity = identities.first()[profile] ?: ProfileIdentity.DEFAULT
 
     /** Writes the whole record (stamping [ProfileIdentity.updatedAt]); a default record clears it. */
@@ -56,6 +69,8 @@ class ProfileIdentityStore(
     }
 
     companion object {
+        fun scopePrefix(account: String, mac: String): String = "${account.length}:$account${mac.length}:$mac/"
+
         fun create(context: Context): ProfileIdentityStore =
             ProfileIdentityStore(context.profileIdentityDataStore, File(context.filesDir, "avatars"))
 
