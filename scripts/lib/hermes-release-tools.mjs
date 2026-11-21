@@ -29,3 +29,20 @@ export function inspectReleaseTools(base, git) {
   return { inventory, verified: inventory.every(file => file.matches),
     capabilities: ['coverage-v2', 'live-github-integration', 'android-official-release-train', 'web-atomic-publisher'] };
 }
+
+export function verifyPullRequestState(pr, { expectedHead, base, reference, git }) {
+  if (pr.state === 'MERGED') {
+    const commit = pr.mergeCommit?.oid;
+    if (!/^[0-9a-f]{40}$/.test(commit ?? '') || (reference && commit !== reference.commit)) {
+      throw new Error('Merge commit does not match the observed reference');
+    }
+    // The selected PR can already be merged when the server needs proof refreshed. A fresh
+    // observation binds that same head to an actual merge on main without rerunning Git actions.
+    git('merge-base', '--is-ancestor', commit, base);
+    git('merge-base', '--is-ancestor', expectedHead, commit);
+    return;
+  }
+  if (reference || pr.state !== 'OPEN' || pr.baseRefOid !== base) {
+    throw new Error('Pull request is not open against the observed main and has no verified merge');
+  }
+}

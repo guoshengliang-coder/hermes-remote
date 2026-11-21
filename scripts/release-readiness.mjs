@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { bindBatchObservation, comparePublicationScope, readReleaseSnapshot } from './lib/missiongo-release-snapshot.mjs';
-import { hash, inspectReleaseTools } from './lib/hermes-release-tools.mjs';
+import { hash, inspectReleaseTools, verifyPullRequestState } from './lib/hermes-release-tools.mjs';
 import { releaseTargets } from './lib/hermes-release-coverage.mjs';
 
 const repository = 'https://github.com/guoshengliang-coder/hermes-remote';
@@ -29,13 +29,8 @@ function inspectPullRequest(entry, expectedHead, base, reference) {
   if (pr.baseRefName !== 'main' || pr.headRefOid !== expectedHead || pr.headRepository?.nameWithOwner !== slug) {
     throw new Error('Live pull request identity differs from the frozen delivery');
   }
-  if (reference) {
-    if (pr.state !== 'MERGED' || pr.mergeCommit?.oid !== reference.commit) throw new Error('Historical merge does not match GitHub');
-    run('git', ['merge-base', '--is-ancestor', pr.mergeCommit.oid, base]);
-  } else if (pr.state !== 'OPEN' || pr.baseRefOid !== base) {
-    throw new Error('Pull request is no longer open against the observed main');
-  }
-  return { state: pr.state, mergeable: pr.mergeable, head: pr.headRefOid,
+  verifyPullRequestState(pr, { expectedHead, base, reference, git: (...args) => run('git', args) });
+  return { state: pr.state, mergeable: pr.mergeable, head: pr.headRefOid, mergeCommit: pr.mergeCommit?.oid ?? null,
     checks: pr.statusCheckRollup.map(check => ({ name: check.name, status: check.status, conclusion: check.conclusion })) };
 }
 

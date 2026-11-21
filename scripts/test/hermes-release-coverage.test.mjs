@@ -28,3 +28,17 @@ test('preserves every delivery and fails closed for unknown targets or unverifie
   assert.match(result.results[1].reason, /Unsupported/);
   assert.throws(() => releaseTargets(['androidApp', 'android']), /duplicate/);
 });
+
+test('post-merge readiness verifies both the chosen head and real merge on live main', async () => {
+  const { verifyPullRequestState } = await import('../lib/hermes-release-tools.mjs');
+  const calls = [];
+  const mergedPr = { state: 'MERGED', mergeCommit: { oid: merged } };
+  const options = { expectedHead: previous, base: main, git: (...args) => calls.push(args) };
+  verifyPullRequestState(mergedPr, options);
+  assert.deepEqual(calls, [
+    ['merge-base', '--is-ancestor', merged, main],
+    ['merge-base', '--is-ancestor', previous, merged],
+  ]);
+  assert.throws(() => verifyPullRequestState(mergedPr, { ...options, git: () => { throw new Error('wrong history'); } }), /wrong history/);
+  assert.throws(() => verifyPullRequestState(mergedPr, { ...options, reference: { commit: main } }), /does not match/);
+});
