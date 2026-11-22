@@ -15,6 +15,7 @@ const fixture = vi.hoisted(() => ({
   pageReady: true,
   pageSignals: {} as Record<string, () => void>,
   client: {
+    deviceApi: vi.fn(async () => ({profiles: []})),
     capabilities: vi.fn(),
     webSession: vi.fn(),
     devices: vi.fn(),

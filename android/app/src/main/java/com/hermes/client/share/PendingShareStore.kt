@@ -49,6 +49,18 @@ data class PendingShare(
  */
 @Singleton
 class PendingShareStore @Inject constructor() {
+    private data class TurnKey(val account: String?, val device: String?, val role: String, val session: String)
+    private val firstTurns = mutableMapOf<TurnKey, com.hermes.client.ui.chat.FirstTurn>()
+
+    @Synchronized
+    fun putTurn(account: String?, device: String?, role: String, session: String, turn: com.hermes.client.ui.chat.FirstTurn) {
+        firstTurns[TurnKey(account, device, role, session)] = turn
+    }
+
+    @Synchronized
+    fun takeTurn(account: String?, device: String?, role: String?, session: String) =
+        role?.let { firstTurns.remove(TurnKey(account, device, it, session)) }
+
     private var pending: Pair<String, PendingShare>? = null
 
     @Synchronized

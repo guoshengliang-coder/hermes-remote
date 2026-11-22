@@ -65,6 +65,7 @@ internal fun NewChatGreeting(
     modifier: Modifier = Modifier,
     // Injectable so screenshot tests are stable across the time of day they run at.
     hourOfDay: Int = java.time.LocalTime.now().hour,
+    roleSwitch: (@Composable () -> Unit)? = null,
 ) {
     val language = LocalAppLanguage.current
     val connected = connection is ConnectionState.Connected
@@ -92,6 +93,7 @@ internal fun NewChatGreeting(
                 size = if (imeVisible) 48.dp else 64.dp,
                 modifier = if (connected) Modifier else Modifier.alpha(0.7f),
             )
+            roleSwitch?.invoke()
             Spacer(Modifier.height(if (imeVisible) 12.dp else 18.dp))
             Text(
                 greeting,

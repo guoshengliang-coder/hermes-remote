@@ -29,6 +29,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.ExpandMore
@@ -194,6 +195,7 @@ fun SessionsScreen(
                 ChatsTopBar(
                     activeProfile = activeProfile,
                     visibleProfiles = names,
+                    currentFilter = filter,
                     onFilter = { filter = it },
                     onOpenCard = onOpenCard,
                     onOpenSearch = onOpenSearch,
@@ -988,6 +990,7 @@ internal fun ChatsTopBar(
     onOpenProjects: () -> Unit,
     onOpenArchived: () -> Unit,
     visibleProfiles: List<String> = listOfNotNull(activeProfile),
+    currentFilter: String? = null,
     onFilter: (String?) -> Unit = {},
 ) {
     val language = LocalAppLanguage.current
@@ -1012,19 +1015,7 @@ internal fun ChatsTopBar(
             // to copy: it only ever paints on `hover:bg-stone-200/50`, so at rest those 32px are
             // invisible and the glyph is the whole of what is drawn. Sizing the button to 32dp
             // would import nothing visible and cost the touch target — Android has no hover.
-            if (visibleProfiles.size > 1) {
-                var filtering by remember { mutableStateOf(false) }
-                Box {
-                    androidx.compose.material3.TextButton(onClick = { filtering = true }) { Text(localized(language, "筛选", "Filter")) }
-                    DropdownMenu(expanded = filtering, onDismissRequest = { filtering = false }) {
-                        DropdownMenuItem(text = { Text(localized(language, "全部", "All")) }, onClick = { onFilter(null); filtering = false })
-                        visibleProfiles.forEach { name ->
-                            DropdownMenuItem(text = { Text(com.hermes.client.ui.components.LocalProfileIdentities.current[name]?.displayName ?: name) },
-                                onClick = { onFilter(name); filtering = false })
-                        }
-                    }
-                }
-            }
+            var filtering by remember { mutableStateOf(false) }
             IconButton(onClick = onOpenSearch) {
                 Icon(
                     Icons.Rounded.Search,
@@ -1040,6 +1031,13 @@ internal fun ChatsTopBar(
                         modifier = Modifier.size(com.hermes.client.ui.tuning.tunedTopBarGlyph()), // TUNING-TEMP
                     )
                 }
+                    DropdownMenu(expanded = filtering, onDismissRequest = { filtering = false }) {
+                        DropdownMenuItem(trailingIcon = { if (currentFilter == null) Icon(Icons.Rounded.Check, localized(language, "已选择", "Selected")) }, text = { Text(localized(language, "全部角色", "All roles")) }, onClick = { onFilter(null); filtering = false })
+                        visibleProfiles.forEach { name ->
+                            DropdownMenuItem(text = { Text(com.hermes.client.ui.components.roleLabel(name)) },
+                                trailingIcon = { if (currentFilter == name) Icon(Icons.Rounded.Check, localized(language, "已选择", "Selected")) }, onClick = { onFilter(name); filtering = false })
+                        }
+                    }
                 // Same menu shape as the chat screen's (docs/DESIGN.md §5.4): navigation first,
                 // 20dp leading glyphs, 16dp corners on `surface`.
                 DropdownMenu(
@@ -1048,6 +1046,10 @@ internal fun ChatsTopBar(
                     shape = RoundedCornerShape(16.dp),
                     containerColor = MaterialTheme.colorScheme.surface,
                 ) {
+                    if (visibleProfiles.size > 1) DropdownMenuItem(
+                        text = { Text(localized(language, "筛选角色", "Filter by role")) },
+                        onClick = { menuOpen = false; filtering = true },
+                    )
                     DropdownMenuItem(
                         leadingIcon = {
                             Icon(com.hermes.client.ui.components.FolderStrokeIcon, contentDescription = null, Modifier.size(20.dp))

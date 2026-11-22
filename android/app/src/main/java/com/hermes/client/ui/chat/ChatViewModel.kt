@@ -1209,6 +1209,9 @@ class ChatViewModel @Inject constructor(
                 }
             }
         }
+        pendingShareStore.takeTurn(account?.accountId, resolvedDevice, profile, id)?.let { turn ->
+            dispatch(turn.text, turn.files)
+        }
         titleJob?.cancel()
         titleJob = viewModelScope.launch {
             chat.events.filter {
@@ -1602,7 +1605,15 @@ class ChatViewModel @Inject constructor(
         return rows.filter { it.id == id }.map { it.profile }.distinct().singleOrNull()
     }
 
-    suspend fun createNewSession(profile: String): String = chat.createSession(profile).id
+    suspend fun createNewSession(profile: String, turn: FirstTurn? = null): String {
+        val route = accountSessions?.transportRoutingContext()
+        val device = currentDeviceId
+        if (route != null && route.deviceId != device) throw com.hermes.client.data.error.SessionOwnerUnconfirmed()
+        val id = chat.createSession(profile).id
+        if (accountSessions?.transportRoutingContext() != route || currentDeviceId != device) throw CancellationException("Conversation route changed")
+        turn?.let { pendingShareStore.putTurn(route?.accountId, device, profile, id, it) }
+        return id
+    }
 
     /**
      * Archives the open conversation. Returns null on success, or the error to show. Carries the

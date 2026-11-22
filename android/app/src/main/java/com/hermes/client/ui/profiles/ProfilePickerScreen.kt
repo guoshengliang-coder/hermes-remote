@@ -152,7 +152,7 @@ fun ProfilePickerScreen(
                     .takeIf { it.isNotEmpty() }?.joinToString(" · ")
                 ListItem(
                     leadingContent = { ProfileAvatar(name, size = 44.dp, identity = identity) },
-                    headlineContent = { Text(displayNameFor(name, identity)) },
+                    headlineContent = { Text(com.hermes.client.ui.components.roleLabel(name)) },
                     supportingContent = sub?.let { { Text(it) } },
                     trailingContent = {
                         androidx.compose.material3.Switch(

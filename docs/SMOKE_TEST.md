@@ -2370,3 +2370,7 @@ no mutation retries automatically. In authority mode retain REST ownership and v
 snapshot matching; a stale revision never becomes a refreshed deletion fence. Copy/share/export and
 local pins keep their existing behavior. Verify Connector installation as well as app/Web versions.
 These real-device/browser checks have not been executed against production in this session.
+
+### HG-259 · 多角色首发与列表标识
+
+在同一账号两台测试 Mac 上配置相同的角色标识和不同的中文显示名。Android 和 Web 分别验证两台 Mac 的名称、设置别名及清空别名。将草稿和附件加入新会话，切换角色后发出第一条；断网重试并核对 Mac 和角色。隐藏默认角色、隐藏全部和重新显示后分别检查新建、详情及列表。用窄屏和大字号检查置顶图钉与标题左缘、长角色名、项目入口及更多菜单中的筛选复位。

@@ -18,8 +18,8 @@ export function ProfileDisplaySheet({onClose}: {onClose: () => void}) {
         <label>{editing}<input value={alias} maxLength={24} onInput={e => setAlias(e.currentTarget.value)}/></label>
         <button onClick={() => { prefs.save(editing, {alias: alias.trim()}); edit(null); }}>{t("保存","Save")}</button>
       </> : names.map(name => <div class="drawer-shortcut" key={name}>
-        <button class="drawer-shortcut-title" onClick={() => {edit(name); setAlias(prefs.label(name));}}>
-          {prefs.label(name)} {prefs.label(name) !== name && <small>{name}</small>}
+        <button class="drawer-shortcut-title" onClick={() => {edit(name); setAlias(prefs.alias(name));}}>
+          <span class="profile-initial" aria-hidden="true">{Array.from(prefs.label(name))[0]}</span> {prefs.display(name, names)}
         </button>
         <input type="checkbox" role="switch" aria-label={t("显示 ","Show ") + name} checked={!prefs.hidden(name)}
           onChange={e => prefs.save(name,{hidden: !e.currentTarget.checked})}/>

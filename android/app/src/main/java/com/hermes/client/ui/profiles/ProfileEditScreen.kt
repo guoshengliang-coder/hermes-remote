@@ -357,7 +357,7 @@ fun ProfileEditScreen(
             OutlinedTextField(
                 value = draft.displayName,
                 onValueChange = vm::setDisplayName,
-                placeholder = { Text(vm.profile, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                placeholder = { Text(com.hermes.client.ui.components.LocalRoleLabels.current[vm.profile] ?: vm.profile, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 singleLine = true,
                 trailingIcon = if (draft.displayName.isNotEmpty()) {
                     {

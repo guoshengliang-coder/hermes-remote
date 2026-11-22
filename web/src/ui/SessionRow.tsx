@@ -43,8 +43,7 @@ export function projectLabelOf(session: Pick<SessionListItem, "git_repo_root" | 
 export function SessionRow({ session, now, view, pinned, draft, archived, inProject, bot, defaultProject, query = "", divider, showTime = false, onOpen, onLongPress }: SessionRowProps) {
   const prefs = useProfilePreferences();
   const owner = explicitProfile(session);
-  const alias = !bot && owner ? prefs.label(owner) : null;
-  const ownerName = alias && alias !== owner ? alias + " · " + owner : alias;
+  const ownerName = !bot && owner ? prefs.display(owner) : null;
   const press = useLongPress(onLongPress);
   const { t, language } = useApp();
   const workspace = useWorkspace();
@@ -70,8 +69,8 @@ export function SessionRow({ session, now, view, pinned, draft, archived, inProj
         </span>
         {ownerName || pinned || draft || project || hasSubline || archived ? (
           <span class="row-subline mono">
-            {ownerName && <><i class="profile-initial" aria-hidden="true">{ownerName.slice(0,1)}</i>{ownerName}</>}
             {pinned ? <PinMark label={t("已置顶", "Pinned")} /> : null}
+            {ownerName && <span class="row-role" title={ownerName}>{ownerName}</span>}
             {draft ? <span class="row-draft">{t("草稿", "Draft")}</span> : null}
             {project ? (
               <span class="row-project">

@@ -77,14 +77,7 @@ fun SessionSubline(
     ) {
         androidx.compose.material3.ProvideTextStyle(com.hermes.client.ui.tuning.tunedSubline()) { // TUNING-TEMP
             Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-                if (owner != null) {
-                    com.hermes.client.ui.components.ProfileAvatar(owner, size = 16.dp)
-                    Spacer(Modifier.width(4.dp))
-                    Text(com.hermes.client.ui.components.LocalProfileIdentities.current[owner]?.displayName ?: owner, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.widthIn(max = 96.dp))
-                    Spacer(Modifier.width(6.dp))
-                }
-                SublineContent(parts, lead, pinned, hasDraft, Modifier.weight(1f, fill = false))
+                SublineContent(parts, lead, owner, pinned, hasDraft, Modifier.weight(1f, fill = false))
             }
         }
     }
@@ -94,11 +87,12 @@ fun SessionSubline(
 private fun SublineContent(
     parts: SessionSublineParts,
     lead: SublineLead,
+    owner: String?,
     pinned: Boolean,
     hasDraft: Boolean,
     modifier: Modifier,
 ) {
-    if (!pinned && !hasDraft) {
+    if (!pinned && !hasDraft && owner == null) {
         SublineBody(parts, lead, modifier)
         return
     }
@@ -118,6 +112,12 @@ private fun SublineContent(
                         contentDescription = localized(language, "已置顶", "Pinned")
                     },
             )
+        }
+        if (pinned && owner != null) Spacer(Modifier.width(4.dp))
+        if (owner != null) {
+            Text(com.hermes.client.ui.components.roleLabel(owner), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 96.dp))
+            Spacer(Modifier.width(6.dp))
         }
         if (hasDraft) {
             if (pinned) Spacer(Modifier.width(4.dp))

@@ -54,7 +54,7 @@ import { ChatPage } from "./ui/ChatPage";
 import { DevicePicker } from "./ui/DevicePicker";
 import { ErrorNotice } from "./ui/ErrorNotice";
 import { Login } from "./ui/Login";
-import { useScopedProfilePreferences } from "./app/profilePreferences";
+import { useProfileCatalog, useScopedProfilePreferences } from "./app/profilePreferences";
 import { SessionToast } from "./ui/SessionToast";
 import { ConversationWorkspace } from "./ui/ConversationWorkspace";
 import { clearConversationMemory } from "./app/conversationMemory";
@@ -131,7 +131,8 @@ export function App() {
     open: new Set(),
     settled: new Map(),
   });
-  const profileDisplay = useScopedProfilePreferences(account?.id, device?.deviceId);
+  const profileCatalog = useProfileCatalog(client, account?.id, device?.deviceId);
+  const profileDisplay = useScopedProfilePreferences(account?.id, device?.deviceId, profileCatalog);
   const [toast, setToast] = useState<{ id: string; profile: string | null; deviceId: string; title: string; waiting: boolean; event: LifecycleEvent["event"] } | null>(null);
   const [pinVersion, setPinVersion] = useState(0);
   const [collapsed, setCollapsed] = useState<ReadonlySet<GroupId>>(new Set());
@@ -599,6 +600,7 @@ export function App() {
   }, [flashMessage]);
 
   const value: AppContextValue = {
+    profileCatalog,
     client,
     language,
     languagePreference,

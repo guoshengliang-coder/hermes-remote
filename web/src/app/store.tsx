@@ -23,6 +23,7 @@ export interface ProjectFilter {
 
 export interface AppContextValue {
   client: GatewayClient;
+  profileCatalog?: Record<string,string>;
   language: Language;
   languagePreference: LanguagePreference;
   setLanguagePreference: (choice: LanguagePreference) => void;

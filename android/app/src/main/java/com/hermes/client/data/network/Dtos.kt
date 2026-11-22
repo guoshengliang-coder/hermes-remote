@@ -199,6 +199,8 @@ object MessageContentSerializer : KSerializer<String?> {
 @Serializable data class ProfileDto(
     val name: String,
     @SerialName("is_default") val isDefault: Boolean = false,
+    @SerialName("display_name") val displayName: String? = null,
+    @SerialName("bot_title") val botTitle: String? = null,
 )
 @Serializable data class ProfilesDto(val profiles: List<ProfileDto> = emptyList())
 @Serializable data class ActiveProfileDto(val active: String? = null, val current: String? = null)

@@ -126,6 +126,17 @@ class MainActivity : ComponentActivity() {
             val prefix = accountSession?.let { session ->
                 session.selectedDeviceId?.let { mac -> com.hermes.client.data.repository.ProfileIdentityStore.scopePrefix(session.accountId, mac) }
             }
+            val catalog by profileManager.catalog.collectAsState()
+            val route = accountSession?.let { account -> account.selectedDeviceId?.let { mac ->
+                com.hermes.client.data.auth.AccountRoutingContext(account.accountId, mac)
+            } }
+            androidx.compose.runtime.LaunchedEffect(route) { if (route != null) profileManager.refresh() }
+            val roleLabels = remember(route, catalog) {
+                if (catalog.route == route) catalog.profiles.associate { role ->
+                    (if (role.isDefault) "default" else role.name) to
+                        (role.displayName?.trim()?.takeIf(String::isNotEmpty) ?: role.botTitle?.trim()?.takeIf(String::isNotEmpty) ?: role.name)
+                } else emptyMap()
+            }
             val storedHiddenKeys by profileIdentityStore.hiddenKeys.collectAsState(initial = null)
             val hiddenKeys = storedHiddenKeys ?: return@setContent
             val identities = if (prefix == null) emptyMap() else allIdentities.filterKeys { it.startsWith(prefix) }.mapKeys { it.key.removePrefix(prefix) }
@@ -152,6 +163,7 @@ class MainActivity : ComponentActivity() {
                     if (prefix != null) lifecycleScope.launch { profileIdentityStore.setHidden(prefix + name, value) }
                 },
                 com.hermes.client.ui.components.LocalProfileIdentities provides identities,
+                com.hermes.client.ui.components.LocalRoleLabels provides roleLabels,
                 com.hermes.client.ui.components.LocalAvatarDir provides profileIdentityStore.avatarDir,
                 com.hermes.client.ui.chat.LocalMarkdownImageLoader provides markdownImages,
             ) {

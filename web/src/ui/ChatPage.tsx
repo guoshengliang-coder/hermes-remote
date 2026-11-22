@@ -102,7 +102,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
   const [selected, setSelected] = useState("default");
   useLayoutEffect(() => {
     if (sessionId === null) setSelected("default");
-  }, [sessionId, device?.deviceId]);
+  }, [sessionId, device?.deviceId, app.account?.id]);
   const choices = profileNames.filter(name => !preferences.hidden(name));
   const newProfile = choices.includes(selected) ? selected : null;
   const accountName = newProfile ? preferences.label(newProfile) : null;
@@ -236,12 +236,13 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
     setChosenModel(null);
     setExplicitModelOverride(false);
     setReasoning(null);
-    newChatProject.current = sessionId === null ? app.projectFilter : null;
+    const project = app.projectFilter;
+    newChatProject.current = sessionId === null && project && (project.profile ?? "default") === profile ? project : null;
     const session = new ChatSession({
       client,
       deviceId: device.deviceId,
       storedSessionId: sessionId,
-      cwd: sessionId === null && (!newChatProject.current?.profile || newChatProject.current.profile === profile) ? newChatProject.current?.path : null,
+      cwd: newChatProject.current?.path ?? null,
       profile,
       dispatch: action => { if (sessionRef.current === session) dispatch(action); },
       onStored: (id) => {
@@ -657,15 +658,10 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
     ...(item.key === lastAssistantKey && !state.generating && !state.terminal ? { onRegenerate: regenerate } : {}),
   });
 
-  const [showOwner, setShowOwner] = useState(false);
-  useEffect(() => setShowOwner(false), [viewKey]);
+  const [pickingRole, setPickingRole] = useState(false);
   const hasWorkspaceLine = !connectionLine && (workspaceLabel !== null || workspaceIsDefault);
   const ownerBadge = !emptyNew && !botRow && profile && (
-    <button type="button" class="conversation-owner" aria-label={preferences.display(profile, choices)}
-      aria-expanded={showOwner} onClick={() => setShowOwner(value => !value)}>
-      <span class="profile-initial">{Array.from(preferences.label(profile))[0]}</span>
-      {showOwner && <span class="owner-caption">{preferences.display(profile, choices)}</span>}
-    </button>
+    <span class="role-owner-name">{preferences.display(profile, choices)}</span>
   );
   let previousMs: number | null = null;
 
@@ -829,17 +825,13 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
           {(state.historyLoaded || (emptyNew && !newProfile)) && state.items.length === 0 && !state.generating ? (
             sessionId === null ? (
               <div class="greeting">
-                <label class="greeting-avatar identity-picker">
-                  <span aria-hidden="true">{accountName?.slice(0, 1).toUpperCase() || "…"}</span>
-                  <select aria-label={t("选择会话身份", "Choose conversation profile")} value={newProfile ?? ""}
-                    disabled={storedId !== null || state.generating} onChange={event => setSelected(event.currentTarget.value)}>
-                    {!newProfile && <option value="">{t("选择身份", "Choose profile")}</option>}
-                    {choices.map(name => <option key={name} value={name}>{preferences.display(name, choices)}</option>)}
-                  </select>
-                </label>
+                <span class="greeting-avatar" aria-hidden="true">{Array.from(accountName ?? "")[0]?.toUpperCase() || "…"}</span>
+                {choices.length > 0 && <button type="button" class="role-switch" disabled={storedId !== null || state.generating}
+                  onClick={() => setPickingRole(true)}>{t("切换角色", "Switch role")}</button>}
+
                 <p class="greeting-title">{greetingForHour(new Date().getHours(), language, accountName)}</p>
                 <p class="greeting-sub">
-                  {!newProfile ? (choices.length ? t("点头像选择身份", "Tap the avatar to select a profile") : t("请在设置中检查可见身份", "Check visible profiles in settings")) : state.connection === "ready" || state.connection === "connecting"
+                  {!newProfile ? (choices.length ? t("请选择角色", "Choose a role") : t("请在设置中检查可见身份", "Check visible profiles in settings")) : state.connection === "ready" || state.connection === "connecting"
                     ? t("有什么要做的，直接说。", "Whatever you need — just say it.")
                     : t("连接恢复后就能开始。", "Ready as soon as we reconnect.")}
                 </p>
@@ -927,7 +919,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
           voiceReady={state.connection === "ready"}
           onSend={(text, files, onDelivered) => send(text, files, false, onDelivered)}
           onInterrupt={() => void sessionRef.current?.interrupt()}
-          draftKey={device ? draftKey(device.deviceId, storedId, conversationScope(app.account?.id, device.deviceId, profile, storedId)) : null}
+          draftKey={device ? draftKey(device.deviceId, storedId, conversationScope(app.account?.id, device.deviceId, storedId ? profile : null, storedId)) : null}
           sessionId={storedId}
           onOpenAttachment={(attachment, replace, remove) => setPendingImage({ attachment, replace, remove, editing: false })}
           seed={seed}
@@ -972,6 +964,13 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
           }}
         />
       ) : null}
+      {pickingRole && emptyNew && <Sheet title={t("切换角色","Switch role")} closeLabel={t("关闭","Close")} onClose={() => setPickingRole(false)}>
+        {choices.map(name => <button type="button" key={name} class="sheet-action role-option" aria-pressed={name === newProfile}
+          onClick={() => { setSelected(name); setPickingRole(false); }}>
+          <span class="profile-initial" aria-hidden="true">{Array.from(preferences.label(name))[0]}</span>
+          {preferences.display(name, choices)}{name === newProfile && <span aria-hidden="true">✓</span>}
+        </button>)}
+      </Sheet>}
       {artifactsOpen && artifactScope.current === viewKey && !artifactPreview && !viewer ? <ArtifactsSheet artifacts={artifacts}
         loading={promptHistory.loading && !state.historyError} error={promptHistory.error ?? state.historyError}
         scrollTop={artifactScroll.current} onScroll={(top) => { artifactScroll.current = top; }}
