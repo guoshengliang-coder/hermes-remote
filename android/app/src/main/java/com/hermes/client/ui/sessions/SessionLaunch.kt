@@ -60,14 +60,14 @@ internal fun rememberSessionCreator(
     var choosing by remember { mutableStateOf(false) }
     var folder by remember { mutableStateOf<String?>(null) }
     val profiles by vm.profiles.collectAsStateWithLifecycle()
-    if (choosing) com.hermes.client.ui.chat.NewProfileChat(profiles, { choosing = false }) { owner ->
-        choosing = false
+    val connection by vm.connectionState.collectAsStateWithLifecycle()
+    if (choosing) com.hermes.client.ui.chat.NewProfileChat(profiles, connection, creating, { choosing = false }) { owner, turn ->
         val cwd = folder.takeIf { owner == activeProfile }
         if (!creating) {
             creating = true
             scope.launch {
                 try {
-                    val created = vm.createSession(cwd, owner)
+                    val created = vm.createSession(cwd, owner, turn)
                     if (created.fellBackToDefault) {
                         // The folder is gone on the Mac and the gateway silently used its own
                         // launch dir instead — say so rather than leave the chat in a surprise
@@ -79,6 +79,7 @@ internal fun rememberSessionCreator(
                         )
                         Toast.makeText(context, error.localizedMessage(language), Toast.LENGTH_LONG).show()
                     }
+                    choosing = false
                     onOpen(ChatLaunch.new(created.id, owner, created.deviceId))
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e

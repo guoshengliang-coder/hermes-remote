@@ -92,6 +92,7 @@ class SessionsViewModel @Inject constructor(
     private val draftStore: com.hermes.client.data.repository.DraftSnapshot,
     private val unsentStore: com.hermes.client.data.repository.UnsentSnapshot,
     private val accountSessions: AccountSessionManager? = null,
+    private val pendingShares: com.hermes.client.share.PendingShareStore = com.hermes.client.share.PendingShareStore(),
 ) : ViewModel() {
     private val _state = MutableStateFlow(
         SessionsUiState(
@@ -104,6 +105,7 @@ class SessionsViewModel @Inject constructor(
     val state: StateFlow<SessionsUiState> = _state.asStateFlow()
     val runtimes: StateFlow<Map<SessionRuntimeKey, SessionRuntime>> = runtimeStore.runtimes
     val unreadTokens: StateFlow<Set<String>> = runtimeStore.unreadTokens
+    val connectionState get() = chat.connectionState
     val consecutiveDroppedConnections: Int get() = chat.consecutiveDroppedConnections
 
     fun runtimeFor(
@@ -687,12 +689,13 @@ class SessionsViewModel @Inject constructor(
      * opens but [CreateResult.fellBackToDefault] is set so the UI can say so (HR-SESS-006).
      * Throws on failure so the shared FAB can explain it instead of silently dismissing its spinner.
      */
-    suspend fun createSession(cwd: String? = null, profile: String = "default"): CreateResult {
+    suspend fun createSession(cwd: String? = null, profile: String = "default", firstTurn: com.hermes.client.ui.chat.FirstTurn? = null): CreateResult {
         restoreSelectedRoute()
         val route = accountSessions?.routingContext()
         val device = sessions.currentDeviceId()
         val created = chat.createSession(profile, cwd)
         if (accountSessions?.routingContext() != route) throw kotlinx.coroutines.CancellationException("Conversation route changed")
+        firstTurn?.let { pendingShares.putTurn(route?.accountId, device, profile, created.id, it) }
         if (cwd.isNullOrBlank()) {
             created.cwd?.let { projectPrefs.setDefaultProjectPath(it) }
             sessions.bindConversation(profile, created.id, device)

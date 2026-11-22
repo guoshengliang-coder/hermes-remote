@@ -1309,8 +1309,8 @@ fun ChatScreen(
             ) else ChatTopBar(
                 title = sessionTitle,
                 titlePrefix = {
-                    if (botOrigin == null && (workspace == null || workspaceProjects.none { it.id != com.hermes.client.ui.sessions.DEFAULT_PROJECT_ID })) {
-                        ConversationProfileBadge(ownerProfile)
+                    if (!newChatGreetingVisible(isNewSession, state.messages.size, state.isGenerating) && botOrigin == null && (workspace == null || workspaceProjects.none { it.id != com.hermes.client.ui.sessions.DEFAULT_PROJECT_ID })) {
+                        ConversationRoleName(ownerProfile)
                     }
                 },
                 // HG-37: an empty new session keeps only 返回 and the title block.
@@ -1372,7 +1372,7 @@ fun ChatScreen(
                         )
                     } else if (ws != null && workspaceProjects.any { it.id != com.hermes.client.ui.sessions.DEFAULT_PROJECT_ID }) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            ConversationProfileBadge(ownerProfile)
+                            if (!newChatGreetingVisible(isNewSession, state.messages.size, state.isGenerating)) ConversationRoleName(ownerProfile)
                             WorkspaceSubtitle(
                             projectLabel = ws.projectLabel,
                             branch = ws.branch,
@@ -1686,29 +1686,11 @@ fun ChatScreen(
                             IconButton(onClick = { enterVoiceMode() }, enabled = sessionWritable) {
                                 Icon(Icons.Rounded.Mic, contentDescription = localized(language, "切换语音输入", "Switch to voice input"), modifier = Modifier.size(24.dp))
                             }
-                            OutlinedTextField(
-                                value = draft,
-                                onValueChange = { draft = it },
-                                readOnly = !sessionWritable,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .focusRequester(focusRequester)
+                            ChatDraftField(
+                                draft, { draft = it }, !sessionWritable,
+                                Modifier.weight(1f).focusRequester(focusRequester)
                                     .onFocusChanged { if (it.isFocused) composerFocused = true },
-                                placeholder = {
-                                    Text(
-                                        localized(language, "输入消息…", "Type a message…"),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                    )
-                                },
-                                minLines = 1,
-                                maxLines = 3,
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                                keyboardActions = KeyboardActions(onSend = { submit() }),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
-                                    unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
-                                    disabledBorderColor = androidx.compose.ui.graphics.Color.Transparent,
-                                ),
+                                onSend = { submit() },
                             )
                             when {
                                 state.isGenerating && sessionWritable -> ComposerActionButton(
@@ -2589,18 +2571,18 @@ fun ChatScreen(
 
     if (choosingNewProfile) {
         val choices by vm.profiles.collectAsStateWithLifecycle()
-        NewProfileChat(choices, {
+        NewProfileChat(choices, connState, creatingNewChat, {
             choosingNewProfile = false
             pendingShareFormat = null
-        }) { owner ->
-            choosingNewProfile = false
+        }, shareDestination = pendingShareFormat != null) { owner, turn ->
             val format = pendingShareFormat
-            pendingShareFormat = null
             if (!creatingNewChat) {
                 creatingNewChat = true
                 exportScope.launch {
                     try {
-                        val target = ChatLaunch.new(vm.createNewSession(owner), owner, sessionDeviceId)
+                        val target = ChatLaunch.new(vm.createNewSession(owner, turn), owner, sessionDeviceId)
+                        choosingNewProfile = false
+                        pendingShareFormat = null
                         if (format != null) deliverInto(target, format) else onNewChat(target)
                     } catch (cancelled: kotlinx.coroutines.CancellationException) {
                         throw cancelled
@@ -3081,12 +3063,35 @@ private fun ConnectionRecoveryBanner(message: String) {
 }
 
 @Composable
-private fun ConversationProfileBadge(profile: String) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val name = com.hermes.client.ui.components.LocalProfileIdentities.current[profile]?.displayName ?: profile
-    androidx.compose.material3.IconButton(onClick = {
-        android.widget.Toast.makeText(context, name, android.widget.Toast.LENGTH_SHORT).show()
-    }, modifier = Modifier.size(32.dp).semantics { contentDescription = name }) {
-        com.hermes.client.ui.components.ProfileAvatar(profile, size = 20.dp)
-    }
+internal fun ChatDraftField(value: String, onChange: (String) -> Unit, readOnly: Boolean, modifier: Modifier, onSend: () -> Unit) {
+    val language = LocalAppLanguage.current
+    OutlinedTextField(
+        value = value,
+        onValueChange = onChange,
+        readOnly = readOnly,
+        modifier = modifier,
+        placeholder = {
+            Text(
+                localized(language, "输入消息…", "Type a message…"),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            )
+        },
+        minLines = 1,
+        maxLines = 3,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+        keyboardActions = KeyboardActions(onSend = { onSend() }),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+            unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+            disabledBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+        ),
+    )
+}
+
+@Composable
+private fun ConversationRoleName(profile: String) {
+    val name = com.hermes.client.ui.components.roleLabel(profile)
+    Text(name, style = MaterialTheme.typography.labelSmall, maxLines = 1,
+        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+        modifier = Modifier.widthIn(max = 112.dp).padding(end = 4.dp))
 }

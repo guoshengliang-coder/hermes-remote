@@ -34,6 +34,9 @@ class SessionSublineTest {
             }
         }
         compose.onNodeWithContentDescription("已置顶").assertIsDisplayed()
+        val pin = compose.onNodeWithContentDescription("已置顶").fetchSemanticsNode().boundsInRoot
+        val role = compose.onNodeWithText("personal").fetchSemanticsNode().boundsInRoot
+        org.junit.Assert.assertTrue("pin must precede the role", pin.right <= role.left)
         compose.onNodeWithText("hermes-remote").assertIsDisplayed()
         compose.onNodeWithText("gpt-5.6-terra").assertIsDisplayed()
     }

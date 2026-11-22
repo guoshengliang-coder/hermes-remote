@@ -80,7 +80,10 @@ fun ProfileAvatar(
     size: Dp = 28.dp,
     identity: ProfileIdentity? = name?.let { LocalProfileIdentities.current[it] },
 ) {
-    val look = resolveAvatarLook(name, identity, LocalAvatarDir.current)
+    val macName = LocalRoleLabels.current[name]
+    val resolvedIdentity = if (identity?.displayName == null && macName != null)
+        (identity ?: ProfileIdentity.DEFAULT).copy(displayName = macName) else identity
+    val look = resolveAvatarLook(name, resolvedIdentity, LocalAvatarDir.current)
     val photo = look.photo?.let { rememberAvatarBitmap(it) }
     // The initial scales WITH the circle (cap height ≈ 35% of the diameter, i.e. font size
     // ≈ 0.47×size) instead of jumping between two fixed styles.

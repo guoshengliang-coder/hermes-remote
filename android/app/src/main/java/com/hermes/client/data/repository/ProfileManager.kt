@@ -18,7 +18,13 @@ import javax.inject.Singleton
  * successful switch so observers can react without polling.
  */
 @Singleton
-class ProfileManager @Inject constructor(private val profiles: ProfileRepository) {
+class ProfileManager @Inject constructor(
+    private val profiles: ProfileRepository,
+    private val accounts: com.hermes.client.data.auth.AccountSessionManager? = null,
+) {
+    data class Catalog(val route: com.hermes.client.data.auth.AccountRoutingContext?, val profiles: List<ProfileDto>)
+    private val _catalog = MutableStateFlow(Catalog(null, emptyList()))
+    val catalog = _catalog.asStateFlow()
     private val switchMutex = Mutex()
     private val _list = MutableStateFlow<List<ProfileDto>>(emptyList())
     val list: StateFlow<List<ProfileDto>> = _list.asStateFlow()
@@ -30,7 +36,17 @@ class ProfileManager @Inject constructor(private val profiles: ProfileRepository
     val changed: StateFlow<Int> = _changed.asStateFlow()
 
     suspend fun refresh() {
-        runCatching { _list.value = profiles.list() }
+        val route = accounts?.routingContext()
+        if (route != _catalog.value.route) {
+            _catalog.value = Catalog(route, emptyList())
+            _list.value = emptyList()
+        }
+        runCatching { profiles.list() }.onSuccess { items ->
+            if (accounts?.routingContext() == route) {
+                _catalog.value = Catalog(route, items)
+                _list.value = items
+            }
+        }
         runCatching { _active.value = profiles.active() }
     }
 

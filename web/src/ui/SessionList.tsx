@@ -271,9 +271,7 @@ export function SessionList() {
             </button>
             <span class="topbar-spacer" />
             <h1 class="topbar-title">{t("会话", "Chats")}</h1>
-            {names.length > 1 && <select aria-label={t("筛选身份","Filter by profile")} value={profileFilter} onChange={e => setProfileFilter(e.currentTarget.value)}>
-              <option value="">{t("全部","All")}</option>{names.map(name => <option key={name} value={name}>{prefs.display(name, names)}</option>)}
-            </select>}
+
             <button type="button" class="icon-button" aria-label={t("搜索", "Search")} onClick={() => setSearching(true)}>
               <SearchIcon />
             </button>
@@ -287,6 +285,9 @@ export function SessionList() {
             <BackClose onClose={() => setMenuOpen(false)} />
             <div class="menu-scrim" onClick={() => setMenuOpen(false)} />
             <div class="menu" role="menu">
+            {names.length > 1 && <label class="menu-item">{t("筛选角色","Filter by role")} <select aria-label={t("筛选身份","Filter by profile")} value={profileFilter} onChange={e => { setProfileFilter(e.currentTarget.value); setMenuOpen(false); }}>
+              <option value="">{t("全部","All")}</option>{names.map(name => <option key={name} value={name}>{prefs.display(name, names)}</option>)}
+            </select></label>}
               <button type="button" role="menuitem" class="menu-item with-icon" onClick={() => { setMenuOpen(false); setProjectsOpen(true); }}>
                 <FolderIcon size={18} />
                 {t("按项目查看", "View by project")}
