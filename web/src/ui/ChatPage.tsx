@@ -1,3 +1,5 @@
+import { RoleSheet } from "./RoleSheet";
+import { deriveProjects, disambiguatedLabels } from "../app/projects";
 import { inboxKey } from "../app/inbox";
 import { Fragment } from "preact";
 import { useStartupPage } from "../startup/readiness";
@@ -158,7 +160,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
     (profile == null || app.sessions.filter(row => row.id === sessionId).length !== 1);
   const inaccessible = ambiguous || (!!profile && preferences.hidden(profile));
   const boundRoute = useRef<string | null>(null);
-  const viewKey = conversationScope(app.account?.id, device?.deviceId ?? "", profile, sessionId);
+  const viewKey = conversationScope(app.account?.id, device?.deviceId ?? "", sessionId === null ? null : profile, sessionId);
   const restoring = useRef<ScrollAnchor | null>(null);
   const view = useRef<ChatView>({ anchor: null, following: true, searchOpen: false, query: "", focus: 0 });
   view.current = { anchor: anchor.current, following: stick.current, searchOpen, query: searchQuery, focus: searchFocus };
@@ -198,7 +200,11 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
   }, [sessionId, app.chatSearchSeed]);
   // A new chat opened from a project-filtered list is created in that project's folder; captured
   // once so changing the filter later cannot move a chat that is being created.
+  const [draftProject, setDraftProject] = useState(app.projectFilter);
+  const [draftProjectOpen, setDraftProjectOpen] = useState(false);
   const newChatProject = useRef(sessionId === null ? app.projectFilter : null);
+  const draftProjects = deriveProjects(app.sessions.filter(row => explicitProfile(row) === newProfile));
+  const draftProjectLabels = disambiguatedLabels(draftProjects);
 
   // Opened straight from a URL before the list loaded: fetch it first, because the session's
   // profile decides where resume and history look.
@@ -236,7 +242,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
     setChosenModel(null);
     setExplicitModelOverride(false);
     setReasoning(null);
-    const project = app.projectFilter;
+    const project = draftProject;
     newChatProject.current = sessionId === null && project && (project.profile ?? "default") === profile ? project : null;
     const session = new ChatSession({
       client,
@@ -263,7 +269,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
     sessionRef.current = session;
     setStoredId(sessionId);
     session.start();
-  }, [sessionId, device?.deviceId, listReady, profile, inaccessible]);
+  }, [sessionId, device?.deviceId, listReady, profile, inaccessible, draftProject]);
 
   useEffect(() => () => {
     sessionRef.current?.dispose();
@@ -659,6 +665,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
   });
 
   const [pickingRole, setPickingRole] = useState(false);
+  const selectedDraftProject = draftProject && (draftProject.profile ?? "default") === newProfile ? draftProject : null;
   const hasWorkspaceLine = !connectionLine && (workspaceLabel !== null || workspaceIsDefault);
   const ownerBadge = !emptyNew && !botRow && profile && (
     <span class="role-owner-name">{preferences.display(profile, choices)}</span>
@@ -698,7 +705,10 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
                 <span class="chat-status">{connectionLine}</span>
               ) : botRow ? (
                 <span class="chat-workspace">{botOriginLabel(botRow, language)}</span>
-              ) : (workspaceLabel !== null || workspaceIsDefault) && !emptyNew ? (
+              ) : emptyNew ? (
+                <WorkspaceSubtitle projectLabel={selectedDraftProject?.label ?? null} branch={null}
+                  canMove={!!newProfile} enabled={!state.generating} onClick={() => setDraftProjectOpen(true)}/>
+              ) : (workspaceLabel !== null || workspaceIsDefault) ? (
                 // The subtitle is also the way to move the chat (DESIGN §5.4); WorkspaceSubtitle
                 // carries the default-project label and the live/branch layout.
                 <div class="owner-title-line">{ownerBadge}<WorkspaceSubtitle
@@ -835,12 +845,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
                     ? t("有什么要做的，直接说。", "Whatever you need — just say it.")
                     : t("连接恢复后就能开始。", "Ready as soon as we reconnect.")}
                 </p>
-                {newChatProject.current?.path ? (
-                  <p class="greeting-pill mono">
-                    <FolderIcon size={14} />
-                    {newChatProject.current.label}
-                  </p>
-                ) : null}
+
               </div>
             ) : (
               <p class="empty-chat">{t("发条消息，开始和 Hermes 对话。", "Send a message to start chatting with Hermes.")}</p>
@@ -964,11 +969,15 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
           }}
         />
       ) : null}
-      {pickingRole && emptyNew && <Sheet title={t("切换角色","Switch role")} closeLabel={t("关闭","Close")} onClose={() => setPickingRole(false)}>
-        {choices.map(name => <button type="button" key={name} class="sheet-action role-option" aria-pressed={name === newProfile}
-          onClick={() => { setSelected(name); setPickingRole(false); }}>
-          <span class="profile-initial" aria-hidden="true">{Array.from(preferences.label(name))[0]}</span>
-          {preferences.display(name, choices)}{name === newProfile && <span aria-hidden="true">✓</span>}
+      {pickingRole && emptyNew && <RoleSheet names={choices} label={name => preferences.display(name, choices)}
+        title={t("切换角色", "Switch role")} closeLabel={t("关闭", "Close")} selected={name => name === newProfile}
+        onToggle={name => { if (name !== newProfile) { setSelected(name); setDraftProject(null); } setPickingRole(false); }} onClose={() => setPickingRole(false)}/>}
+      {draftProjectOpen && emptyNew && <Sheet title={t("选择项目", "Choose project")} closeLabel={t("关闭", "Close")}
+        onClose={() => setDraftProjectOpen(false)}>
+        <button type="button" class="sheet-action" onClick={() => { setDraftProject(null); setDraftProjectOpen(false); }}>{t("默认项目", "Default project")}</button>
+        {draftProjects.filter(project => project.path !== null).map(project => <button type="button" class="sheet-action" key={project.path!}
+          onClick={() => { setDraftProject({ path: project.path, label: draftProjectLabels.get(project.path) ?? project.label, profile: newProfile ?? undefined }); setDraftProjectOpen(false); }}>
+          <FolderIcon size={18}/>{draftProjectLabels.get(project.path) ?? project.label}
         </button>)}
       </Sheet>}
       {artifactsOpen && artifactScope.current === viewKey && !artifactPreview && !viewer ? <ArtifactsSheet artifacts={artifacts}
@@ -1025,7 +1034,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
       {modelOpen && sessionRef.current ? (
         <ModelSheet
           current={currentModel}
-          profile={explicitProfile(row)}
+          profile={profile}
           explicitOverride={explicitModelOverride}
           actions={{
             switchModel: (provider, model, confirmed) => sessionRef.current!.switchModel(provider, model, confirmed, app.features.has("session-model-config")),

@@ -2374,3 +2374,28 @@ These real-device/browser checks have not been executed against production in th
 ### HG-259 · 多角色首发与列表标识
 
 在同一账号两台测试 Mac 上配置相同的角色标识和不同的中文显示名。Android 和 Web 分别验证两台 Mac 的名称、设置别名及清空别名。将草稿和附件加入新会话，切换角色后发出第一条；断网重试并核对 Mac 和角色。隐藏默认角色、隐藏全部和重新显示后分别检查新建、详情及列表。用窄屏和大字号检查置顶图钉与标题左缘、长角色名、项目入口及更多菜单中的筛选复位。
+
+### HG-260 — multi-role list filter and original new-chat layout
+
+Run on Android and on Android Chrome plus iPhone Safari/Home Screen WebApp. More → Filter by
+role must show a matching outline glyph and a bottom multi-select sheet (avatar, role name,
+checkbox), remain open while toggling and distinguish no roles from All roles. Hidden roles
+never reappear. Switch account/Mac and confirm scope reset. Check pins/grouping plus project
+filtering, including identical project paths in different roles; choosing a project must retain
+its actual role, not infer a default owner from a multi-selection.
+
+Open New chat from each existing entry. The header shows the current project and opens a
+role-scoped picker. Text, photos/files, original mic/model/reasoning/Add controls and input
+expansion remain usable. Switch roles with staged content, choose a project and send once;
+verify the actual Mac/role/cwd and attachments. Repeat create failure/retry, rapid Send,
+keyboard dismissal, voice recovery and share-to-new-target. Choosing the already selected
+role must not reset its project. Browser unit tests use the real ChatPage/Composer and prove
+the prior source lacks the new-chat project entrance; they do not prove microphone, real
+file pickers, mobile safe-area/IME behavior or production acceptance.
+
+Local Chromium evidence for HG-260: `web/scripts/check-session-roles.mjs` mounts actual ChatPage,
+Composer and RoleSheet with a fake transport. Twelve width/theme/font combinations pass with
+no horizontal page overflow and with retained text and exact chosen role/cwd. A separate
+none/all check covers rapid multi-selection updates. Output screenshots and observations stay
+in the caller's output directory. Physical Safari/Home Screen, real mic/file pickers, and
+production sends remain separate acceptance; this is not a production or WebKit test.

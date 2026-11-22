@@ -1,3 +1,9 @@
+HG-260 restores the original complete new-chat input by mounting the shared ChatScreen in a
+local draft scope. Roles remain selectable below the greeting avatar until the first send;
+text and attachments survive a role switch, and projects belong to the selected role.
+Both clients use a bottom role filter with multiple selection and an explicit All roles action.
+Source validation is not an APK/Web publication; physical acceptance remains in the smoke plans.
+
 HG-257 follow-up checks and repairs related session actions; rename/delete now require the
 Connector-side official-interface adapter. See `../docs/HG_257_SESSION_OPERATIONS.md` for fences,
 Console title restrictions, compatibility tests and remaining physical acceptance. No release is allocated.

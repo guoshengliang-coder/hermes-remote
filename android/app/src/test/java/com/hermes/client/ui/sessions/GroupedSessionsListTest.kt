@@ -1,6 +1,8 @@
 package com.hermes.client.ui.sessions
 
 import androidx.compose.material3.Surface
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshots.Snapshot
@@ -43,6 +45,7 @@ import org.robolectric.annotation.GraphicsMode
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-notnight-420dpi")
+@OptIn(ExperimentalMaterial3Api::class)
 class GroupedSessionsListTest {
     @get:Rule val compose = createComposeRule()
     private val now = Instant.parse("2026-11-14T04:00:00Z").toEpochMilli()
@@ -64,7 +67,12 @@ class GroupedSessionsListTest {
             InChinese {
                 HermesTheme(darkTheme = dark) {
                     val density = LocalDensity.current
-                    CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
+                    // Click ripples are intentional, independent of list placement/fade. Exclude
+                    // them so pixel equality still detects row motion rather than pointer feedback.
+                    CompositionLocalProvider(
+                        LocalDensity provides Density(density.density, fontScale),
+                        LocalRippleConfiguration provides null,
+                    ) {
                         Surface {
                             GroupedSessionsList(
                                 sessions = rows.value,

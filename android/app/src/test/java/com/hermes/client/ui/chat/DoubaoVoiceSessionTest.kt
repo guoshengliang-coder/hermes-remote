@@ -319,6 +319,11 @@ class DoubaoVoiceSessionTest {
         try {
             session.start()
             assertTrue(awaitEvent({ events.firstOrNull { it is VoiceEvent.Degraded } }) is VoiceEvent.Degraded)
+            // Endpoint timeout can win before the capture coroutine's first persisted chunk on
+            // a loaded runner. This case needs an existing recording before microphone failure.
+            assertEquals(VoiceEvent.Started, awaitEvent({
+                session.savedRecording?.takeIf { storeHasAudio(context, it.id) }?.let { VoiceEvent.Started }
+            }))
             failMic.set(true)
             assertEquals(VoiceFailure.MICROPHONE,
                 (awaitEvent({ events.firstOrNull { it is VoiceEvent.Failed } }) as VoiceEvent.Failed).reason)
@@ -327,6 +332,9 @@ class DoubaoVoiceSessionTest {
             assertTrue(!record.complete)
         } finally { session.cancel() }
     }
+
+    private fun storeHasAudio(context: android.content.Context, id: String): Boolean =
+        com.hermes.client.data.voice.VoiceRecordingStore(context).audio(id).length() > 0
 
     @Test fun replayRejectsAnInitialFinalBeforeAnyAudioWasSent() = assertPrematureReplayFinal(0)
     @Test fun replayRejectsAFinalWhileSavedAudioIsStillBeingSent() = assertPrematureReplayFinal(1)

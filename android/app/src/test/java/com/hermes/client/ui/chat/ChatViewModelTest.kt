@@ -179,6 +179,62 @@ class ChatViewModelTest {
         )
     }
 
+    @Test fun local_new_chat_preserves_attachments_without_remote_session_operations() = runUnsentComposerTest {
+        val vm = buildVm()
+        vm.openLocalDraft("draft", "default", "/work/default")
+        vm.stageAttachment(byteArrayOf(1), "text/plain", "one.txt")
+        vm.stageAttachment(byteArrayOf(2), "text/plain", "two.txt")
+        vm.onSelectFromSheet("provider", "chosen") {}
+        vm.setReasoning("high")
+        assertEquals("chosen", vm.firstTurn("草稿").model)
+        assertEquals("high", vm.firstTurn("草稿").reasoning)
+        vm.openLocalDraft("draft", "work", null)
+        runCurrent()
+        val turn = vm.firstTurn("草稿")
+        assertEquals("草稿", turn.text)
+        assertEquals(listOf("one.txt", "two.txt"), turn.files.map { it.name })
+        assertNull(turn.cwd)
+        assertNull(turn.model)
+        assertFalse(vm.send("must not submit a local id"))
+        assertTrue(vm.state.value.historyLoaded)
+        coVerify(exactly = 0) { chatRepo.resume(any(), any()) }
+        coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
+        coVerify(exactly = 0) { chatRepo.switchSessionModel(any(), any(), any(), any()) }
+    }
+
+    @Test fun first_turn_applies_the_selected_model_and_reasoning_before_prompt() = runUnsentComposerTest {
+        coEvery { chatRepo.resume("s1", "work") } returns "s1"
+        val vm = buildVm()
+        pendingShareStore.putTurn(null, null, "work", "s1", FirstTurn("first", emptyList(),
+            model = "chosen", provider = "provider", reasoning = "high"))
+        vm.open("s1", requestedProfile = "work", isNewSession = true)
+        runCurrent()
+        io.mockk.coVerifyOrder {
+            chatRepo.switchSessionModel("s1", "provider", "chosen", false)
+            chatRepo.reasoningSet("s1", "high")
+            chatRepo.submit("s1", "first")
+        }
+        coVerify(exactly = 1) { chatRepo.submit("s1", "first") }
+        assertEquals("chosen", vm.currentModel.value)
+    }
+
+    @Test fun first_turn_does_not_submit_when_model_confirmation_is_required() = runUnsentComposerTest {
+        coEvery { chatRepo.resume("s1", "work") } returns "s1"
+        val vm = buildVm()
+        coEvery { chatRepo.switchSessionModel(any(), any(), any(), any()) } returns ModelSwitchResult.ConfirmationRequired
+        pendingShareStore.putTurn(null, null, "work", "s1", FirstTurn("first", emptyList(), model = "chosen", provider = "provider"))
+        vm.open("s1", requestedProfile = "work", isNewSession = true)
+        runCurrent()
+        assertNotNull(vm.modelSheet.value.confirmation)
+        coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
+    }
+
+    internal fun localDraftUiFixture(): ChatViewModel {
+        setUp()
+        connectionStateFlow.value = ConnectionState.Connected
+        return buildVm(defaultDispatcher = Dispatchers.Main.immediate)
+    }
+
     // ── HG-41: the unsent draft. Token shape mirrors SessionReadStore.token(profile, id, device);
     // profileManager.active is null in these tests, hence "default/…".
     private val draftToken = com.hermes.client.data.repository.SessionReadStore.token(null, "s1")

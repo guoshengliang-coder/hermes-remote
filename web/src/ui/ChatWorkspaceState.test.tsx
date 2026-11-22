@@ -150,3 +150,28 @@ it("restores each conversation's search and rejects late events from the dispose
   await draw("a");
   expect(host.querySelector<HTMLInputElement>('input[type="search"]')!.value).toBe("文字");
 });
+
+it("new chat keeps the real composer draft while switching role and choosing its project", async () => {
+  fixture.deferStart = true;
+  const originalCatalog = app.profileCatalog;
+  const originalRows = app.sessions;
+  app.profileCatalog = { default: "助手", work: "工作" };
+  app.sessions = [...originalRows, { id: "work-session", profile: "work", cwd: "/work/project" }];
+  try {
+    await draw(null as unknown as string);
+    await act(async () => {
+      fixture.connections.at(-1)!.options.dispatch({ type: "history", rows: [] });
+      fixture.connections.at(-1)!.options.dispatch({ type: "connection", state: "ready" });
+    });
+    const input = host.querySelector<HTMLTextAreaElement>("textarea")!;
+    act(() => { input.value = "保留草稿"; input.dispatchEvent(new Event("input", { bubbles: true })); });
+    act(() => [...host.querySelectorAll("button")].find(button => button.textContent === "切换角色")!.click());
+    act(() => { [...host.querySelectorAll(".role-option")].find(button => button.textContent?.includes("工作"))!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(host.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("保留草稿");
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="所属项目，点按移动"]')!.click());
+    act(() => [...host.querySelectorAll<HTMLButtonElement>(".sheet-action")].find(button => button.textContent?.includes("project"))!.click());
+    expect(fixture.connections.at(-1)!.options.profile).toBe("work");
+    expect(fixture.connections.at(-1)!.options.cwd).toBe("/work/project");
+    expect(host.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("保留草稿");
+  } finally { app.profileCatalog = originalCatalog; app.sessions = originalRows; }
+});

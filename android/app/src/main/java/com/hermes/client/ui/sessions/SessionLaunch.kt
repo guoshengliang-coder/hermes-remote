@@ -61,8 +61,8 @@ internal fun rememberSessionCreator(
     var folder by remember { mutableStateOf<String?>(null) }
     val profiles by vm.profiles.collectAsStateWithLifecycle()
     val connection by vm.connectionState.collectAsStateWithLifecycle()
-    if (choosing) com.hermes.client.ui.chat.NewProfileChat(profiles, connection, creating, { choosing = false }) { owner, turn ->
-        val cwd = folder.takeIf { owner == activeProfile }
+    if (choosing) com.hermes.client.ui.chat.NewProfileChat(profiles, connection, creating, { choosing = false }, initialCwd = folder, initialProjectProfile = activeProfile) { owner, turn ->
+        val cwd = if (turn != null) turn.cwd else folder.takeIf { owner == activeProfile }
         if (!creating) {
             creating = true
             scope.launch {
