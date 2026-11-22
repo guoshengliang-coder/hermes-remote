@@ -666,7 +666,6 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
 
   const [pickingRole, setPickingRole] = useState(false);
   const selectedDraftProject = draftProject && (draftProject.profile ?? "default") === newProfile ? draftProject : null;
-  const hasWorkspaceLine = !connectionLine && (workspaceLabel !== null || workspaceIsDefault);
   const ownerBadge = !emptyNew && !botRow && profile && (
     <span class="role-owner-name">{preferences.display(profile, choices)}</span>
   );
@@ -700,25 +699,28 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
               {workspace.eligible ? <ListIcon /> : <BackIcon />}
             </button>
             <div class="chat-title">
-              <div class="owner-title-line">{!hasWorkspaceLine && ownerBadge}<h1 class={`topbar-title left${title.length > 24 ? " long" : ""}`}>{emptyNew ? t("新会话", "New chat") : title}</h1></div>
-              {connectionLine ? (
-                <span class="chat-status">{connectionLine}</span>
-              ) : botRow ? (
-                <span class="chat-workspace">{botOriginLabel(botRow, language)}</span>
-              ) : emptyNew ? (
-                <WorkspaceSubtitle projectLabel={selectedDraftProject?.label ?? null} branch={null}
-                  canMove={!!newProfile} enabled={!state.generating} onClick={() => setDraftProjectOpen(true)}/>
-              ) : (workspaceLabel !== null || workspaceIsDefault) ? (
-                // The subtitle is also the way to move the chat (DESIGN §5.4); WorkspaceSubtitle
-                // carries the default-project label and the live/branch layout.
-                <div class="owner-title-line">{ownerBadge}<WorkspaceSubtitle
-                  projectLabel={workspaceLabel}
-                  branch={workspaceBranch ?? null}
-                  canMove={canMove}
-                  enabled={!state.generating}
-                  onClick={() => setManage("move")}
-                /></div>
-              ) : null}
+              <div class="owner-title-line"><h1 class={`topbar-title left${title.length > 24 ? " long" : ""}`}>{emptyNew ? t("新会话", "New chat") : title}</h1></div>
+              <div class="owner-title-line chat-subtitle">
+                {ownerBadge}
+                {connectionLine ? (
+                  <span class="chat-status" title={connectionLine}>{connectionLine}</span>
+                ) : botRow ? (
+                  <span class="chat-workspace">{botOriginLabel(botRow, language)}</span>
+                ) : emptyNew ? (
+                  <WorkspaceSubtitle projectLabel={selectedDraftProject?.label ?? null} branch={null}
+                    canMove={!!newProfile} enabled={!state.generating} onClick={() => setDraftProjectOpen(true)}/>
+                ) : (workspaceLabel !== null || workspaceIsDefault) ? (
+                  // The subtitle is also the way to move the chat (DESIGN §5.4); WorkspaceSubtitle
+                  // carries the default-project label and the live/branch layout.
+                  <WorkspaceSubtitle
+                    projectLabel={workspaceLabel}
+                    branch={workspaceBranch ?? null}
+                    canMove={canMove}
+                    enabled={!state.generating}
+                    onClick={() => setManage("move")}
+                  />
+                ) : null}
+              </div>
             </div>
             {emptyNew ? (
               <span class="topbar-spacer" />

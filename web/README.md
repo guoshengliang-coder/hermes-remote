@@ -1,3 +1,5 @@
+HG-261/HG-262 keep the role on the chat subtitle row through missing-workspace and reconnect states. Shared session rows use one decorative dot between role and actual trailing metadata, without a dangling dot. Project moves, bot sources and HG-260 new-chat controls are preserved. Production-component Chromium/WebKit geometry validation: `node web/scripts/check-profile-layout.mjs <Playwright module> <output directory> [webkit executable]`. See `../docs/HG_261_262_PROFILE_LAYOUT.md`; source implementation is not publication.
+
 Browser layout QA for HG-260 uses the real ChatPage/Composer and RoleSheet with an isolated
 fake transport: `node web/scripts/check-session-roles.mjs <chrome-executable> <output-directory>`
 from the repository root (Node 22.12+ and installed Web dependencies). It checks 320/390/900px,

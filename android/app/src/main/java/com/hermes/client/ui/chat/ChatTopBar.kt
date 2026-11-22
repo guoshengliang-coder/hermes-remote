@@ -36,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -76,8 +77,8 @@ internal fun ChatTopBar(
     onArchive: () -> Unit,
     onArtifacts: () -> Unit = {},
     modifier: Modifier = Modifier,
-    titlePrefix: @Composable () -> Unit = {},
-    subtitle: @Composable () -> Unit = {},
+    roleName: String? = null,
+    subtitle: (@Composable () -> Unit)? = null,
 ) {
     val language = LocalAppLanguage.current
     var transcriptMenu by remember { mutableStateOf(false) }
@@ -108,19 +109,43 @@ internal fun ChatTopBar(
                 .padding(horizontal = 12.dp),
             verticalArrangement = Arrangement.Center,
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                titlePrefix()
-                Text(
-                    title,
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontSize = adaptiveSessionTitleSize(title).sp,
-                        lineHeight = (adaptiveSessionTitleSize(title) + 4).sp,
-                    ),
+            Text(
+                title,
+                style = MaterialTheme.typography.titleLarge.copy(
+                    fontSize = adaptiveSessionTitleSize(title).sp,
+                    lineHeight = (adaptiveSessionTitleSize(title) + 4).sp,
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            // Measure the role first with a cap, then give the workspace all remaining width.
+            // A short role must not reserve an unused percentage of the subtitle row.
+            Layout(content = {
+                if (roleName != null) Text(
+                    roleName,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(end = 4.dp),
                 )
+                if (subtitle != null) Box { subtitle() }
+            }) { measurables, constraints ->
+                val loose = constraints.copy(minWidth = 0, minHeight = 0)
+                var used = 0
+                val children = measurables.mapIndexed { index, measurable ->
+                    val cap = if (index == 0 && roleName != null) {
+                        val roleBudget = if (subtitle != null) (constraints.maxWidth * 0.3f).toInt() else constraints.maxWidth
+                        minOf(roleBudget, 112.dp.roundToPx())
+                    } else (constraints.maxWidth - used).coerceAtLeast(0)
+                    measurable.measure(loose.copy(maxWidth = cap)).also { used += it.width }
+                }
+                val height = children.maxOfOrNull { it.height } ?: 0
+                layout(used.coerceAtLeast(constraints.minWidth), height.coerceAtLeast(constraints.minHeight)) {
+                    var x = 0
+                    children.forEach { child -> child.placeRelative(x, (height - child.height) / 2); x += child.width }
+                }
             }
-            subtitle()
         }
         // Fades on the same 150ms beat as the new-session greeting it disappears with
         // (docs/DESIGN.md §5.10), so the screen settles once rather than twice.

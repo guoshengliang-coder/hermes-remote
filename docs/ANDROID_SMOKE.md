@@ -1169,3 +1169,8 @@ On one physical Android, record device/OS/build, then test:
 Automated L1 covers the real complete ChatScreen in light and dark/1.3-font configurations,
 role-sheet toggling, local draft/attachment preservation and explicit-role project reads.
 L2 physical interaction and L3 emulator verification were unavailable on the implementation host.
+
+
+## HG-261 / HG-262 — 角色副行与圆点分隔
+
+自动化已覆盖生产 ChatTopBar/SessionSubline 的位置和组合断言、浅暗及 1.3 字号，另用 API 37 组件测试；实际结果见 HG_261_262_PROFILE_LAYOUT.md。物理设备仍需打开无目录与有目录会话，确认角色始终在标题下面，项目与更多按钮可操作，长别名／重名说明能辨认；查看列表、搜索、归档与项目内行，确认图钉最左、草稿可见、缺项无首尾圆点。需要厂商字体与实际触摸观感，JVM/Pixel 模拟器不能替代。
