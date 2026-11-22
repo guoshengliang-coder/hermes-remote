@@ -1150,3 +1150,22 @@ JVM 测试覆盖文法、分块、搜索/朗读/触感索引、文档注入、�
 从设置抽屉改名，再隐藏 Studio。检查搜索、归档、返回栈、深链和应用内提醒均不会展示该身份的内容。恢复后应看到原会话，换到同名 profile 的另一台 Mac 时，其本地名字和可见性保持独立。隐藏默认身份后须另选，全部隐藏后仍可进入设置恢复。
 
 在窄屏、深色和大字体下分别点详情小头像与相邻项目入口。前者只显示身份，后者打开项目选择器。在没有项目的会话中检查小头像位于标题旁。在 Android 设备和 iPhone Safari 分别验证这些触控步骤。
+
+## HG-260 — full new-chat UI and role filtering
+
+On one physical Android, record device/OS/build, then test:
+- More → Filter by role has an aligned outline icon and opens a bottom sheet. Select two roles,
+  deselect all, restore All roles, and close/reopen. Selection must not change the Mac's global role.
+- From Chats, a named project, Archive, and an existing chat's +, open New chat. Confirm the
+  original microphone, model/reasoning selector, Add options, compact/expanded input and send control.
+- Type, add two files and a photo, switch roles, then choose a project in the header. Only that
+  role's projects appear. Text and staged attachments survive; the first send uses that Mac/role/cwd once.
+- Repeat disconnected create/retry, double Send, IME Back, voice Send/Edit/Cancel and a shared
+  transcript delivered to a new role. Creation progress must not show an owned-elsewhere error.
+- Hide the default role and all roles; explicitly select a visible role before sending. Switch Mac
+  and account and verify no previous filter/draft/late project result is exposed.
+- Repeat warm/light and obsidian/dark with large fonts and a long project/role name.
+
+Automated L1 covers the real complete ChatScreen in light and dark/1.3-font configurations,
+role-sheet toggling, local draft/attachment preservation and explicit-role project reads.
+L2 physical interaction and L3 emulator verification were unavailable on the implementation host.

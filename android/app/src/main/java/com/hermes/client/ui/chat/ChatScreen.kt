@@ -155,6 +155,12 @@ fun ChatScreen(
      */
     onOpenDelivered: (ChatLaunch) -> Unit = {},
     onUnauthorized: () -> Unit = {},
+    localDraft: Boolean = false,
+    draftCwd: String? = null,
+    draftBusy: Boolean = false,
+    onDraftSend: ((FirstTurn) -> Unit)? = null,
+    draftRoleSwitch: (@Composable () -> Unit)? = null,
+    greetingHourOfDay: Int = java.time.LocalTime.now().hour,
 ) {
     val language = LocalAppLanguage.current
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -189,7 +195,7 @@ fun ChatScreen(
         }
     }
     LaunchedEffect(sessionId, sessionDeviceId, ownerProfile, initialTitle, isNewSession) {
-        vm.open(
+        if (localDraft) vm.openLocalDraft(sessionId, ownerProfile, draftCwd) else vm.open(
             sessionId,
             ownerProfile,
             initialTitle,
@@ -203,8 +209,12 @@ fun ChatScreen(
         onDispose { vm.setScreenVisible(sessionId, false) }
     }
     LaunchedEffect(language) { vm.setAppLanguage(language) }
-    val settingsVm: com.hermes.client.ui.settings.SettingsViewModel = androidx.hilt.navigation.compose.hiltViewModel()
-    val outputHaptics by settingsVm.outputHaptics.state.collectAsStateWithLifecycle()
+    // A local draft has no model output and does not need another settings VM in its dialog.
+    val outputHaptics = if (localDraft) com.hermes.client.ui.settings.OutputHapticsSettingsState() else {
+        val settingsVm: com.hermes.client.ui.settings.SettingsViewModel = hiltViewModel()
+        val outputSettings by settingsVm.outputHaptics.state.collectAsStateWithLifecycle()
+        outputSettings
+    }
     val state by vm.state.collectAsStateWithLifecycle()
     var outputHapticsStopped by rememberSaveable(sessionId) { mutableStateOf(false) }
     // A stopped visual tail stays silent after its network terminal event.
@@ -512,7 +522,7 @@ fun ChatScreen(
     }
     var preparingAttachments by remember(sessionId) { androidx.compose.runtime.mutableIntStateOf(0) }
     val attachingSessions by vm.attachingSessions.collectAsStateWithLifecycle()
-    val canSend = !messageActionBusy && composerRecoveryError == null && preparingAttachments == 0 && attachingSessions == 0 && canSend(
+    val canSend = !draftBusy && !messageActionBusy && composerRecoveryError == null && preparingAttachments == 0 && attachingSessions == 0 && canSend(
         connected,
         draft.isNotBlank(),
         state.pendingAttachments.isNotEmpty(),
@@ -535,6 +545,7 @@ fun ChatScreen(
             return
         }
         haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+        if (onDraftSend != null) { onDraftSend(vm.firstTurn(draft)); return }
         if (!vm.send(draft)) return
         draft = ""
         // Ahead of the debounce: the row must lose its 「草稿」 marker as the message leaves, not
@@ -1032,6 +1043,12 @@ fun ChatScreen(
         } else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
     }
     fun submitVoice(text: String, recording: com.hermes.client.data.voice.VoiceRecording? = null) {
+        if (onDraftSend != null) {
+            draft = appendDictation(draft, text)
+            voiceMode = false
+            onDraftSend(vm.firstTurn(draft).copy(onDelivered = recording?.let { saved -> { runCatching { voiceStore.remove(saved.id) }; Unit } }))
+            return
+        }
         if (preparingAttachments == 0 && vm.sendVoiceText(text, draft, recording?.let { saved -> { runCatching { voiceStore.remove(saved.id) }; Unit } })) {
             haptic.performHapticFeedback(HapticFeedbackType.Confirm)
             draft = ""
@@ -1370,7 +1387,7 @@ fun ChatScreen(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                    } else if (ws != null && workspaceProjects.any { it.id != com.hermes.client.ui.sessions.DEFAULT_PROJECT_ID }) {
+                    } else if (ws != null && (localDraft || workspaceProjects.any { it.id != com.hermes.client.ui.sessions.DEFAULT_PROJECT_ID })) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             if (!newChatGreetingVisible(isNewSession, state.messages.size, state.isGenerating)) ConversationRoleName(ownerProfile)
                             WorkspaceSubtitle(
@@ -1550,6 +1567,7 @@ fun ChatScreen(
                         },
                     )
                 }
+                if (draftBusy) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
                 ComposerSurface(
                     expanded = sessionWritable && composerFocused,
                     modifier = Modifier.fillMaxWidth().heightIn(
@@ -1570,7 +1588,7 @@ fun ChatScreen(
                         VoiceComposerBar(
                             language = language,
                             holdLabel = localized(language, if (voiceHeld) "松开发送" else "按住说话", if (voiceHeld) "Release to send" else "Hold to talk"),
-                            holdEnabled = voiceHeld || (connected && !state.isGenerating && !voiceWaiting && !voiceStorageBusy && voiceRecoveryLoaded && pendingVoice == null &&
+                            holdEnabled = voiceHeld || (!draftBusy && connected && !state.isGenerating && !voiceWaiting && !voiceStorageBusy && voiceRecoveryLoaded && pendingVoice == null &&
                                 preparingAttachments == 0 && attachingSessions == 0),
                             keyboardEnabled = !voiceHeld && !voiceWaiting,
                             sessionWritable = sessionWritable,
@@ -1594,7 +1612,7 @@ fun ChatScreen(
                             OutlinedTextField(
                                 value = draft,
                                 onValueChange = { draft = it },
-                                readOnly = !sessionWritable || messageActionBusy,
+                                readOnly = draftBusy || !sessionWritable || messageActionBusy,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .focusRequester(focusRequester)
@@ -1620,7 +1638,7 @@ fun ChatScreen(
                                 Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                IconButton(onClick = { enterVoiceMode() }, enabled = sessionWritable) {
+                                IconButton(onClick = { enterVoiceMode() }, enabled = sessionWritable && !draftBusy) {
                                     Icon(Icons.Rounded.Mic, contentDescription = localized(language, "切换语音输入", "Switch to voice input"), modifier = Modifier.size(24.dp))
                                 }
                                 // Model chip. Layout contract (real-device regression: a long
@@ -1667,7 +1685,7 @@ fun ChatScreen(
                                         }
                                     }
                                 }
-                                IconButton(onClick = { showAttachSheet = true }, enabled = sessionWritable) {
+                                IconButton(onClick = { showAttachSheet = true }, enabled = sessionWritable && !draftBusy) {
                                     Icon(Icons.Rounded.Add, contentDescription = localized(language, "添加内容", "Add content"), modifier = Modifier.size(28.dp))
                                 }
                                 ComposerActionButton(
@@ -1683,11 +1701,11 @@ fun ChatScreen(
                             Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            IconButton(onClick = { enterVoiceMode() }, enabled = sessionWritable) {
+                            IconButton(onClick = { enterVoiceMode() }, enabled = sessionWritable && !draftBusy) {
                                 Icon(Icons.Rounded.Mic, contentDescription = localized(language, "切换语音输入", "Switch to voice input"), modifier = Modifier.size(24.dp))
                             }
                             ChatDraftField(
-                                draft, { draft = it }, !sessionWritable,
+                                draft, { draft = it }, draftBusy || !sessionWritable,
                                 Modifier.weight(1f).focusRequester(focusRequester)
                                     .onFocusChanged { if (it.isFocused) composerFocused = true },
                                 onSend = { submit() },
@@ -1699,7 +1717,7 @@ fun ChatScreen(
                                 canSend -> ComposerActionButton(
                                     isStop = false, enabled = true, language = language, onClick = { submit() },
                                 )
-                                else -> IconButton(onClick = { showAttachSheet = true }, enabled = sessionWritable) {
+                                else -> IconButton(onClick = { showAttachSheet = true }, enabled = sessionWritable && !draftBusy) {
                                     Icon(Icons.Rounded.Add, contentDescription = localized(language, "添加内容", "Add content"), modifier = Modifier.size(28.dp))
                                 }
                             }
@@ -1859,10 +1877,12 @@ fun ChatScreen(
                             ?.let { " · " + it.resolve(language) } ?: ""
                         NewChatGreeting(
                             profile = ownerProfile,
-                            identityName = identities[ownerProfile]?.displayName,
+                            identityName = if (localDraft) com.hermes.client.ui.components.roleLabel(ownerProfile) else identities[ownerProfile]?.displayName,
                             modelLabel = modelChipLabel(currentModel, effortSuffix, isBot = false, language = language),
                             connection = connState,
                             imeVisible = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0,
+                            roleSwitch = draftRoleSwitch,
+                            hourOfDay = greetingHourOfDay,
                         )
                     }
                     }
@@ -2717,7 +2737,7 @@ fun ChatScreen(
         )?.id
         com.hermes.client.ui.sessions.ProjectPickerSheet(
             projects = workspaceProjects,
-            currentProjectId = currentId,
+            currentProjectId = currentId ?: com.hermes.client.ui.sessions.DEFAULT_PROJECT_ID.takeIf { localDraft },
             onDismiss = { projectSheetOpen = false },
             onPick = { project -> vm.moveToProject(project) { projectSheetOpen = false } },
         )

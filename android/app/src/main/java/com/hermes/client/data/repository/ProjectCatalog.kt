@@ -103,6 +103,13 @@ class ProjectCatalog(
         return deriveProjectsFromSessions(scoped, defaultProjectPath())
     }
 
+    /** Read a new-chat chooser for its explicit owner, without switching the Mac profile. */
+    suspend fun forProfile(profile: String): List<Project> {
+        val isDefault = profile == DEFAULT_PROFILE_NAME ||
+            profileManager.list.value.any { it.isDefault && it.name == profile }
+        return if (isDefault) server() else derivedFromCache(profile)
+    }
+
     /** [derived] without a network call, for callers already holding a warm session cache. */
     suspend fun derivedFromCache(profile: String?): List<Project> {
         val scoped = sessions.cachedAllProfiles()

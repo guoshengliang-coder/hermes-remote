@@ -675,6 +675,10 @@ class SessionsViewModel @Inject constructor(
         }
     }
 
+    fun roleFilterScope(): String = accountSessions?.session?.value?.let {
+        it.accountId + ":" + it.selectedDeviceId
+    }.orEmpty()
+
     /** Outcome of [createSession]: the durable id, and whether a requested project folder was refused. */
     data class CreateResult(
         val id: String,

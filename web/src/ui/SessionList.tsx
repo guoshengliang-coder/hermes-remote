@@ -1,3 +1,5 @@
+import { RoleSheet } from "./RoleSheet";
+import { roleIncluded, toggleRole } from "../app/roleFilter";
 import { loadProfileSessionPages } from "../app/profileSessionPages";
 import { conversationScope } from "../app/conversationMemory";
 import { inboxKey } from "../app/inbox";
@@ -25,7 +27,7 @@ import type { SessionListItem } from "../hermes/types";
 import { ErrorNotice } from "./ErrorNotice";
 import { AccountDrawer } from "./AccountDrawer";
 import { HealthStrip } from "./HealthStrip";
-import { ArchiveIcon, BotIcon, ChatIcon, CheckIcon, ChevronIcon, ChevronUpIcon, CloseIcon, FolderIcon, MenuIcon, MoreVerticalIcon, PlusIcon, SearchIcon } from "./icons";
+import { ArchiveIcon, RoleFilterIcon, BotIcon, ChatIcon, CheckIcon, ChevronIcon, ChevronUpIcon, CloseIcon, FolderIcon, MenuIcon, MoreVerticalIcon, PlusIcon, SearchIcon } from "./icons";
 import { SearchView } from "./SearchView";
 import { SessionActionSheet } from "./SessionActions";
 import { SessionRow } from "./SessionRow";
@@ -82,8 +84,9 @@ export function SessionList() {
   const app = useApp();
   const prefs = useProfilePreferences();
   const names = useProfileNames().filter(name => !prefs.hidden(name));
-  const [chosenFilter, setProfileFilter] = useState("");
-  const profileFilter = names.includes(chosenFilter) ? chosenFilter : "";
+  const [profileFilter, setProfileFilter] = useState<string[] | null>(null);
+  const [roleFilterOpen, setRoleFilterOpen] = useState(false);
+  useLayoutEffect(() => { setProfileFilter(null); setRoleFilterOpen(false); }, [app.account?.id, app.device?.deviceId]);
   const visibleSessions = useMemo(() => app.sessions.filter(s => !prefs.hidden(explicitProfile(s) ?? "default")), [app.sessions, prefs.hidden]);
   const { t, language, device, client } = app;
   const paneActive = useWorkspace().listVisible !== false;
@@ -110,7 +113,7 @@ export function SessionList() {
     return () => window.removeEventListener(DRAFT_CHANGED, changed);
   }, []);
   useEffect(() => {
-    if (!paneActive) { setMenuOpen(false); setDrawerOpen(false); setProjectsOpen(false); setActionFor(null); }
+    if (!paneActive) { setMenuOpen(false); setRoleFilterOpen(false); setDrawerOpen(false); setProjectsOpen(false); setActionFor(null); }
   }, [paneActive]);
   const searchRef = useRef<HTMLInputElement>(null);
   /** The list's own scroll port: the page frame never scrolls (HG-173). */
@@ -201,7 +204,7 @@ export function SessionList() {
     return () => port.removeEventListener("scroll", onScroll);
   }, [reveal]);
 
-  const listable = useMemo(() => visibleSessions.filter((s) => isListable(s) && !isBotSession(s) && (!profileFilter || explicitProfile(s) === profileFilter)), [visibleSessions, profileFilter]);
+  const listable = useMemo(() => visibleSessions.filter((s) => isListable(s) && !isBotSession(s) && (profileFilter === null || roleIncluded(profileFilter, names, explicitProfile(s)))), [visibleSessions, profileFilter, names.join("\0")]);
   const bots = useMemo(() => botSections(visibleSessions), [visibleSessions]);
   const showBots = bots.length > 0;
   const segment = showBots ? app.listSegment : "chats";
@@ -211,17 +214,18 @@ export function SessionList() {
     const known = new Set(app.sessions.map((s) => inboxKey(s.id, explicitProfile(s))));
     const extra: SessionListItem[] = [];
     for (const id of app.needsYou) {
-      if (known.has(id) || prefs.hasHidden || profileFilter) continue;
+      if (known.has(id)) continue;
       const entry = app.inbox.latest[id];
-      if (!entry?.profile || prefs.hidden(entry.profile)) continue;
+      if (!entry?.profile || prefs.hidden(entry.profile) || (profileFilter !== null && !roleIncluded(profileFilter, names, entry.profile))) continue;
       extra.push({ id: entry.storedSessionId, profile: entry.profile, title: entry?.title ?? null, last_active: entry ? entry.occurredAtMs / 1000 : null });
     }
     return [...extra, ...listable];
   }, [listable, app.needsYou, app.inbox.latest, prefs.hasHidden, profileFilter]);
 
-  const projects = useMemo(() => deriveProjects(listable), [listable]);
+  const projects = useMemo(() => names.flatMap(profile => deriveProjects(listable.filter(row => explicitProfile(row) === profile))
+    .map(project => ({ ...project, profile }))), [listable, names.join("\0")]);
   const projectLabels = useMemo(() => disambiguatedLabels(projects), [projects]);
-  const shown = useMemo(() => (filter ? rows.filter((r) => app.needsYou.has(inboxKey(r.id, explicitProfile(r))) || inProject(r, filter.path)) : rows), [rows, filter, app.needsYou]);
+  const shown = useMemo(() => (filter ? rows.filter((r) => app.needsYou.has(inboxKey(r.id, explicitProfile(r))) || (inProject(r, filter.path) && (!filter.profile || explicitProfile(r) === filter.profile))) : rows), [rows, filter, app.needsYou]);
   const groups = useMemo(() => groupSessions(shown, app.needsYou, now, app.isPinned), [shown, app.needsYou, now, app.isPinned]);
   const drafts = useMemo(() => new Set(visibleSessions.filter(row => {
     if (!deviceId) return false;
@@ -285,9 +289,8 @@ export function SessionList() {
             <BackClose onClose={() => setMenuOpen(false)} />
             <div class="menu-scrim" onClick={() => setMenuOpen(false)} />
             <div class="menu" role="menu">
-            {names.length > 1 && <label class="menu-item">{t("筛选角色","Filter by role")} <select aria-label={t("筛选身份","Filter by profile")} value={profileFilter} onChange={e => { setProfileFilter(e.currentTarget.value); setMenuOpen(false); }}>
-              <option value="">{t("全部","All")}</option>{names.map(name => <option key={name} value={name}>{prefs.display(name, names)}</option>)}
-            </select></label>}
+            {names.length > 1 && <button type="button" role="menuitem" class="menu-item with-icon"
+              onClick={() => { setMenuOpen(false); setRoleFilterOpen(true); }}><RoleFilterIcon size={18}/>{t("筛选角色", "Filter by role")}</button>}
               <button type="button" role="menuitem" class="menu-item with-icon" onClick={() => { setMenuOpen(false); setProjectsOpen(true); }}>
                 <FolderIcon size={18} />
                 {t("按项目查看", "View by project")}
@@ -299,6 +302,10 @@ export function SessionList() {
             </div>
           </>
         ) : null}
+        {roleFilterOpen && <RoleSheet names={names} label={name => prefs.display(name, names)} title={t("筛选角色", "Filter by role")}
+          closeLabel={t("关闭", "Close")} multiple selected={name => roleIncluded(profileFilter, names, name)}
+          allLabel={t("全部角色", "All roles")} onAll={() => setProfileFilter(null)}
+          onToggle={name => setProfileFilter(previous => toggleRole(previous, names, name))} onClose={() => setRoleFilterOpen(false)}/>}
         {drawerOpen ? <AccountDrawer onClose={() => setDrawerOpen(false)} /> : null}
         {!searching && showBots ? (
           <div class="segments" role="tablist">
@@ -466,16 +473,16 @@ export function SessionList() {
                 <span class="picker-check">{filter ? null : <CheckIcon size={18} />}</span>
               </button>
               {projects.map((project) => {
-                const selected = filter !== null && filter.path === project.path;
+                const selected = filter !== null && filter.path === project.path && filter.profile === project.profile;
                 const label = projectName(project.path, project.label);
                 return (
                   <button
                     type="button"
                     class={`picker-row${selected ? " selected" : ""}`}
                     aria-pressed={selected}
-                    key={project.path ?? "__no_folder__"}
+                    key={`${project.profile}:${project.path ?? "__no_folder__"}`}
                     onClick={() => {
-                      app.setProjectFilter({ path: project.path, label, profile: profileFilter || undefined });
+                      app.setProjectFilter({ path: project.path, label, profile: project.profile });
                       setProjectsOpen(false);
                     }}
                   >
@@ -483,7 +490,7 @@ export function SessionList() {
                       <FolderIcon size={18} />
                     </span>
                     <span class="picker-text">
-                      <span class="picker-name">{label}</span>
+                      <span class="picker-name">{label} · {prefs.display(project.profile, names)}</span>
                       {project.path ? (
                         // rtl so a long path is cut at its start; <bdi> keeps the path itself ltr.
                         <span class="picker-path mono">

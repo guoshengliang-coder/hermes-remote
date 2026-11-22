@@ -114,9 +114,9 @@ fun SessionsScreen(
     val profiles by vm.profiles.collectAsStateWithLifecycle()
     val hidden = com.hermes.client.ui.components.LocalHiddenProfiles.current
     val names = profiles.map { if (it.isDefault) "default" else it.name }.filterNot(hidden::contains)
-    var filter by remember(names) { mutableStateOf<String?>(null) }
+    var filter by remember(vm.roleFilterScope()) { mutableStateOf<Set<String>?>(null) }
     val state = rawState.copy(
-        sessions = rawState.sessions.filter { (it.profile ?: "default") !in hidden && (filter == null || it.profile == filter) },
+        sessions = rawState.sessions.filter { (it.profile ?: "default") !in hidden && (filter == null || (it.profile ?: "default") in filter.orEmpty()) },
         botSessions = rawState.botSessions.filter { (it.profile ?: "default") !in hidden },
     )
     val pinnedTokens by vm.pinnedTokens.collectAsStateWithLifecycle()
@@ -990,8 +990,8 @@ internal fun ChatsTopBar(
     onOpenProjects: () -> Unit,
     onOpenArchived: () -> Unit,
     visibleProfiles: List<String> = listOfNotNull(activeProfile),
-    currentFilter: String? = null,
-    onFilter: (String?) -> Unit = {},
+    currentFilter: Set<String>? = null,
+    onFilter: (Set<String>?) -> Unit = {},
 ) {
     val language = LocalAppLanguage.current
     var menuOpen by remember { mutableStateOf(false) }
@@ -1031,13 +1031,18 @@ internal fun ChatsTopBar(
                         modifier = Modifier.size(com.hermes.client.ui.tuning.tunedTopBarGlyph()), // TUNING-TEMP
                     )
                 }
-                    DropdownMenu(expanded = filtering, onDismissRequest = { filtering = false }) {
-                        DropdownMenuItem(trailingIcon = { if (currentFilter == null) Icon(Icons.Rounded.Check, localized(language, "已选择", "Selected")) }, text = { Text(localized(language, "全部角色", "All roles")) }, onClick = { onFilter(null); filtering = false })
-                        visibleProfiles.forEach { name ->
-                            DropdownMenuItem(text = { Text(com.hermes.client.ui.components.roleLabel(name)) },
-                                trailingIcon = { if (currentFilter == name) Icon(Icons.Rounded.Check, localized(language, "已选择", "Selected")) }, onClick = { onFilter(name); filtering = false })
-                        }
-                    }
+                if (filtering) com.hermes.client.ui.components.RolePickerSheet(
+                    names = visibleProfiles,
+                    title = localized(language, "筛选角色", "Filter by role"),
+                    selected = currentFilter ?: visibleProfiles.toSet(),
+                    multiple = true,
+                    onAll = { onFilter(null) },
+                    onPick = { name ->
+                        val selected = currentFilter ?: visibleProfiles.toSet()
+                        onFilter(if (name in selected) selected - name else selected + name)
+                    },
+                    onDismiss = { filtering = false },
+                )
                 // Same menu shape as the chat screen's (docs/DESIGN.md §5.4): navigation first,
                 // 20dp leading glyphs, 16dp corners on `surface`.
                 DropdownMenu(
@@ -1047,6 +1052,7 @@ internal fun ChatsTopBar(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ) {
                     if (visibleProfiles.size > 1) DropdownMenuItem(
+                        leadingIcon = { Icon(com.hermes.client.ui.components.RoleFilterIcon, null, Modifier.size(20.dp)) },
                         text = { Text(localized(language, "筛选角色", "Filter by role")) },
                         onClick = { menuOpen = false; filtering = true },
                     )

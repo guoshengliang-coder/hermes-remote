@@ -57,6 +57,17 @@ class ProjectCatalogTest {
         assertFalse(catalog(active = "writer", default = null).isManaged())
     }
 
+    @Test fun draft_projects_use_explicit_role_without_switching_global_profile() = runTest {
+        val c = catalog(active = "default")
+        every { sessions.cachedAllProfiles() } returns listOf(
+            session("/default-only"), session("/work-only").copy(profile = "work"))
+        val rows = c.forProfile("work")
+        assertTrue(rows.any { it.path == "/work-only" })
+        assertFalse(rows.any { it.path == "/default-only" })
+        io.mockk.coVerify(exactly = 0) { projectsRepo.tree(any()) }
+        assertEquals("default", profileManager.active.value)
+    }
+
     /**
      * The regression this class exists for: the Projects page and both「移动到项目」pickers used to
      * build their lists separately, so once the page read the gateway they disagreed.

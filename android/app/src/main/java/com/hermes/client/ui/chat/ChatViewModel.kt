@@ -287,6 +287,12 @@ class ChatViewModel @Inject constructor(
      * 4009 anyway); failures surface as registered codes via [workspaceError].
      */
     fun moveToProject(project: com.hermes.client.domain.Project, onDone: () -> Unit) {
+        if (localDraft) {
+            _workspace.value = SessionWorkspace(project.path, null, null,
+                project.label.takeUnless { project.id == com.hermes.client.ui.sessions.DEFAULT_PROJECT_ID })
+            onDone()
+            return
+        }
         val id = storedSessionId.takeIf { it.isNotBlank() } ?: return
         if (_state.value.isGenerating) {
             _workspaceError.value = com.hermes.client.data.error.AppError(
@@ -861,6 +867,56 @@ class ChatViewModel @Inject constructor(
         return recovered
     }
 
+    // Local new-chat state uses the real chat UI, without a resume/history request for a fake id.
+    private var localDraft = false
+    private var draftLoadJob: Job? = null
+    private var pendingFirstTurnSettings: FirstTurn? = null
+
+    fun openLocalDraft(id: String, profile: String, cwd: String?) {
+        if (localDraft && storedSessionId == id && currentProfile == profile) return
+        localDraft = true
+        storedSessionId = id
+        sessionId = id
+        currentProfile = profile
+        currentDeviceId = accountSessions?.session?.value?.selectedDeviceId
+        val account = accountSessions?.session?.value
+        conversationDrafts = draftStore.forOwner(com.hermes.client.ui.workspace.workspaceSessionKey(listOf(
+            account?.baseUrl.orEmpty(), account?.accountId ?: "signed-out")))
+        draftToken = com.hermes.client.data.repository.SessionReadStore.token(profile, id, currentDeviceId)
+        draftSeeded = true
+        _state.value = ChatUiState(historyLoaded = true, pendingAttachments = _state.value.pendingAttachments)
+        _sessionTitle.value = localized(appLanguage, "新会话", "New chat")
+        _currentModel.value = null
+        _currentProvider.value = null
+        _defaultModel.value = null
+        _defaultProvider.value = null
+        _explicitSessionOverride.value = false
+        _reasoningEffort.value = null
+        _workspace.value = SessionWorkspace(cwd, null, null, cwd?.substringAfterLast('/'))
+        _workspaceProjects.value = emptyList()
+        draftLoadJob?.cancel()
+        draftLoadJob = viewModelScope.launch {
+            defaultProjectPath = runCatching { projectPrefs.defaultProjectPath.first() }.getOrNull()
+            val projects = runCatching { projectCatalog.forProfile(profile) }.getOrElse { projectCatalog.derivedFromCache(profile) }
+            if (!localDraft || currentProfile != profile || storedSessionId != id) return@launch
+            _workspaceProjects.value = projects
+            runCatching { configRepo.get(profile) }.onSuccess { cfg ->
+                if (!localDraft || currentProfile != profile || storedSessionId != id) return@onSuccess
+                val model = (cfg["model"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.ifBlank { null }
+                _defaultModel.value = model
+                if (!_explicitSessionOverride.value) _currentModel.value = model
+                backfillProvidersFromCatalog()
+            }
+        }
+        ensureProviders()
+    }
+
+    fun firstTurn(text: String) = FirstTurn(text, _state.value.pendingAttachments,
+        cwd = _workspace.value?.cwd,
+        model = _currentModel.value.takeIf { _explicitSessionOverride.value },
+        provider = _currentProvider.value.takeIf { _explicitSessionOverride.value },
+        reasoning = _reasoningEffort.value)
+
     fun open(
         id: String,
         requestedProfile: String? = null,
@@ -869,6 +925,9 @@ class ChatViewModel @Inject constructor(
         language: AppLanguage = LanguagePreference.SYSTEM.resolve(),
         requestedDeviceId: String? = null,
     ) {
+        localDraft = false
+        draftLoadJob?.cancel()
+        if (storedSessionId != id) pendingFirstTurnSettings = null
         setAppLanguage(language)
         // Configuration changes recreate the composition and re-run its LaunchedEffect, while the
         // navigation-scoped ViewModel and runtime remain alive. Reopening the same key used to mark
@@ -1210,7 +1269,8 @@ class ChatViewModel @Inject constructor(
             }
         }
         pendingShareStore.takeTurn(account?.accountId, resolvedDevice, profile, id)?.let { turn ->
-            dispatch(turn.text, turn.files)
+            pendingFirstTurnSettings = turn
+            dispatch(turn.text, turn.files, turn.onDelivered)
         }
         titleJob?.cancel()
         titleJob = viewModelScope.launch {
@@ -1609,7 +1669,7 @@ class ChatViewModel @Inject constructor(
         val route = accountSessions?.transportRoutingContext()
         val device = currentDeviceId
         if (route != null && route.deviceId != device) throw com.hermes.client.data.error.SessionOwnerUnconfirmed()
-        val id = chat.createSession(profile).id
+        val id = chat.createSession(profile, turn?.cwd).id
         if (accountSessions?.transportRoutingContext() != route || currentDeviceId != device) throw CancellationException("Conversation route changed")
         turn?.let { pendingShareStore.putTurn(route?.accountId, device, profile, id, it) }
         return id
@@ -2078,7 +2138,7 @@ class ChatViewModel @Inject constructor(
     fun send(text: String): Boolean = sendWithReceipt(text, null)
 
     private fun sendWithReceipt(text: String, onDelivered: (() -> Unit)?): Boolean {
-        if (_sessionAccessState.value == SessionAccessState.OWNED_ELSEWHERE || _composerRecoveryError.value != null) return false
+        if (localDraft || _sessionAccessState.value == SessionAccessState.OWNED_ELSEWHERE || _composerRecoveryError.value != null) return false
         val atts = _state.value.pendingAttachments
         if (text.isBlank() && atts.isEmpty()) return false
         unsentComposer?.let { editor ->
@@ -2113,6 +2173,7 @@ class ChatViewModel @Inject constructor(
         onDelivered: (() -> Unit)? = null,
     ) {
         val messageId = "u-${java.util.UUID.randomUUID()}"
+        val firstSettings = pendingFirstTurnSettings
         val pending = PendingSend()
         pendingSends[messageId] = pending
         val expectedStoredId = storedSessionId
@@ -2203,6 +2264,24 @@ class ChatViewModel @Inject constructor(
                 }
                 check(storedSessionId == expectedStoredId || storedSessionId == pendingRecreatedId) {
                     "conversation changed before send"
+                }
+                if (firstSettings != null) {
+                    if (firstSettings.model != null && firstSettings.provider != null) {
+                        when (chat.switchSessionModel(initialHandle, firstSettings.provider, firstSettings.model, false)) {
+                            ModelSwitchResult.ConfirmationRequired -> {
+                                _modelSheet.value = ModelSheetUi(confirmation = ModelConfirmation(firstSettings.provider, firstSettings.model, false))
+                                throw IllegalStateException("Model selection requires confirmation")
+                            }
+                            is ModelSwitchResult.Applied -> {
+                                _currentModel.value = firstSettings.model
+                                _currentProvider.value = firstSettings.provider
+                                _explicitSessionOverride.value = true
+                            }
+                            ModelSwitchResult.Deferred -> Unit
+                        }
+                    }
+                    firstSettings.reasoning?.let { chat.reasoningSet(initialHandle, it); _reasoningEffort.value = it }
+                    if (pendingFirstTurnSettings === firstSettings) pendingFirstTurnSettings = null
                 }
                 val currentHandle = runtimeKey
                     ?.let { runtimeStore.runtimes.value[it]?.liveHandle }
@@ -2915,6 +2994,14 @@ class ChatViewModel @Inject constructor(
     private fun switchModel(
         provider: String, model: String, restoreDefault: Boolean, confirmed: Boolean, onDone: () -> Unit,
     ) {
+        if (localDraft) {
+            _currentModel.value = model
+            _currentProvider.value = provider
+            _explicitSessionOverride.value = !restoreDefault
+            _reasoningEffort.value = null
+            onDone()
+            return
+        }
         if (_modelSheet.value.pendingKey != null || _modelSheet.value.confirmation != null) return
         val key = com.hermes.client.data.repository.favKey(provider, model)
         val startedAt = System.nanoTime()
@@ -2922,6 +3009,9 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { chat.switchSessionModel(sessionId, provider, model, confirmed) }
                 .onSuccess { result ->
+                    if (confirmed && result !is ModelSwitchResult.ConfirmationRequired) {
+                        pendingFirstTurnSettings = pendingFirstTurnSettings?.copy(model = null, provider = null)
+                    }
                     when (result) {
                         ModelSwitchResult.ConfirmationRequired -> {
                             com.hermes.client.data.diagnostics.DebugLog.log(
@@ -2995,6 +3085,7 @@ class ChatViewModel @Inject constructor(
 
     /** Re-read this session's effective reasoning effort (sheet open / after session changes). */
     fun refreshReasoning() {
+        if (localDraft) return
         val id = sessionId
         if (id.isBlank()) return
         viewModelScope.launch {
@@ -3010,6 +3101,7 @@ class ChatViewModel @Inject constructor(
      * write stays on this session — desktop-client behavior).
      */
     fun setReasoning(level: String) {
+        if (localDraft) { _reasoningEffort.value = level; return }
         if (_reasoningPending.value) return
         val provider = _currentProvider.value
         val model = _currentModel.value

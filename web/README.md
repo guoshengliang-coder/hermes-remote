@@ -1,3 +1,15 @@
+Browser layout QA for HG-260 uses the real ChatPage/Composer and RoleSheet with an isolated
+fake transport: `node web/scripts/check-session-roles.mjs <chrome-executable> <output-directory>`
+from the repository root (Node 22.12+ and installed Web dependencies). It checks 320/390/900px,
+light/dark, 16/21px type, role/project changes, draft retention and filter none/all. It never
+logs into an account or accesses production. Chromium is not iPhone WebKit/device acceptance.
+
+HG-260 keeps the original complete Web Composer and restores the new-chat header project
+chooser. The welcome-avatar role switch preserves the draft and attachments, and the project
+picker reads only the selected role's folders. Role filtering uses the same bottom-sheet rows
+with multiple selection and an explicit All roles action; identical paths retain their role.
+Source validation is not Web publication; physical acceptance remains in the smoke plan.
+
 HG-257 follow-up checks and repairs related session actions; rename/delete now require the
 Connector-side official-interface adapter. See `../docs/HG_257_SESSION_OPERATIONS.md` for fences,
 Console title restrictions, compatibility tests and remaining physical acceptance. No release is allocated.
