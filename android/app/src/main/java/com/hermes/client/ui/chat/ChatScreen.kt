@@ -261,6 +261,7 @@ fun ChatScreen(
         }
     }
     val currentModel by vm.currentModel.collectAsStateWithLifecycle()
+    val draftModelRead by vm.draftModelRead.collectAsStateWithLifecycle()
     val botOrigin by vm.botOrigin.collectAsStateWithLifecycle()
     val locallySentIds by vm.locallySentIds.collectAsStateWithLifecycle()
     val botNoticeNeeded by vm.botNoticeNeeded.collectAsStateWithLifecycle()
@@ -1660,14 +1661,15 @@ fun ChatScreen(
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
                                             // Chip text: model plus this chat's reasoning effort
-                                            // ("fable-5 · 高"). "默认模型", not "自动", pre-load:
-                                            // there is no auto-routing to suggest.
+                                            // ("fable-5 · 高"). Local drafts expose their read state
+                                            // rather than claiming an unknown default is known.
                                             val reasoningEffort by vm.reasoningEffort.collectAsStateWithLifecycle()
                                             val effortSuffix = com.hermes.client.ui.models.reasoningLabel(reasoningEffort)
                                                 ?.let { " · " + it.resolve(language) } ?: ""
                                             Text(
                                                 modelChipLabel(
                                                     currentModel, effortSuffix, botOrigin != null, language,
+                                                    isLocalDraft = localDraft, defaultModelLoading = draftModelRead.loading,
                                                 ),
                                                 style = MaterialTheme.typography.labelLarge,
                                                 color = if (currentModel.isNullOrBlank()) MaterialTheme.colorScheme.onSurfaceVariant
@@ -1878,7 +1880,8 @@ fun ChatScreen(
                         NewChatGreeting(
                             profile = ownerProfile,
                             identityName = if (localDraft) com.hermes.client.ui.components.roleLabel(ownerProfile) else identities[ownerProfile]?.displayName,
-                            modelLabel = modelChipLabel(currentModel, effortSuffix, isBot = false, language = language),
+                            modelLabel = modelChipLabel(currentModel, effortSuffix, isBot = false, language = language,
+                                isLocalDraft = localDraft, defaultModelLoading = draftModelRead.loading),
                             connection = connState,
                             imeVisible = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0,
                             roleSwitch = draftRoleSwitch,
@@ -2283,7 +2286,10 @@ fun ChatScreen(
         }
         com.hermes.client.ui.models.ModelSelectorSheet(
             groups = groups,
-            syncPanel = { com.hermes.client.ui.models.InstanceModelSyncPanel(vm.instanceModels, vm::legacyModels, vm.modelSync, resolvedCurrentProvider, currentModel) },
+            syncPanel = {
+                if (localDraft) DraftModelReadStatus(draftModelRead, onRetry = { vm.refreshDraftModel() })
+                com.hermes.client.ui.models.InstanceModelSyncPanel(vm.instanceModels, vm::legacyModels, vm.modelSync, resolvedCurrentProvider, currentModel)
+            },
             favoriteBlocked = { p, m -> if (instanceState?.active == true) instanceState.blocked() else syncState?.let { it.useCloud && it.blocked(p, m, "favorite") } == true },
             onToggleHidden = vm.instanceModels?.takeIf { instanceState?.active == true }?.let { remote ->
                 { p, m, value -> scopeForInstance.launch { remote.set(p,m,"hidden",value,expectedOwner=instanceState?.owner.orEmpty()) }; Unit }
@@ -2320,7 +2326,7 @@ fun ChatScreen(
                 vm.dismissModelConfirmation()
             },
             onRefresh = { vm.ensureProviders(force = true) },
-            refreshing = catalogRefreshing,
+            refreshing = catalogRefreshing || (localDraft && draftModelRead.loading),
             currentSummary = currentSummary,
             onRestoreDefault = { vm.restoreDefaultModel { modelSheetOpen = false } },
             recents = recentChips,

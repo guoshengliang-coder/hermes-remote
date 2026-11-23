@@ -1453,3 +1453,10 @@ uses theme tokens and wrapping actions. Account invalidation clears audio; old w
 it. Retention is 24 hours, bounded to 32 MiB, with no cloud storage or background recording. Long
 retries may take the original duration and cost another recognition request. See
 `../docs/HG_255_VOICE_RETRY.md` and `../docs/SMOKE_TEST.md` for verification and remaining device gates.
+
+
+HG-263 isolates new-chat default-model reads from project loading, exposes reading/unavailable
+states and a localized retry in the model picker, and preserves manual model/reasoning choices.
+The full-screen new-chat window delegates IME and system-bar insets to the chat composer once.
+No default model is changed by these reads. See `../docs/ANDROID_SMOKE.md` for the remaining
+physical-device and vendor-keyboard acceptance checks.

@@ -67,6 +67,7 @@ class ChatViewModelTest {
     private val tts = mockk<com.hermes.client.data.tts.TextToSpeechController>(relaxed = true)
     private val promptStore = mockk<com.hermes.client.data.repository.PromptStore>(relaxed = true)
     private val configRepo = mockk<com.hermes.client.data.repository.ConfigRepository>(relaxed = true)
+    private val projectsRepo = mockk<com.hermes.client.data.repository.ProjectsRepository>(relaxed = true)
     private val acknowledgedChannels = MutableStateFlow<Set<String>>(emptySet())
     private val botSendNotice = mockk<com.hermes.client.data.repository.BotSendNoticeStore>(relaxed = true).also {
         every { it.acknowledged } returns acknowledgedChannels
@@ -172,11 +173,190 @@ class ChatViewModelTest {
             favoritesStore, recentsStore, pendingShareStore, tts, promptStore, configRepo, runtimeStore,
             mediaRepo, fileRepo, defaultDispatcher, projectPrefs,
             com.hermes.client.data.repository.ProjectCatalog(
-                mockk(relaxed = true), sessionRepo, profileManager, projectPrefs,
+                projectsRepo, sessionRepo, profileManager, projectPrefs,
             ),
             botSendNotice, drafts, unsent, CoroutineScope(runtimeJob + Dispatchers.Main),
             accountSessions, conversationDevices, artifactDownloads = artifactDownloads,
         )
+    }
+
+    @Test fun local_draft_model_does_not_wait_for_projects() = runUnsentComposerTest {
+        val projects = kotlinx.coroutines.CompletableDeferred<com.hermes.client.domain.ProjectTree>()
+        coEvery { projectsRepo.tree(any()) } coAnswers { projects.await() }
+        coEvery { configRepo.get("default") } returns buildJsonObject { put("model", "actual-model") }
+        val vm = buildVm()
+        vm.openLocalDraft("draft", "default", null)
+        runCurrent()
+        assertEquals("actual-model", vm.currentModel.value)
+        assertFalse(projects.isCompleted)
+        projects.complete(com.hermes.client.domain.ProjectTree(emptyList(), null))
+        runCurrent()
+    }
+
+    @Test fun local_draft_model_does_not_wait_for_project_preferences() = runUnsentComposerTest {
+        val preferences = kotlinx.coroutines.flow.MutableSharedFlow<String?>()
+        every { projectPrefs.defaultProjectPath } returns preferences
+        coEvery { configRepo.get("work") } returns buildJsonObject { put("model", "work-model") }
+        val vm = buildVm()
+        vm.openLocalDraft("draft", "work", null)
+        runCurrent()
+        assertEquals("work-model", vm.currentModel.value)
+        preferences.emit(null)
+        runCurrent()
+    }
+
+    @Test fun local_draft_model_recovers_after_failed_read_without_changing_defaults() = runUnsentComposerTest {
+        coEvery { configRepo.get("work") } throws java.io.IOException("token=must-not-leak")
+        val vm = buildVm()
+        vm.openLocalDraft("draft", "work", null)
+        runCurrent()
+        assertNull(vm.currentModel.value)
+        assertEquals(com.hermes.client.data.error.AppErrorCode.MODEL_DEFAULT_READ_FAILED, vm.draftModelRead.value.error?.code)
+        assertFalse(vm.draftModelRead.value.loading)
+        assertFalse(vm.draftModelRead.value.error!!.sanitizedDiagnostic().contains("must-not-leak"))
+        coEvery { configRepo.get("work") } returns buildJsonObject { put("model", "recovered-model") }
+        vm.refreshDraftModel()
+        runCurrent()
+        assertEquals("recovered-model", vm.currentModel.value)
+        assertNull(vm.draftModelRead.value.error)
+        assertNull(vm.firstTurn("first").model) // following the Mac default is not an override
+        coVerify(exactly = 0) { chatRepo.switchSessionModel(any(), any(), any(), any()) }
+    }
+
+    @Test fun local_draft_model_read_is_bounded_and_reconnect_retries_without_resuming_fake_id() = runUnsentComposerTest {
+        val read = kotlinx.coroutines.CompletableDeferred<kotlinx.serialization.json.JsonObject>()
+        coEvery { configRepo.get("work") } coAnswers { read.await() }
+        val vm = buildVm()
+        vm.openLocalDraft("draft", "work", null)
+        runCurrent()
+        assertTrue(vm.draftModelRead.value.loading)
+        advanceTimeBy(10_001)
+        runCurrent()
+        assertFalse(vm.draftModelRead.value.loading)
+        assertTrue(vm.draftModelRead.value.error!!.retryable)
+        coEvery { configRepo.get("work") } returns buildJsonObject { put("model", "online-model") }
+        connectionStateFlow.value = ConnectionState.Connected
+        runCurrent()
+        assertEquals("online-model", vm.currentModel.value)
+        coVerify(exactly = 0) { chatRepo.resume(any(), any()) }
+        coVerify(exactly = 0) { chatRepo.activeSessions(any()) }
+    }
+
+    @Test fun local_draft_rejects_missing_non_string_and_blank_models() = runUnsentComposerTest {
+        val vm = buildVm()
+        val values = listOf(buildJsonObject {}, buildJsonObject { put("model", 123) },
+            buildJsonObject { put("model", kotlinx.serialization.json.JsonNull) }, buildJsonObject { put("model", "  ") })
+        for ((index, value) in values.withIndex()) {
+            coEvery { configRepo.get("work") } returns value
+            vm.openLocalDraft("draft-$index", "work", null)
+            runCurrent()
+            assertNull(vm.currentModel.value)
+            assertNotNull(vm.draftModelRead.value.error)
+        }
+    }
+
+    @Test fun local_draft_manual_model_and_reasoning_survive_late_default_and_refresh() = runUnsentComposerTest {
+        val read = kotlinx.coroutines.CompletableDeferred<kotlinx.serialization.json.JsonObject>()
+        coEvery { configRepo.get("work") } coAnswers { read.await() }
+        val vm = buildVm()
+        vm.openLocalDraft("draft", "work", null)
+        runCurrent()
+        vm.onSelectFromSheet("chosen-provider", "chosen-model") {}
+        vm.setReasoning("high")
+        read.complete(buildJsonObject { put("model", "default-model") })
+        runCurrent()
+        vm.ensureProviders(force = true)
+        runCurrent()
+        assertEquals("default-model", vm.defaultModel.value)
+        assertEquals("chosen-model", vm.currentModel.value)
+        val turn = vm.firstTurn("first")
+        assertEquals("chosen-model", turn.model)
+        assertEquals("chosen-provider", turn.provider)
+        assertEquals("high", turn.reasoning)
+    }
+
+    @Test fun local_draft_cancelled_role_read_cannot_overwrite_another_role_or_same_role_reentry() = runUnsentComposerTest {
+        val old = kotlinx.coroutines.CompletableDeferred<kotlinx.serialization.json.JsonObject>()
+        var requests = 0
+        coEvery { configRepo.get("work") } coAnswers {
+            if (requests++ == 0) kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { old.await() }
+            else buildJsonObject { put("model", "fresh-work") }
+        }
+        coEvery { configRepo.get("personal") } returns buildJsonObject { put("model", "personal-model") }
+        val vm = buildVm()
+        vm.openLocalDraft("draft", "work", null)
+        runCurrent()
+        vm.openLocalDraft("draft", "personal", null)
+        runCurrent()
+        assertEquals("personal-model", vm.currentModel.value)
+        vm.openLocalDraft("draft", "work", null)
+        runCurrent()
+        old.complete(buildJsonObject { put("model", "stale-work") })
+        runCurrent()
+        assertEquals("fresh-work", vm.currentModel.value)
+        assertEquals("fresh-work", vm.defaultModel.value)
+    }
+
+    @Test fun leaving_a_local_draft_cancels_its_model_read() = runUnsentComposerTest {
+        val old = kotlinx.coroutines.CompletableDeferred<kotlinx.serialization.json.JsonObject>()
+        coEvery { configRepo.get("work") } coAnswers { kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { old.await() } }
+        val vm = buildVm()
+        vm.openLocalDraft("draft", "work", null)
+        runCurrent()
+        coEvery { configRepo.get("personal") } returns buildJsonObject { put("model", "existing-model") }
+        vm.open("s1", requestedProfile = "personal")
+        runCurrent()
+        old.complete(buildJsonObject { put("model", "abandoned-model") })
+        runCurrent()
+        assertEquals("existing-model", vm.currentModel.value)
+    }
+
+    @Test fun local_draft_model_read_does_not_cross_the_account_or_mac_boundary() = runUnsentComposerTest {
+        val session = com.hermes.client.data.auth.AccountSession(
+            baseUrl = "https://relay.example", accountId = "account-1", installationId = "phone-1",
+            installationDisplayName = "Pixel", accessToken = "fixture-access", accessExpiresAt = "2099-01-01T00:00:00Z",
+            refreshToken = "fixture-refresh", refreshExpiresAt = "2099-02-01T00:00:00Z", selectedDeviceId = "mac-1")
+        val sessions = MutableStateFlow<com.hermes.client.data.auth.AccountSession?>(session)
+        val manager = mockk<com.hermes.client.data.auth.AccountSessionManager>(relaxed = true)
+        every { manager.session } returns sessions
+        val old = kotlinx.coroutines.CompletableDeferred<kotlinx.serialization.json.JsonObject>()
+        coEvery { configRepo.get("work") } coAnswers { old.await() }
+        val vm = buildVm(accountSessions = manager)
+        vm.openLocalDraft("draft", "work", null)
+        runCurrent()
+        sessions.value = session.copy(accountId = "account-2")
+        old.complete(buildJsonObject { put("model", "other-account-model") })
+        runCurrent()
+        assertNull(vm.currentModel.value)
+        vm.refreshDraftModel()
+        coVerify(exactly = 1) { configRepo.get("work") }
+        coEvery { configRepo.get("work") } returns buildJsonObject { put("model", "new-account-model") }
+        vm.openLocalDraft("draft", "work", null)
+        runCurrent()
+        assertEquals("new-account-model", vm.currentModel.value)
+        sessions.value = sessions.value!!.copy(selectedDeviceId = "mac-2")
+        coEvery { configRepo.get("work") } returns buildJsonObject { put("model", "new-mac-model") }
+        vm.openLocalDraft("draft", "work", null)
+        runCurrent()
+        assertEquals("new-mac-model", vm.currentModel.value)
+    }
+
+    @Test fun opening_model_picker_does_not_duplicate_an_inflight_draft_read_and_can_retry_a_failure() = runUnsentComposerTest {
+        val read = kotlinx.coroutines.CompletableDeferred<kotlinx.serialization.json.JsonObject>()
+        coEvery { configRepo.get("work") } coAnswers { read.await() }
+        val vm = buildVm()
+        vm.openLocalDraft("draft", "work", null)
+        vm.ensureProviders()
+        vm.ensureProviders()
+        runCurrent()
+        coVerify(exactly = 1) { configRepo.get("work") }
+        read.completeExceptionally(java.io.IOException("offline"))
+        runCurrent()
+        assertNotNull(vm.draftModelRead.value.error)
+        coEvery { configRepo.get("work") } returns buildJsonObject { put("model", "retry-model") }
+        vm.ensureProviders()
+        runCurrent()
+        assertEquals("retry-model", vm.currentModel.value)
     }
 
     @Test fun local_new_chat_preserves_attachments_without_remote_session_operations() = runUnsentComposerTest {
@@ -232,6 +412,7 @@ class ChatViewModelTest {
     internal fun localDraftUiFixture(): ChatViewModel {
         setUp()
         connectionStateFlow.value = ConnectionState.Connected
+        coEvery { configRepo.get(any()) } answers { buildJsonObject { put("model", "test-${firstArg<String?>()}") } }
         return buildVm(defaultDispatcher = Dispatchers.Main.immediate)
     }
 

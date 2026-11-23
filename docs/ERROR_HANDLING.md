@@ -577,6 +577,7 @@ No error IDs, wire payloads or Android/Web/Cloud behavior change.
 | `HR-MODEL-001` | Instance preference transport, storage or protocol failure | 无法同步此 Mac 的模型偏好，请联网后重试。 | Couldn’t sync this Mac’s model preferences. Connect and retry. | Yes |
 | `HR-MODEL-002` | Instance identity or field revision conflict | 模型偏好已在其他客户端更新，请刷新后重新选择。 | Model preferences changed on another client. Refresh and choose again. | No |
 | `HR-MODEL-003` | Only the device owner may mutate instance preferences | 共享访客不能修改设备主人的模型偏好。 | Shared guests can’t change the device owner’s model preferences. | No |
+| `HR-MODEL-004` | Android new-chat profile default model could not be read or was missing/invalid. Retry the read in the model picker; never guess a model or change the Mac default. | 无法读取当前角色的默认模型，请重试。 | Couldn't read this role's default model. Retry. | Yes |
 
 001 covers transport/storage/protocol failures, 002 covers field CAS or instance identity conflicts, 003 is the Gateway-enforced owner-only mutation boundary. Diagnostics never include preference payloads or credentials. A 404/405 capability absence uses an explicit legacy-mode notice, not a sync-success claim.
 

@@ -5,6 +5,16 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ModelChipLabelTest {
+    @Test fun a_draft_does_not_claim_an_unknown_default_is_a_known_model() {
+        for ((language, reading, unavailable) in listOf(
+            Triple(AppLanguage.ZH, "正在读取模型…", "模型未读取"),
+            Triple(AppLanguage.EN, "Reading model…", "Model unavailable"),
+        )) {
+            assertEquals(reading, modelChipLabel(null, " · 高", false, language, isLocalDraft = true, defaultModelLoading = true))
+            assertEquals(unavailable, modelChipLabel(null, "", false, language, isLocalDraft = true))
+            assertEquals("known · high", modelChipLabel("known", " · high", false, language, isLocalDraft = true, defaultModelLoading = true))
+        }
+    }
     @Test fun a_local_session_with_no_override_follows_the_default() {
         assertEquals("默认模型", modelChipLabel(null, "", isBot = false, language = AppLanguage.ZH))
         assertEquals("Default model", modelChipLabel("", "", isBot = false, language = AppLanguage.EN))
