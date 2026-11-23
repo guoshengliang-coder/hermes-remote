@@ -1,3 +1,5 @@
+import type { Env } from "markdown-it";
+import { InlinePreview, inlinePreviewBlocks } from "./InlinePreview";
 import type { ChartContext } from "../charts/card";
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { useApp } from "../app/store";
@@ -384,7 +386,7 @@ function ActionRow({ item, actions }: { item: ChatItem; actions: MessageActions 
   );
 }
 
-export function MessageView({ item, actions = {}, chartContext }: { item: ChatItem; actions?: MessageActions; chartContext?: ChartContext }) {
+export function MessageView({ item, actions = {}, chartContext, previewCwd }: { item: ChatItem; actions?: MessageActions; chartContext?: ChartContext; previewCwd?: string }) {
   const { language, t } = useApp();
   // While streaming, mask unfinished payloads and pull finished ones into cards per snapshot, so
   // a payload never first explodes into Markdown and then collapses (Android stabilizedForStreaming).
@@ -393,6 +395,13 @@ export function MessageView({ item, actions = {}, chartContext }: { item: ChatIt
     () => (item.role === "assistant" && item.streaming ? organizeAssistant(stabilizeStreaming(item.text, placeholder), item.tools) : { text: item.text, tools: item.tools }),
     [item.text, item.tools, item.streaming, item.role, placeholder],
   );
+
+  const preview = useMemo(() => {
+    if (item.role !== "assistant" || item.streaming || !chartContext || item.note) return null;
+    const env: Env = {};
+    const blocks = inlinePreviewBlocks(display.text, env);
+    return blocks.some(block => "target" in block) ? { blocks, env } : null;
+  }, [item.role, item.streaming, item.note, Boolean(chartContext), display.text]);
 
   if (item.note) return <TimelineNoteRow note={item.note} body={item.text} />;
 
@@ -465,7 +474,14 @@ export function MessageView({ item, actions = {}, chartContext }: { item: ChatIt
           {blockImages.map((img, i) => <MacImage key={img.path} path={img.path!} name="" onOpen={opener(images.length + i)} />)}
         </div>
       ) : null}
-      {display.text ? <Markdown source={display.text} streaming={item.streaming} chartContext={item.role === "assistant" ? chartContext : undefined} /> : null}
+      {display.text ? (preview && chartContext
+        ? preview.blocks.map((block, index) => "source" in block
+          ? <Markdown key={index} source={block.source} sharedEnv={preview.env} chartContext={index === 0 ? chartContext : {
+            ...chartContext, scope: [...chartContext.scope, 'section', String(index)],
+          }} />
+          : <InlinePreview key={JSON.stringify([chartContext.scope, previewCwd, index, block.target])} target={block.target}
+            cwd={previewCwd} height={block.height} />)
+        : <Markdown source={display.text} streaming={item.streaming} chartContext={item.role === "assistant" ? chartContext : undefined} />) : null}
       {blockLinks.map((img) => (
         <a class="media-link" href={img.url} target="_blank" rel="noopener noreferrer" key={img.url}>
           {img.url}

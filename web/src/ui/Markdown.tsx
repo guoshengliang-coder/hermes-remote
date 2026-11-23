@@ -1,3 +1,4 @@
+import type { Env } from "markdown-it";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { copyText } from "../app/clipboard";
 import { useApp } from "../app/store";
@@ -28,10 +29,12 @@ export function Markdown({
   source,
   streaming,
   chartContext,
+  sharedEnv,
 }: {
   source: string;
   streaming?: boolean;
   chartContext?: ChartContext;
+  sharedEnv?: Env;
 }) {
   const { t, flash, language } = useApp();
   const charts = useRef<(() => void)[]>([]);
@@ -39,6 +42,7 @@ export function Markdown({
   const chartSignature = JSON.stringify([
     chartContext?.scope,
     source,
+    sharedEnv?.references,
     language,
   ]);
   const [fullTable, setFullTable] = useState<HTMLTableElement | null>(null);
@@ -98,7 +102,7 @@ export function Markdown({
       charts.current = [];
       enhanced.current = null;
       state.source = source;
-      const fragment = renderMarkdownFragment(withCjkEmphasisRepaired(source));
+      const fragment = renderMarkdownFragment(withCjkEmphasisRepaired(source), sharedEnv);
       decorateBlocks(fragment, {
         table: t("表格", "Table"),
         copyCode: t("复制代码", "Copy code"),

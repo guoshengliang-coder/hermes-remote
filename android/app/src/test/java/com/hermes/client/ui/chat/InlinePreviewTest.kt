@@ -101,6 +101,19 @@ class InlinePreviewTest {
         assertTrue(prelude.contains("background:transparent"))
     }
 
+    @Test fun inlinePreviewUsesTheSamePurpleInEachAppearanceAndDoesNotShrinkWideDocuments() {
+        assertEquals(Color(0xFF8B80E8), inlinePreviewAccent(false))
+        assertEquals(Color(0xFFADA3FF), inlinePreviewAccent(true))
+        assertFalse(INLINE_PREVIEW_HEIGHT_SCRIPT.contains("zoom"))
+    }
+
+    @Test fun onlyAHorizontalDragThatExceedsTouchSlopCanStartDraggingThePreview() {
+        assertTrue(inlinePreviewHorizontal(-20f, 4f, 8))
+        assertFalse(inlinePreviewHorizontal(4f, -20f, 8))
+        assertFalse(inlinePreviewHorizontal(8f, 0f, 8))
+        assertFalse(inlinePreviewHorizontal(12f, 12f, 8))
+    }
+
     @Test fun pagePolicyIsAnOpaqueOriginWithNoNetwork() {
         val policy = PREVIEW_CONTENT_SECURITY_POLICY
         assertTrue(policy.startsWith("sandbox allow-scripts;"))

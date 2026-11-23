@@ -857,7 +857,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
             return (
               <Fragment key={item.key}>
                 {separator ? <div class="time-separator">{formatTimeSeparator(item.timestampMs!, language)}</div> : null}
-                <MessageView item={item} actions={actionsFor(item)} chartContext={storedId ? {
+                <MessageView item={item} actions={actionsFor(item)} previewCwd={workspacePath ?? undefined} chartContext={storedId ? {
                   scope: [location.origin, app.account?.id ?? "", device?.deviceId ?? "", profile ?? "", storedId, item.key],
                   prompt: state.items.slice(0, index).reverse().find(row => row.role === "user" && !row.note)?.text ?? "",
                   source: `${t("会话", "Session")} ${storedId} · ${t("消息", "message")} ${item.key} ${item.text.split(/\r?\n/).filter(line => /来源|数据源|source/i.test(line) && !line.trim().startsWith("|")).join(" ").slice(0, 500)}`,
