@@ -2399,3 +2399,20 @@ no horizontal page overflow and with retained text and exact chosen role/cwd. A 
 none/all check covers rapid multi-selection updates. Output screenshots and observations stay
 in the caller's output directory. Physical Safari/Home Screen, real mic/file pickers, and
 production sends remain separate acceptance; this is not a production or WebKit test.
+
+### HG-264 / HG-265 — inline HTML charts
+
+Use a settled assistant reply with a standalone HTML preview directive for a wide SVG or
+HTML table. At phone width, scroll to the last column inside the card and confirm that
+the transcript itself stays within its viewport. Verify that the preview accent matches
+Android in light and dark appearance and that embedded SVG presentation colors are kept.
+For a document that needs scripts or author CSS, use the download action. The Web shell
+keeps its existing CSP and never executes the file's scripts. Repeat on Android Chrome
+and iPhone Safari/Home Screen; use the original chart if available.
+
+The local browser fixture uses synthetic data and production CSP.
+Run `node web/scripts/check-inline-preview.mjs <playwright-module> <chromium|webkit> [executable]`.
+
+## HG-261 / HG-262 — Web 角色副行与圆点分隔
+
+脚本 check-profile-layout.mjs 用真实 ChatPage/SessionRow 与生产 CSS、隔离假传输检查中英文、320/390/900px、浅暗、大字号、项目、重连及圆点边界。物理 Android Chrome、iPhone Safari／主屏幕 Web App 仍需验证无目录角色位置、长名称和页面缩放、项目移动／更多按钮触达及重连提示；浏览器内核桌面几何通过不证明手机字体、手势和系统文本缩放结果。不得接触或发送真实业务内容来制造测试。

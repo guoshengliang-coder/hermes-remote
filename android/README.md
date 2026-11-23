@@ -1,3 +1,5 @@
+HG-261/HG-262 keep the read-only role beneath the chat title, including conversations without a directory, and separate role metadata with the existing middle dot. Shared session/search/archive/project rows retain pins, drafts and model/project rules. No version is allocated or APK distributed. Evidence and remaining device limits: `../docs/HG_261_262_PROFILE_LAYOUT.md`.
+
 HG-260 restores the original complete new-chat input by mounting the shared ChatScreen in a
 local draft scope. Roles remain selectable below the greeting avatar until the first send;
 text and attachments survive a role switch, and projects belong to the selected role.

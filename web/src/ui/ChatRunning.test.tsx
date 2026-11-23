@@ -64,3 +64,27 @@ it("HG-228 Stop removes the waiting status and late output cannot revive it", as
   expect(host.querySelector('[aria-label="停止"]')).toBeNull();
   expect(host.textContent).not.toContain("late");
 });
+
+
+it("HG-261 keeps the role below the title without a directory, including reconnects", async () => {
+  app = { ...app, profileCatalog: { default: "芯芯" } };
+  await draw();
+  const title = host.querySelector(".chat-title h1")!;
+  const role = host.querySelector(".chat-title .role-owner-name")!;
+  expect(role).not.toBeNull();
+  expect(title.parentElement!.contains(role)).toBe(false);
+  expect(title.parentElement!.nextElementSibling!.contains(role)).toBe(true);
+  await act(async () => fixture.connections[0]!.dispatch({ type: "connection", state: "reconnecting" }));
+  expect(host.querySelector(".chat-title h1")!.parentElement!.contains(host.querySelector(".role-owner-name"))).toBe(false);
+  expect(host.querySelector(".chat-title .role-owner-name")?.textContent).toBe("芯芯");
+  expect(host.querySelector(".chat-status")?.textContent).toContain("恢复");
+  expect(host.querySelector(".chat-status")?.getAttribute("title")).toBe(host.querySelector(".chat-status")?.textContent);
+});
+
+it("HG-261 retains the project next to the role beneath the title", async () => {
+  app = { ...app, profileCatalog: { default: "芯芯" }, sessions: [{ id: "a", title: "A", profile: "default", cwd: "/qa/project" }] };
+  await draw();
+  const role = host.querySelector(".chat-title .role-owner-name")!;
+  expect(role.parentElement!.querySelector(".chat-workspace-name")?.textContent).toBe("project");
+  expect(host.querySelector("h1")!.parentElement!.contains(role)).toBe(false);
+});

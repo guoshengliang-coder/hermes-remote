@@ -4970,3 +4970,11 @@ button.chat-workspace:disabled {
 
 .role-option-label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .role-option-check { width: 1.25rem; flex: 0 0 1.25rem; }
+
+.inline-html-preview { min-width: 0; max-width: 100%; margin-block: .5rem; }
+.inline-html-preview iframe { display: block; width: 100%; border: 1px solid var(--outline-variant); border-radius: .75rem; }
+
+/* HG-261: roles always belong to the secondary row, including chats without a workspace. */
+.chat-subtitle .role-owner-name { color: var(--on-surface-variant); flex-shrink: 0; max-width: 45%; }
+.chat-subtitle .chat-workspace { flex: 1; min-width: 0; }
+.chat-subtitle .chat-status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
