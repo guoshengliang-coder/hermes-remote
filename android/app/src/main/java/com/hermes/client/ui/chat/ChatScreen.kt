@@ -1325,11 +1325,8 @@ fun ChatScreen(
                 onSearchAll = onSearchAll,
             ) else ChatTopBar(
                 title = sessionTitle,
-                titlePrefix = {
-                    if (!newChatGreetingVisible(isNewSession, state.messages.size, state.isGenerating) && botOrigin == null && (workspace == null || workspaceProjects.none { it.id != com.hermes.client.ui.sessions.DEFAULT_PROJECT_ID })) {
-                        ConversationRoleName(ownerProfile)
-                    }
-                },
+                roleName = if (!newChatGreetingVisible(isNewSession, state.messages.size, state.isGenerating) && botOrigin == null)
+                    com.hermes.client.ui.components.roleLabel(ownerProfile) else null,
                 // HG-37: an empty new session keeps only 返回 and the title block.
                 actionsVisible = chatTopBarActionsVisible(isNewSession, state.messages.size, state.isGenerating),
                 creatingNewChat = creatingNewChat,
@@ -1367,38 +1364,39 @@ fun ChatScreen(
                     }
                 },
                 onArchive = { confirmArchive = true },
-                subtitle = {
-                    // Project · branch beneath the title: the workspace this chat's tools run in,
-                    // and the door to change it. Only profiles that have projects at all get the
-                    // row — a profile of plain chats keeps the single-line bar (docs/DESIGN.md §5.4).
-                    val ws = workspace
-                    val origin = botOrigin
-                    if (origin != null) {
-                        // A channel conversation says where it came from and who is on the other
-                        // end. It takes the workspace row's place rather than a banner of its own:
-                        // this is identity, not an alert, and the full-width slot below belongs to
-                        // connection state, which must stay the loudest thing on the screen.
-                        Text(
-                            com.hermes.client.ui.sessions.botOriginLabel(
-                                origin.displayName, origin.chatType, origin.source, language,
-                            ),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    } else if (ws != null && (localDraft || workspaceProjects.any { it.id != com.hermes.client.ui.sessions.DEFAULT_PROJECT_ID })) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (!newChatGreetingVisible(isNewSession, state.messages.size, state.isGenerating)) ConversationRoleName(ownerProfile)
+                subtitle = if (botOrigin != null || (workspace != null &&
+                    (localDraft || workspaceProjects.any { it.id != com.hermes.client.ui.sessions.DEFAULT_PROJECT_ID }))) {
+                    {
+                        // Project · branch beneath the title: the workspace this chat's tools run in,
+                        // and the door to change it. Only profiles that have projects at all get the
+                        // project controls — plain chats still show their role beneath the title (HG-261).
+                        val ws = workspace
+                        val origin = botOrigin
+                        if (origin != null) {
+                            // A channel conversation says where it came from and who is on the other
+                            // end. It takes the workspace row's place rather than a banner of its own:
+                            // this is identity, not an alert, and the full-width slot below belongs to
+                            // connection state, which must stay the loudest thing on the screen.
+                            Text(
+                                com.hermes.client.ui.sessions.botOriginLabel(
+                                    origin.displayName, origin.chatType, origin.source, language,
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        } else if (ws != null && (localDraft || workspaceProjects.any { it.id != com.hermes.client.ui.sessions.DEFAULT_PROJECT_ID })) {
                             WorkspaceSubtitle(
-                            projectLabel = ws.projectLabel,
-                            branch = ws.branch,
-                            enabled = !state.isGenerating,
-                            onClick = { projectSheetOpen = true },
+                                projectLabel = ws.projectLabel,
+                                branch = ws.branch,
+                                enabled = !state.isGenerating,
+                                onClick = { projectSheetOpen = true },
+                                compact = !newChatGreetingVisible(isNewSession, state.messages.size, state.isGenerating),
                             )
                         }
                     }
-                },
+                } else null,
             )
         },
         bottomBar = {
@@ -3106,12 +3104,4 @@ internal fun ChatDraftField(value: String, onChange: (String) -> Unit, readOnly:
             disabledBorderColor = androidx.compose.ui.graphics.Color.Transparent,
         ),
     )
-}
-
-@Composable
-private fun ConversationRoleName(profile: String) {
-    val name = com.hermes.client.ui.components.roleLabel(profile)
-    Text(name, style = MaterialTheme.typography.labelSmall, maxLines = 1,
-        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-        modifier = Modifier.widthIn(max = 112.dp).padding(end = 4.dp))
 }

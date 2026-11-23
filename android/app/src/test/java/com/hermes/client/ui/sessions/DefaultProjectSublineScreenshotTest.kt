@@ -80,7 +80,8 @@ class DefaultProjectSublineScreenshotTest {
         compose.onNodeWithText("me", useUnmergedTree = true).assertDoesNotExist()
         compose.onNodeWithText("个人知识库", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("other", useUnmergedTree = true).assertIsDisplayed()
-        compose.onAllNodesWithText(" · ", useUnmergedTree = true).assertCountEquals(2)
+        // HG-262: all five roles have trailing metadata; two independent projects also separate their models.
+        compose.onAllNodesWithText(" · ", useUnmergedTree = true).assertCountEquals(7)
         compose.onAllNodesWithText("deepseek-v4.1-flash", useUnmergedTree = true).assertCountEquals(4)
         compose.onNodeWithContentDescription("已置顶", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("草稿", useUnmergedTree = true).assertIsDisplayed()

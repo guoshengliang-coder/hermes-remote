@@ -3,6 +3,8 @@ package com.hermes.client.ui.sessions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.onNodeWithText
 import com.hermes.client.domain.Session
 import com.hermes.client.ui.theme.HermesTheme
@@ -98,5 +100,20 @@ class SessionSublineTest {
             InChinese { HermesTheme(darkTheme = false) { SessionSubline(session(repo = "/u/hermes-remote")) } }
         }
         compose.onNodeWithText("草稿").assertDoesNotExist()
+    }
+
+    @Test fun role_and_model_have_one_separator() {
+        compose.setContent { InChinese { HermesTheme(darkTheme = false) { SessionSubline(session()) } } }
+        compose.onAllNodesWithText(" · ").assertCountEquals(1)
+    }
+
+    @Test fun role_project_model_keep_both_separators() {
+        compose.setContent { InChinese { HermesTheme(darkTheme = false) { SessionSubline(session(repo = "/u/project")) } } }
+        compose.onAllNodesWithText(" · ").assertCountEquals(2)
+    }
+
+    @Test fun only_role_with_a_pin_has_no_trailing_separator() {
+        compose.setContent { InChinese { HermesTheme(darkTheme = false) { SessionSubline(session(model = null), pinned = true) } } }
+        compose.onAllNodesWithText(" · ").assertCountEquals(0)
     }
 }

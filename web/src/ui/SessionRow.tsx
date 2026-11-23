@@ -11,7 +11,7 @@ import { BranchIcon, FolderIcon, PinMark } from "./icons";
 import { useLongPress } from "./useLongPress";
 
 // One session row (DESIGN §5.2, Android SessionRow): title (heavier while unread), subline
-// `[pin][草稿] [folder] project · model` (the default project shows no project part; inside a
+// `[pin] role · [草稿] [folder] project · model` (the default project shows no project part; inside a
 // project filter the subline is `branch · model`), an optional status line, time and the trailing
 // indicator. Bot rows carry no project, say 模型未知 without a model, and their status line is
 // `<time> · N 条` (§5.16).
@@ -71,6 +71,7 @@ export function SessionRow({ session, now, view, pinned, draft, archived, inProj
           <span class="row-subline mono">
             {pinned ? <PinMark label={t("已置顶", "Pinned")} /> : null}
             {ownerName && <span class="row-role" title={ownerName}>{ownerName}</span>}
+            {ownerName && (draft || project || hasSubline || archived) ? <span aria-hidden="true">·</span> : null}
             {draft ? <span class="row-draft">{t("草稿", "Draft")}</span> : null}
             {project ? (
               <span class="row-project">
