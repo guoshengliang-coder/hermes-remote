@@ -37,6 +37,7 @@ fun WorkspaceSubtitle(
     enabled: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
 ) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val name = projectLabel ?: l10n("默认项目", "Default project")
@@ -66,15 +67,15 @@ fun WorkspaceSubtitle(
             Text(" · ", style = MaterialTheme.typography.labelMedium, color = muted) // l10n-allow: separator
             Icon(BranchStrokeIcon, contentDescription = l10n("分支", "Branch"), tint = muted, modifier = Modifier.size(12.dp))
             Spacer(Modifier.width(4.dp))
-            // Unweighted (capped) so Row measures it first and the project name gets the rest;
-            // two weighted texts would split the width in half and truncate the project early.
+            // Beside a role, share the remaining text budget so neither label disappears.
+            // Standalone workspace rows keep their existing unweighted branch cap.
             Text(
                 branch,
                 style = MaterialTheme.typography.labelMedium,
                 color = muted,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.widthIn(max = 150.dp),
+                modifier = if (compact) Modifier.weight(1f, fill = false) else Modifier.widthIn(max = 150.dp),
             )
         }
         if (enabled) {

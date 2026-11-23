@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -24,7 +25,7 @@ import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
 
 /**
- * The shared session subline: `[pin] [glyph] <project|branch> · <model>` (docs/DESIGN.md
+ * The shared session subline: `[pin] role · [glyph] <project|branch> · <model>` (docs/DESIGN.md
  * §5.2). The lead segment takes at most 60% of the width before ellipsizing so the model stays
  * visible; the default project renders no lead segment at all (absence = default). Inherits the
  * surrounding text style and colour, so it sits in any list.
@@ -117,10 +118,12 @@ private fun SublineContent(
         if (owner != null) {
             Text(com.hermes.client.ui.components.roleLabel(owner), maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.widthIn(max = 96.dp))
-            Spacer(Modifier.width(6.dp))
+            if (hasDraft || !parts.isEmpty) {
+                Text(" · ", modifier = Modifier.semantics { hideFromAccessibility() }) // l10n-allow: decorative separator
+            }
         }
         if (hasDraft) {
-            if (pinned) Spacer(Modifier.width(4.dp))
+            if (pinned && owner == null) Spacer(Modifier.width(4.dp))
             // A word, in the one accent this line otherwise never uses (the rest sits on `outline`).
             // Deliberately NOT a dot in the row's trailing slot: a neutral dot one dp from the
             // unread dot is the confusion docs/DESIGN.md §5.2 already paid for once, with the
@@ -136,7 +139,7 @@ private fun SublineContent(
             )
         }
         if (!parts.isEmpty) {
-            Spacer(Modifier.width(4.dp))
+            if (hasDraft || owner == null) Spacer(Modifier.width(4.dp))
             SublineBody(parts, lead, Modifier.weight(1f, fill = false))
         }
     }
