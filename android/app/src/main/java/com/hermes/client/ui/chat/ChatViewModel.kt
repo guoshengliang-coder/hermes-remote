@@ -755,6 +755,7 @@ class ChatViewModel @Inject constructor(
      */
     fun ensureProviders(force: Boolean = false) {
         catalogStore.refresh(force = force)
+        if (localDraft && (force || _defaultModel.value == null)) refreshDraftModel(force)
     }
 
     /**
@@ -795,6 +796,10 @@ class ChatViewModel @Inject constructor(
                 .filter { it is ConnectionState.Connected }
                 .collect {
                     val id = storedSessionId.takeIf { it.isNotBlank() } ?: return@collect
+                    if (localDraft) {
+                        refreshDraftModel(force = true)
+                        return@collect
+                    }
                     refreshSessionAccess(id, currentProfile, runtimeKey?.let { key ->
                         runtimeStore.runtimes.value[key]?.liveHandle
                     })
@@ -870,15 +875,25 @@ class ChatViewModel @Inject constructor(
     // Local new-chat state uses the real chat UI, without a resume/history request for a fake id.
     private var localDraft = false
     private var draftLoadJob: Job? = null
+    private var draftModelJob: Job? = null
+    private var draftModelRevision = 0L
+    private var localDraftOwner: List<String?>? = null
+    private val _draftModelRead = MutableStateFlow(DraftModelReadState())
+    val draftModelRead: StateFlow<DraftModelReadState> = _draftModelRead.asStateFlow()
     private var pendingFirstTurnSettings: FirstTurn? = null
 
     fun openLocalDraft(id: String, profile: String, cwd: String?) {
-        if (localDraft && storedSessionId == id && currentProfile == profile) return
+        val device = accountSessions?.session?.value?.selectedDeviceId
+        val owner = draftModelOwner()
+        if (localDraft && storedSessionId == id && currentProfile == profile && localDraftOwner == owner) return
+        draftModelJob?.cancel()
+        draftModelRevision++
         localDraft = true
+        localDraftOwner = owner
         storedSessionId = id
         sessionId = id
         currentProfile = profile
-        currentDeviceId = accountSessions?.session?.value?.selectedDeviceId
+        currentDeviceId = device
         val account = accountSessions?.session?.value
         conversationDrafts = draftStore.forOwner(com.hermes.client.ui.workspace.workspaceSessionKey(listOf(
             account?.baseUrl.orEmpty(), account?.accountId ?: "signed-out")))
@@ -892,23 +907,57 @@ class ChatViewModel @Inject constructor(
         _defaultProvider.value = null
         _explicitSessionOverride.value = false
         _reasoningEffort.value = null
+        _draftModelRead.value = DraftModelReadState()
         _workspace.value = SessionWorkspace(cwd, null, null, cwd?.substringAfterLast('/'))
         _workspaceProjects.value = emptyList()
         draftLoadJob?.cancel()
         draftLoadJob = viewModelScope.launch {
             defaultProjectPath = runCatching { projectPrefs.defaultProjectPath.first() }.getOrNull()
             val projects = runCatching { projectCatalog.forProfile(profile) }.getOrElse { projectCatalog.derivedFromCache(profile) }
+            currentCoroutineContext().ensureActive()
             if (!localDraft || currentProfile != profile || storedSessionId != id) return@launch
             _workspaceProjects.value = projects
-            runCatching { configRepo.get(profile) }.onSuccess { cfg ->
-                if (!localDraft || currentProfile != profile || storedSessionId != id) return@onSuccess
-                val model = (cfg["model"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.ifBlank { null }
+        }
+        ensureProviders()
+    }
+
+    /** Projects and the catalogue must never delay the new-chat model read (HG-263). */
+    fun refreshDraftModel(force: Boolean = true) {
+        if (!localDraft || draftModelOwner() != localDraftOwner || (!force && draftModelJob?.isActive == true)) return
+        val id = storedSessionId
+        val profile = currentProfile ?: return
+        val owner = draftModelOwner()
+        val revision = ++draftModelRevision
+        draftModelJob?.cancel()
+        _draftModelRead.value = DraftModelReadState(loading = true)
+        draftModelJob = viewModelScope.launch {
+            val result = runCatching {
+                withTimeoutOrNull(10_000) {
+                    val value = configRepo.get(profile)["model"] as? kotlinx.serialization.json.JsonPrimitive
+                    value?.takeIf { it.isString }?.content?.trim()?.takeIf { it.isNotEmpty() }
+                } ?: error("Default model unavailable")
+            }
+            currentCoroutineContext().ensureActive()
+            if (!localDraft || storedSessionId != id || currentProfile != profile ||
+                draftModelRevision != revision || draftModelOwner() != owner) return@launch
+            result.onSuccess { model ->
                 _defaultModel.value = model
                 if (!_explicitSessionOverride.value) _currentModel.value = model
                 backfillProvidersFromCatalog()
+                _draftModelRead.value = DraftModelReadState(loading = false)
+            }.onFailure {
+                // Full config and HTTP bodies may contain secrets; keep only the failed stage.
+                _draftModelRead.value = DraftModelReadState(loading = false,
+                    error = com.hermes.client.data.error.AppError(
+                        com.hermes.client.data.error.AppErrorCode.MODEL_DEFAULT_READ_FAILED,
+                        retryable = true, stage = "new_chat_default_model",
+                    ))
             }
         }
-        ensureProviders()
+    }
+
+    private fun draftModelOwner(): List<String?> = accountSessions?.session?.value.let {
+        listOf(it?.baseUrl, it?.accountId, it?.selectedDeviceId)
     }
 
     fun firstTurn(text: String) = FirstTurn(text, _state.value.pendingAttachments,
@@ -926,7 +975,10 @@ class ChatViewModel @Inject constructor(
         requestedDeviceId: String? = null,
     ) {
         localDraft = false
+        localDraftOwner = null
         draftLoadJob?.cancel()
+        draftModelRevision++
+        draftModelJob?.cancel()
         if (storedSessionId != id) pendingFirstTurnSettings = null
         setAppLanguage(language)
         // Configuration changes recreate the composition and re-run its LaunchedEffect, while the

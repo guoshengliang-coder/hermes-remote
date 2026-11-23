@@ -52,24 +52,32 @@ internal fun NewProfileChat(
             onPick = { if (!busy) onCreate(it, null) }, onDismiss = onClose)
         return
     }
-    Dialog(onDismissRequest = { if (!busy) onClose() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(Modifier.fillMaxSize()) {
-            CompositionLocalProvider(LocalViewModelStoreOwner provides storeOwner) {
-                val vm: ChatViewModel = hiltViewModel()
-                if (owner != null) ChatScreen(sessionId = draftId, sessionProfile = owner, isNewSession = true, vm = vm,
-                    localDraft = true, draftCwd = initialCwd.takeIf { owner == initialProjectProfile }, draftBusy = busy,
-                    onMenu = { if (!busy) onClose() },
-                    onDraftSend = { turn -> if (!busy && !submitted) { submitted = true; onCreate(owner, turn) } },
-                    draftRoleSwitch = {
-                        TextButton(onClick = { picking = true }, enabled = !busy && !submitted) { Text(l10n("切换角色", "Switch role")) }
-                    })
-                else Column {
-                    TextButton(onClick = { picking = true }, enabled = names.isNotEmpty()) { Text(l10n("请选择角色", "Choose a role")) }
-                    TextButton(onClick = onClose) { Text(l10n("返回", "Back")) }
-                }
+    NewChatWindow(onDismiss = { if (!busy) onClose() }) {
+        CompositionLocalProvider(LocalViewModelStoreOwner provides storeOwner) {
+            val vm: ChatViewModel = hiltViewModel()
+            if (owner != null) ChatScreen(sessionId = draftId, sessionProfile = owner, isNewSession = true, vm = vm,
+                localDraft = true, draftCwd = initialCwd.takeIf { owner == initialProjectProfile }, draftBusy = busy,
+                onMenu = { if (!busy) onClose() },
+                onDraftSend = { turn -> if (!busy && !submitted) { submitted = true; onCreate(owner, turn) } },
+                draftRoleSwitch = {
+                    TextButton(onClick = { picking = true }, enabled = !busy && !submitted) { Text(l10n("切换角色", "Switch role")) }
+                })
+            else Column {
+                TextButton(onClick = { picking = true }, enabled = names.isNotEmpty()) { Text(l10n("请选择角色", "Choose a role")) }
+                TextButton(onClick = onClose) { Text(l10n("返回", "Back")) }
             }
         }
         if (picking) RolePickerSheet(names, l10n("切换角色", "Switch role"), setOfNotNull(owner),
             onPick = { if (!busy) { selection = it; picking = false } }, onDismiss = { picking = false })
+    }
+}
+
+/** The shared chat composer owns IME/system-bar insets, including in this separate window. */
+@Composable
+internal fun NewChatWindow(onDismiss: () -> Unit, content: @Composable () -> Unit) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(
+        usePlatformDefaultWidth = false, decorFitsSystemWindows = false,
+    )) {
+        Surface(Modifier.fillMaxSize(), content = content)
     }
 }

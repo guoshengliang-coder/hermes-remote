@@ -66,6 +66,8 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "无法切换本会话的模型，请重试。", "Couldn't switch this conversation's model. Retry.")
         AppErrorCode.MODEL_SWITCH_UNCONFIRMED ->
             localized(language, "模型切换未收到确认，请查看当前模型后再操作。", "The model switch was not confirmed. Check the current model before trying again.")
+        AppErrorCode.MODEL_DEFAULT_READ_FAILED ->
+            localized(language, "无法读取当前角色的默认模型，请重试。", "Couldn't read this role's default model. Retry.")
         AppErrorCode.MODEL_DEFAULT_FAILED ->
             localized(language, "无法设置默认模型，请重试。", "Couldn't set the default model. Retry.")
         AppErrorCode.MODEL_REASONING_FAILED ->

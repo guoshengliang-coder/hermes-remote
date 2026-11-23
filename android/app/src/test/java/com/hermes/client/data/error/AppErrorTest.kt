@@ -9,6 +9,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppErrorTest {
+    @Test fun defaultModelReadFailureHasStableBilingualRetryableRedactedContract() {
+        val error = AppError(AppErrorCode.MODEL_DEFAULT_READ_FAILED, retryable = true,
+            technicalCause = "token=private Authorization: Bearer secret", stage = "new_chat_default_model")
+        assertEquals("HR-MODEL-004", error.code.value)
+        assertEquals(error.code, AppErrorCode.fromValue(error.code.value))
+        assertEquals("无法读取当前角色的默认模型，请重试。", error.localizedSummary(AppLanguage.ZH))
+        assertEquals("Couldn't read this role's default model. Retry.", error.localizedSummary(AppLanguage.EN))
+        for (language in AppLanguage.entries) assertTrue(error.localizedMessage(language).contains(error.code.value))
+        assertTrue(error.retryable)
+        assertFalse(error.sanitizedDiagnostic().contains("private"))
+        assertFalse(error.sanitizedDiagnostic().contains("secret"))
+    }
     @Test fun unknownNoticeRemovalFailureHasStableBilingualRetryableRedactedContract() {
         val error = AppError(AppErrorCode.UNKNOWN_NOTICE_REMOVE_FAILED, retryable = true,
             technicalCause = "token=private Authorization: Bearer secret", stage = "unknown_notice_remove")
