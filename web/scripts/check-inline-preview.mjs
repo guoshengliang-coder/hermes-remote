@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "vite";
@@ -14,7 +14,7 @@ const dist = path.join(fixture, "dist");
 let browser, server;
 try {
   const html = path.join(fixture, "index.html");
-  await writeFile(html, '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div><script type="module" src="./fixture.tsx"></script>');
+  await copyFile(new URL("./fixtures/inline-preview.html", import.meta.url), html);
   await writeFile(path.join(fixture, "fixture.tsx"), [
     "import { render } from 'preact';",
     "import { AppContext } from '../src/app/store';",
