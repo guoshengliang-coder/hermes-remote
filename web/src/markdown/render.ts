@@ -138,9 +138,9 @@ export function renderMarkdown(source: string): string {
 }
 
 /** Render untrusted Markdown to a sanitized DocumentFragment (the UI's only path into the DOM). */
-export function renderMarkdownFragment(source: string): DocumentFragment {
+export function renderMarkdownFragment(source: string, sharedEnv?: Env): DocumentFragment {
   markdown ??= createMarkdown();
-  const env: RenderEnv = { hiddenLinks: [] };
+  const env: RenderEnv = { references: sharedEnv?.references, hiddenLinks: [] };
   return sanitizeToFragment(markdown.render(source, env));
 }
 

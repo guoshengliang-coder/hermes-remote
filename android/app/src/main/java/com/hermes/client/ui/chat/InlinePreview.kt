@@ -4,6 +4,8 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.ContextWrapper
 import android.view.View
+import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.webkit.CookieManager
 import android.webkit.PermissionRequest
 import android.webkit.RenderProcessGoneDetail
@@ -16,7 +18,6 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -49,6 +50,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -67,9 +69,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -314,6 +313,95 @@ internal const val PREVIEW_MEASURE_SCRIPT = "(function(){try{var d=document.docu
     // A page that scrolls its body instead of the document reports its height on the body.
     "return Math.ceil(Math.max(d.scrollHeight,b.scrollHeight*z))}catch(e){return -1}})()"
 
+internal fun inlinePreviewAccent(dark: Boolean): Color =
+    if (dark) Color(0xFFADA3FF) else Color(0xFF8B80E8)
+
+internal fun inlinePreviewHorizontal(dx: Float, dy: Float, slop: Int): Boolean =
+    abs(dx) > slop && abs(dx) > abs(dy)
+
+internal const val INLINE_PREVIEW_HEIGHT_SCRIPT =
+    "(function(){var d=document.documentElement,b=document.body;" +
+        "return d&&b?Math.ceil(Math.max(b.getBoundingClientRect().height,b.scrollHeight)):-1})()"
+
+private class InlinePreviewWebView(context: Context, private val onPageTap: () -> Unit) : WebView(context) {
+    private val slop = ViewConfiguration.get(context).scaledTouchSlop
+    private var startX = 0f
+    private var startY = 0f
+    private var lastX = 0f
+    private var horizontal = false
+    private var tap = false
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                startX = event.x
+                lastX = event.x
+                startY = event.y
+                horizontal = false
+                tap = true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = event.x - startX
+                val dy = event.y - startY
+                if (tap && (abs(dx) > slop || abs(dy) > slop)) {
+                    tap = false
+                    horizontal = inlinePreviewHorizontal(dx, dy, slop)
+                    if (horizontal) parent?.requestDisallowInterceptTouchEvent(true)
+                }
+                if (horizontal) {
+                    scrollPreview(lastX - event.x)
+                    lastX = event.x
+                }
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                tap = false
+                horizontal = false
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (event.actionMasked == MotionEvent.ACTION_UP && tap &&
+                    abs(event.x - startX) <= slop && abs(event.y - startY) <= slop &&
+                    event.eventTime - event.downTime < ViewConfiguration.getLongPressTimeout()
+                ) dispatchPageTap(event)
+                horizontal = false
+                tap = false
+                parent?.requestDisallowInterceptTouchEvent(false)
+            }
+        }
+        return true
+    }
+
+    private fun scrollPreview(pixels: Float) {
+        val density = resources.displayMetrics.density
+        val x = (startX / density).roundToInt()
+        val y = (startY / density).roundToInt()
+        val dx = (pixels / density).roundToInt()
+        if (dx == 0) return
+        // Forward a scroll delta only, so dragging does not click a page control.
+        // Prefer the width-limited element under the gesture and then the page itself.
+        evaluateJavascript(
+            "(function(){var el=document.elementFromPoint($x,$y),root=document.scrollingElement;" +
+                "while(el&&el!==root){if(/^(auto|scroll|overlay)$/.test(getComputedStyle(el).overflowX)" +
+                "&&el.scrollWidth>el.clientWidth){var old=el.scrollLeft;el.scrollLeft+=($dx);" +
+                "if(old!==el.scrollLeft)return;}el=el.parentElement;}if(root)root.scrollLeft+=($dx);})()",
+            null,
+        )
+    }
+
+    private fun dispatchPageTap(up: MotionEvent) {
+        // Only a completed tap reaches the page. Replaying through WebView keeps native hit
+        // testing, default control actions and trusted DOM clicks.
+        val down = MotionEvent.obtain(up)
+        try {
+            down.action = MotionEvent.ACTION_DOWN
+            super.onTouchEvent(down)
+            super.onTouchEvent(up)
+            onPageTap()
+        } finally {
+            down.recycle()
+        }
+    }
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 private fun WebView.isolateForPreview(interactive: Boolean, textZoomPercent: Int) {
     setBackgroundColor(android.graphics.Color.TRANSPARENT)
@@ -338,10 +426,10 @@ private fun WebView.isolateForPreview(interactive: Boolean, textZoomPercent: Int
         displayZoomControls = false
     }
     CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
-    isFocusable = interactive
+    isFocusable = true
     isFocusableInTouchMode = interactive
     isVerticalScrollBarEnabled = interactive
-    isHorizontalScrollBarEnabled = interactive
+    isHorizontalScrollBarEnabled = true
     overScrollMode = if (interactive) View.OVER_SCROLL_IF_CONTENT_SCROLLS else View.OVER_SCROLL_NEVER
     webChromeClient = object : WebChromeClient() {
         override fun onPermissionRequest(request: PermissionRequest) = request.deny()
@@ -402,19 +490,19 @@ private class PreviewWebViewClient(
 @Composable
 private fun rememberPreviewTheme(): PreviewTheme {
     val colors = MaterialTheme.colorScheme
+    val dark = colors.background.luminance() < 0.5f
     return PreviewTheme(
-        dark = colors.background.luminance() < 0.5f,
+        dark = dark,
         foreground = colors.onSurface,
         mutedForeground = colors.onSurfaceVariant,
-        accent = colors.primary,
+        accent = inlinePreviewAccent(dark),
         border = colors.outlineVariant,
         card = colors.surfaceContainerLow,
     )
 }
 
 /**
- * One isolated page. Inline it never takes focus or touches (the card above it does); in full
- * screen it is interactive and pinch-zoomable. Either way it is fitted to the frame's width.
+ * One isolated page with horizontal gestures inline and full interaction in the viewer.
  */
 @Composable
 private fun PreviewFrame(
@@ -431,6 +519,7 @@ private fun PreviewFrame(
     val token = remember(html, theme, textZoom) { UUID.randomUUID().toString() }
     val document = remember(token) { inlinePreviewDocument(html, previewThemePrelude(theme)).toByteArray(Charsets.UTF_8) }
     var loaded by remember(token) { mutableStateOf(false) }
+    var layoutRevision by remember(token) { mutableIntStateOf(0) }
     var web by remember(token) { mutableStateOf<WebView?>(null) }
     val latestOnHeight by rememberUpdatedState(onHeight)
     val latestOnFailure by rememberUpdatedState(onFailure)
@@ -439,14 +528,15 @@ private fun PreviewFrame(
         delay(PREVIEW_LOAD_TIMEOUT_MS)
         if (!loaded) latestOnFailure("load timed out")
     }
-    LaunchedEffect(token, loaded) {
+    LaunchedEffect(token, loaded, layoutRevision) {
         if (!loaded) return@LaunchedEffect
         var elapsed = 0L
         for (at in MEASURE_SCHEDULE_MS) {
             delay(at - elapsed)
             elapsed = at
             val view = web ?: return@LaunchedEffect
-            view.evaluateJavascript(PREVIEW_MEASURE_SCRIPT) { result ->
+            val script = if (interactive) PREVIEW_MEASURE_SCRIPT else INLINE_PREVIEW_HEIGHT_SCRIPT
+            view.evaluateJavascript(script) { result ->
                 result?.toDoubleOrNull()?.takeIf { it > 0 }?.let { latestOnHeight(ceil(it).toInt()) }
             }
         }
@@ -454,7 +544,8 @@ private fun PreviewFrame(
     key(token) {
         AndroidView(
             factory = { context ->
-                WebView(context).apply {
+                val view = if (interactive) WebView(context) else InlinePreviewWebView(context) { layoutRevision++ }
+                view.apply {
                     web = this
                     isolateForPreview(interactive, textZoom)
                     webViewClient = PreviewWebViewClient(token, document, interactive,
@@ -523,7 +614,6 @@ private fun InlinePreviewCard(
     streaming: Boolean,
     host: InlinePreviewHost,
 ) {
-    val language = LocalAppLanguage.current
     val viewport = LocalChatViewportController.current
     DisposableEffect(viewport, anchorKey) { onDispose { viewport?.removeBlock(anchorKey) } }
     // Mid-stream the file is often still being written; upstream waits for the turn to settle too.
@@ -559,7 +649,6 @@ private fun InlinePreviewCard(
                     document is PreviewDocument.Failed -> PreviewNotice(document.error) { host.retry(target.path) }
                     ready != null -> {
                         var measured by remember(ready.html) { mutableStateOf(host.height(heightKey)) }
-                        val description = localized(language, "网页预览：${target.name}", "Preview: ${target.name}")
                         Box(Modifier.fillMaxWidth().height((measured ?: placeholder).dp)) {
                             PreviewFrame(
                                 html = ready.html,
@@ -579,17 +668,6 @@ private fun InlinePreviewCard(
                                 modifier = Modifier.fillMaxWidth().height((measured ?: 1).dp),
                             )
                             if (measured == null) PreviewPlaceholder(Modifier.fillMaxWidth().height(placeholder.dp))
-                            // The card, not the page, takes touches: drags scroll the chat, a tap
-                            // opens the page full screen where it is interactive.
-                            Box(
-                                Modifier
-                                    .matchParentSize()
-                                    .clickable(
-                                        onClickLabel = localized(language, "全屏查看", "Open full screen"),
-                                        role = Role.Button,
-                                    ) { host.openFullscreen(target.path) }
-                                    .semantics { contentDescription = description },
-                            )
                         }
                     }
                     else -> PreviewPlaceholder(Modifier.fillMaxWidth().height(placeholder.dp))

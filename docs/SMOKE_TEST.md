@@ -2400,6 +2400,18 @@ none/all check covers rapid multi-selection updates. Output screenshots and obse
 in the caller's output directory. Physical Safari/Home Screen, real mic/file pickers, and
 production sends remain separate acceptance; this is not a production or WebKit test.
 
+### HG-264 / HG-265 — inline HTML charts
+
+Use a settled assistant reply with a standalone HTML preview directive for a wide SVG or
+HTML table. At phone width, scroll to the last column inside the card and confirm that
+the transcript itself stays within its viewport. Verify that the preview accent matches
+Android in light and dark appearance and that embedded SVG presentation colors are kept.
+For a document that needs scripts or author CSS, use the download action. The Web shell
+keeps its existing CSP and never executes the file's scripts. Repeat on Android Chrome
+and iPhone Safari/Home Screen; use the original chart if available.
+
+The local browser fixture uses synthetic data and production CSP.
+Run `node web/scripts/check-inline-preview.mjs <playwright-module> <chromium|webkit> [executable]`.
 
 ## HG-261 / HG-262 — Web 角色副行与圆点分隔
 
