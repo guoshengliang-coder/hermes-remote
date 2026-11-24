@@ -14,7 +14,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Unarchive
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -22,7 +21,6 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -117,8 +115,9 @@ fun ArchivedScreen(
                             session = s,
                             defaultProjectPath = defaultProjectPath,
                             onOpen = { openSession(s) },
-                            onUnarchive = { vm.unarchive(s) },
-                            onDelete = { vm.delete(s) },
+                            onUnarchive = { vm.performArchive(s, false) },
+                            onDelete = { vm.performDelete(s, true) },
+                            onRefresh = { vm.loadArchived() },
                         )
                     }
                 }
@@ -138,9 +137,12 @@ private fun ArchivedRow(
     session: Session,
     defaultProjectPath: String?,
     onOpen: () -> Unit,
-    onUnarchive: () -> Unit,
-    onDelete: () -> Unit,
+    onUnarchive: suspend () -> com.hermes.client.data.error.AppError?,
+    onDelete: suspend () -> com.hermes.client.data.error.AppError?,
+    onRefresh: () -> Unit,
 ) {
+    val feedback = rememberSessionActionFeedback(session.deviceId, session.profile, session.id)
+    val context = LocalContext.current
     val language = LocalAppLanguage.current
     val haptics = LocalHapticFeedback.current
     var menuOpen by remember { mutableStateOf(false) }
@@ -170,29 +172,42 @@ private fun ArchivedRow(
         com.hermes.client.ui.components.RowActionSheet(
             typeLabel = localized(language, "已归档", "Archived"),
             title = session.title,
-            onDismiss = { menuOpen = false },
+            onDismiss = { if (!feedback.pending) { feedback.clearError(); menuOpen = false } },
+            closeEnabled = !feedback.pending,
         ) {
             ArchivedActionItems(
-                onUnarchive = { menuOpen = false; onUnarchive() },
+                onUnarchive = {
+                    feedback.submit(onUnarchive) {
+                        menuOpen = false
+                        android.widget.Toast.makeText(context, localized(language, "已恢复", "Restored"), android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                },
+                pending = feedback.pending,
+                actionsEnabled = feedback.error?.let(::isArchiveFailure) != true,
                 onDelete = { menuOpen = false; confirmingDelete = true },
             )
+            SessionActionError(feedback) { feedback.clearError(); menuOpen = false; onRefresh() }
         }
     }
 
     if (confirmingDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmingDelete = false },
-            title = { Text(localized(language, "删除会话？", "Delete session?")) },
-            text = { Text(localized(language, "“${session.title}”将被永久删除。", "\"${session.title}\" will be permanently deleted.")) },
-            confirmButton = {
-                TextButton(onClick = { confirmingDelete = false; onDelete() }) {
-                    Text(localized(language, "删除", "Delete"), color = MaterialTheme.colorScheme.error)
+        SessionActionDialog(
+            feedback = feedback,
+            title = localized(language, "删除会话？", "Delete session?"),
+            action = localized(language, "删除", "Delete"),
+            pendingLabel = localized(language, "删除中…", "Deleting…"),
+            destructive = true,
+            onDismiss = { confirmingDelete = false },
+            onConfirm = {
+                feedback.submit(onDelete) {
+                    confirmingDelete = false
+                    android.widget.Toast.makeText(context, localized(language, "已删除", "Deleted"), android.widget.Toast.LENGTH_SHORT).show()
                 }
             },
-            dismissButton = {
-                TextButton(onClick = { confirmingDelete = false }) { Text(localized(language, "取消", "Cancel")) }
-            },
-        )
+            onRefresh = onRefresh,
+        ) {
+            Text(localized(language, "“${session.title}”将被永久删除。", "\"${session.title}\" will be permanently deleted."))
+        }
     }
 }
 
@@ -204,12 +219,19 @@ private fun ArchivedRow(
  * about. Delete keeps 「不可撤销」 and the second confirm.
  */
 @Composable
-internal fun ArchivedActionItems(onUnarchive: () -> Unit, onDelete: () -> Unit) {
+internal fun ArchivedActionItems(
+    onUnarchive: () -> Unit,
+    onDelete: () -> Unit,
+    pending: Boolean = false,
+    actionsEnabled: Boolean = true,
+) {
     val language = LocalAppLanguage.current
     com.hermes.client.ui.components.RowActionItem(
         icon = Icons.Rounded.Unarchive,
         label = localized(language, "取消归档", "Unarchive"),
         onClick = onUnarchive,
+        enabled = !pending && actionsEnabled,
+        labelContent = if (pending) ({ SessionActionProgress(localized(language, "恢复中…", "Restoring…")) }) else null,
     )
     com.hermes.client.ui.components.RowActionDivider()
     com.hermes.client.ui.components.RowActionItem(
@@ -218,5 +240,6 @@ internal fun ArchivedActionItems(onUnarchive: () -> Unit, onDelete: () -> Unit) 
         hint = localized(language, "不可撤销", "Permanent"),
         destructive = true,
         onClick = onDelete,
+        enabled = !pending && actionsEnabled,
     )
 }

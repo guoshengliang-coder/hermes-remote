@@ -12,6 +12,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import com.hermes.client.data.error.AppError
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -41,16 +47,29 @@ fun projectLabelText(label: String?): String = label ?: l10n("默认项目", "De
 fun ProjectPickerSheet(
     projects: List<Project>,
     currentProjectId: String?,
-    onPick: (Project) -> Unit,
+    onPick: suspend (Project) -> AppError?,
     onDismiss: () -> Unit,
+    localOnly: Boolean = false,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = com.hermes.client.ui.components.hermesSheetState()) {
+    val feedback = rememberSessionActionFeedback()
+    val context = LocalContext.current
+    val moved = l10n("已移动", "Moved")
+    var destination by remember { mutableStateOf<String?>(null) }
+    val dismiss = { if (!feedback.pending) onDismiss() }
+    ModalBottomSheet(
+        onDismissRequest = dismiss,
+        sheetGesturesEnabled = !feedback.pending,
+        sheetState = com.hermes.client.ui.components.hermesSheetState {
+            it != androidx.compose.material3.SheetValue.Hidden || !feedback.pending
+        },
+    ) {
         Text(
             l10n("移动到项目", "Move to project"),
             style = MaterialTheme.typography.titleMedium,
             maxLines = 2,
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
         )
+        SessionActionError(feedback) { onDismiss() }
         val rows = projects.filter { p ->
             p.id != DEFAULT_PROJECT_ID || p.path != null || p.id == currentProjectId
         }
@@ -77,10 +96,27 @@ fun ProjectPickerSheet(
                         modifier = Modifier.size(24.dp),
                     )
                 },
-                trailingContent = if (isCurrent) ({
+                trailingContent = if (feedback.pending && destination == p.id && !localOnly) ({
+                    SessionActionProgress(l10n("移动中…", "Moving…"))
+                }) else if (isCurrent) ({
                     Icon(Icons.Rounded.Check, contentDescription = l10n("当前项目", "Current project"), tint = MaterialTheme.colorScheme.primary)
                 }) else null,
-                modifier = Modifier.clickable { if (isCurrent) onDismiss() else onPick(p) },
+                modifier = Modifier.clickable(enabled = !feedback.pending) {
+                    if (feedback.pending) return@clickable
+                    if (isCurrent) {
+                        dismiss()
+                    } else {
+                        destination = p.id
+                        feedback.submit({ onPick(p) }) {
+                            if (!localOnly) android.widget.Toast.makeText(
+                                context,
+                                moved,
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                            onDismiss()
+                        }
+                    }
+                },
             )
         }
         androidx.compose.foundation.layout.Spacer(Modifier.size(20.dp))

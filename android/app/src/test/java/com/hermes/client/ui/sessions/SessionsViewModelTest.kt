@@ -190,10 +190,31 @@ class SessionsViewModelTest {
         advanceUntilIdle()
         assertEquals(listOf("x", "y"), vm.archivedState.value.sessions.map { it.id })
 
+        coEvery { sessionRepo.archivedAllProfiles(afterMutation = true) } returns listOf(
+            session("y", "Other tenant", profile = "work"),
+        )
         coEvery { sessionRepo.archive("x", false, "personal") } returns Unit
         vm.unarchive(vm.archivedState.value.sessions.first())
         advanceUntilIdle()
         io.mockk.coVerify { sessionRepo.archive("x", false, "personal") }
+        assertEquals(listOf("y"), vm.archivedState.value.sessions.map { it.id })
+    }
+
+    @Test fun deleting_an_archived_row_requests_a_post_mutation_archive_snapshot() = runTest {
+        val row = session("x", "Old chat", profile = "personal")
+        coEvery { sessionRepo.listAllProfiles() } returns emptyList()
+        coEvery { sessionRepo.archivedAllProfiles() } returns listOf(row)
+        coEvery { sessionRepo.delete("x", "personal") } returns Unit
+        coEvery { sessionRepo.archivedAllProfiles(afterMutation = true) } returns emptyList()
+        val vm = buildVm()
+        vm.loadArchived()
+        advanceUntilIdle()
+
+        assertNull(vm.performDelete(row, archived = true))
+        advanceUntilIdle()
+
+        assertEquals(emptyList<Session>(), vm.archivedState.value.sessions)
+        io.mockk.coVerify(exactly = 1) { sessionRepo.archivedAllProfiles(afterMutation = true) }
     }
 
     @Test fun refresh_resurfaces_newly_added_session() = runTest {

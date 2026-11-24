@@ -659,7 +659,7 @@ class ScreenshotTest {
                 unread = unread,
                 hasDraft = hasDraft,
                 hasUnsent = hasUnsent,
-                onOpen = {}, onTogglePin = {}, onRename = {}, onArchive = {}, onDelete = {},
+                onOpen = {}, onTogglePin = {}, onRename = { null }, onArchive = { null }, onDelete = { null },
             )
         }
     }
@@ -952,9 +952,9 @@ class ScreenshotTest {
                         nowMs = botNow,
                         onOpen = {},
                         onTogglePin = {},
-                        onRename = {},
-                        onArchive = {},
-                        onDelete = {},
+                        onRename = { null },
+                        onArchive = { null },
+                        onDelete = { null },
                     )
                 }
                 com.hermes.client.ui.components.SectionHeader(
@@ -969,9 +969,9 @@ class ScreenshotTest {
                     nowMs = botNow,
                     onOpen = {},
                     onTogglePin = {},
-                    onRename = {},
-                    onArchive = {},
-                    onDelete = {},
+                    onRename = { null },
+                    onArchive = { null },
+                    onDelete = { null },
                 )
             }
         }

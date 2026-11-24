@@ -252,14 +252,7 @@ fun ChatScreen(
     val sessionTitle by vm.sessionTitle.collectAsStateWithLifecycle()
     val workspace by vm.workspace.collectAsStateWithLifecycle()
     val workspaceProjects by vm.workspaceProjects.collectAsStateWithLifecycle()
-    val workspaceError by vm.workspaceError.collectAsStateWithLifecycle()
     var projectSheetOpen by rememberSaveable(sessionId) { mutableStateOf(false) }
-    LaunchedEffect(workspaceError) {
-        workspaceError?.let {
-            android.widget.Toast.makeText(context, it.localizedMessage(language), android.widget.Toast.LENGTH_LONG).show()
-            vm.clearWorkspaceError()
-        }
-    }
     val currentModel by vm.currentModel.collectAsStateWithLifecycle()
     val draftModelRead by vm.draftModelRead.collectAsStateWithLifecycle()
     val botOrigin by vm.botOrigin.collectAsStateWithLifecycle()
@@ -562,8 +555,7 @@ fun ChatScreen(
     // Image attach: read picked/captured bytes and stage them onto the session.
     var creatingNewChat by remember { mutableStateOf(false) }
     var confirmArchive by rememberSaveable(sessionId) { mutableStateOf(false) }
-    var archiving by remember { mutableStateOf(false) }
-    var archiveFailure by remember { mutableStateOf<com.hermes.client.data.error.AppError?>(null) }
+
     // Share-transcript format picker + the offscreen image export it can start.
     var shareFormatSheet by remember { mutableStateOf(false) }
     var transcriptImageExporting by remember { mutableStateOf(false) }
@@ -595,14 +587,6 @@ fun ChatScreen(
     // before the export's first suspension point resumes. The write, the share sheet AND the
     // failure toast all disappeared together, so the tap read as "nothing happened" (HG-9).
     val exportScope = androidx.compose.runtime.rememberCoroutineScope()
-    archiveFailure?.let { failure ->
-        com.hermes.client.ui.sessions.SessionArchiveErrorDialog(failure, { archiveFailure = null }) {
-            archiveFailure = null
-            exportScope.launch { vm.recoverForForeground() }
-        }
-    }
-
-
     // The top bar's ＋. Creation is a gateway round trip, so the button holds a spinner and
     // refuses re-entry until it settles — double-tapping used to create two conversations.
     var choosingNewProfile by remember { mutableStateOf(false) }
@@ -2366,56 +2350,30 @@ fun ChatScreen(
         )
     }
 
-    // Archiving asks first (docs/DESIGN.md §5.2, HG-5): unlike the sessions list — where the row
-    // visibly leaves under your finger — this one carries you off the screen you were reading, so
-    // a confirm is the only feedback before the fact. NOT painted error-red: archiving is
-    // reversible from 已归档, and colouring reversible actions red dilutes the colour that means
-    // "you cannot undo this".
     if (confirmArchive) {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { if (!archiving) confirmArchive = false },
-            title = { Text(localized(language, "归档这个对话？", "Archive this conversation?")) },
-            text = {
-                Text(
-                    localized(
-                        language,
-                        "归档后它会从会话列表移到「已归档」，随时可以恢复。",
-                        "It moves out of your conversation list into 已归档, and you can restore it any time.",
-                    ),
-                )
+        val feedback = com.hermes.client.ui.sessions.rememberSessionActionFeedback(vm.workspaceUiKey(sessionId, ownerProfile, sessionDeviceId))
+        com.hermes.client.ui.sessions.SessionActionDialog(
+            feedback = feedback,
+            title = localized(language, "归档这个对话？", "Archive this conversation?"),
+            action = localized(language, "归档", "Archive"),
+            pendingLabel = localized(language, "归档中…", "Archiving…"),
+            onDismiss = { confirmArchive = false },
+            onConfirm = {
+                feedback.submit(vm::archiveCurrentSession) {
+                    confirmArchive = false
+                    android.widget.Toast.makeText(
+                        context, localized(language, "已归档", "Archived"), android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                    onMenu()
+                }
             },
-            confirmButton = {
-                androidx.compose.material3.TextButton(
-                    enabled = !archiving,
-                    onClick = {
-                        archiving = true
-                        exportScope.launch {
-                            val error = vm.archiveCurrentSession()
-                            archiving = false
-                            confirmArchive = false
-                            if (error == null) {
-                                android.widget.Toast.makeText(
-                                    context,
-                                    localized(language, "已归档", "Archived"),
-                                    android.widget.Toast.LENGTH_SHORT,
-                                ).show()
-                                onMenu()
-                            } else {
-                                // Stay put until state is confirmed; a lost acknowledgement
-                                // must not be presented as success or a definite no-op.
-                                archiveFailure = error
-                            }
-                        }
-                    },
-                ) { Text(localized(language, "归档", "Archive")) }
-            },
-            dismissButton = {
-                androidx.compose.material3.TextButton(
-                    enabled = !archiving,
-                    onClick = { confirmArchive = false },
-                ) { Text(localized(language, "取消", "Cancel")) }
-            },
-        )
+            onRefresh = { exportScope.launch { vm.recoverForForeground() } },
+        ) {
+            Text(localized(language,
+                "归档后它会从会话列表移到「已归档」，随时可以恢复。",
+                "It moves out of your conversation list into 已归档, and you can restore it any time.",
+            ))
+        }
     }
 
     if (botNoticeOpen) {
@@ -2743,7 +2701,8 @@ fun ChatScreen(
             projects = workspaceProjects,
             currentProjectId = currentId ?: com.hermes.client.ui.sessions.DEFAULT_PROJECT_ID.takeIf { localDraft },
             onDismiss = { projectSheetOpen = false },
-            onPick = { project -> vm.moveToProject(project) { projectSheetOpen = false } },
+            localOnly = localDraft,
+            onPick = vm::moveToProject,
         )
     }
 }

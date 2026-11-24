@@ -126,6 +126,9 @@ export function App() {
   const [devices, setDevices] = useState<AccountDevice[]>([]);
   const [device, setDevice] = useState<AccountDevice | null>(null);
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
+  const sessionListScope = useMemo(() => ({}), [account?.id, device?.deviceId]);
+  const currentSessionListScope = useRef(sessionListScope);
+  currentSessionListScope.current = sessionListScope;
   const [inbox, dispatchInbox] = useReducer(reduceInbox, initialInbox);
   const [live, setLive] = useState<{ open: ReadonlySet<string>; settled: LiveSettled }>({
     open: new Set(),
@@ -641,7 +644,9 @@ export function App() {
     reportLiveQuestion,
     markSeen,
     sessions,
-    setSessions,
+    setSessions: (rows) => {
+      if (currentSessionListScope.current === sessionListScope) setSessions(rows);
+    },
     isPinned,
     togglePin: togglePinFor,
     collapsed,

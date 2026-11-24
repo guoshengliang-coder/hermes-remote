@@ -16,10 +16,11 @@ export function Sheet({
   titleAccessory,
   className,
   aboveDrawer,
+  closeDisabled = false,
 }: {
   title?: string;
   closeLabel: string;
-  onClose: () => void;
+  onClose: () => boolean | void;
   children: ComponentChildren;
   wide?: boolean;
   headerAction?: ComponentChildren;
@@ -30,6 +31,7 @@ export function Sheet({
    * 24/25 for in-page use, so a sheet opened from the card page would otherwise paint behind it.
    */
   aboveDrawer?: boolean;
+  closeDisabled?: boolean;
 }) {
   useBackClose(onClose);
   useEffect(() => {
@@ -46,7 +48,7 @@ export function Sheet({
           <div class="picker-head">
             <h2 class="picker-title">{title}{titleAccessory}</h2>
             {headerAction}
-            <button type="button" class="icon-button" aria-label={closeLabel} onClick={onClose}>
+            <button type="button" class="icon-button" aria-label={closeLabel} disabled={closeDisabled} onClick={onClose}>
               <CloseIcon />
             </button>
           </div>
@@ -58,7 +60,7 @@ export function Sheet({
 }
 
 /** One row of an action sheet: full text, optional hint, red when destructive. */
-export function SheetAction({ label, hint, danger, disabled, onClick }: { label: string; hint?: string; danger?: boolean; disabled?: boolean; onClick: () => void }) {
+export function SheetAction({ label, hint, danger, disabled, onClick }: { label: ComponentChildren; hint?: string; danger?: boolean; disabled?: boolean; onClick: () => void }) {
   return (
     <button type="button" class={`sheet-action${danger ? " danger" : ""}`} disabled={disabled} onClick={onClick}>
       <span class="sheet-action-label">{label}</span>

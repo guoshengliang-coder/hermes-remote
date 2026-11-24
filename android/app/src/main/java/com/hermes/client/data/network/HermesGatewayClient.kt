@@ -133,6 +133,11 @@ open class HermesGatewayClient(
     private val _state = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _state.asStateFlow()
 
+    private data class ReadySocket(val generation: Int, val deviceId: String?, val socket: WebSocket)
+
+    // Set by the ready callback and read under lifecycleLock.
+    private var readySocket: ReadySocket? = null
+
     @Volatile private var archiveMode = SessionArchiveMode.UNKNOWN
 
     suspend fun archiveBackend(): ArchiveBackendSnapshot {
@@ -473,6 +478,7 @@ open class HermesGatewayClient(
             }
             // Install a fresh, uncompleted readiness gate for this new socket attempt.
             readyGate = CompletableDeferred()
+            readySocket = null
             archiveMode = SessionArchiveMode.UNKNOWN
             // This socket has proved nothing yet; [wasWorthKeeping] starts from no.
             readyAtMsForCurrentSocket = 0L
@@ -658,6 +664,7 @@ open class HermesGatewayClient(
                                 // socket resumes before advertising would have its questions withdrawn.
                                 advertiseServerRequests(webSocket, gen)
                                 archiveMode = if (msg.event.payloadIsObject) sessionArchiveMode(msg.event.payload) else SessionArchiveMode.UNKNOWN
+                                readySocket = ReadySocket(gen, accountDeviceId, webSocket)
                                 _state.value = ConnectionState.Connected
                                 readyGate.complete(Unit)
                                 ConnectionRecoveryTrace.finish(recoveryCycle)
@@ -948,7 +955,16 @@ open class HermesGatewayClient(
 
     suspend fun call(method: String, params: JsonObject): JsonElement = callChecked(method, params, null)
 
-    private suspend fun callChecked(method: String, params: JsonObject, archiveBackend: ArchiveBackendSnapshot?): JsonElement {
+    suspend fun callWorkspaceMove(params: JsonObject, expectedDeviceId: String?): JsonElement =
+        callChecked("session.workspace.move", params, null, generation.get(), expectedDeviceId)
+
+    private suspend fun callChecked(
+        method: String,
+        params: JsonObject,
+        archiveBackend: ArchiveBackendSnapshot?,
+        expectedGeneration: Int? = null,
+        expectedDeviceId: String? = null,
+    ): JsonElement {
         // Wait until gateway.ready has been received before sending any RPC.
         // The await() happens BEFORE registering in `pending`, so a timeout here never leaks
         // a pending entry.
@@ -969,9 +985,19 @@ open class HermesGatewayClient(
         val sentConnectionId = connectionId
         if (!quiet) DebugLog.log("ws") { "rpc#$id conn=$sentConnectionId → $method" }
         val sent = synchronized(lifecycleLock) {
-            if (archiveBackend != null && (generation.get() != archiveBackend.generation ||
-                archiveMode != archiveBackend.mode || _state.value != ConnectionState.Connected)) false
-            else ws?.send(RpcRequest(id, method, params).encode(json)) ?: false
+            val target = if (expectedGeneration != null) {
+                readySocket?.takeIf {
+                    it.generation == expectedGeneration && generation.get() == expectedGeneration &&
+                        it.deviceId == expectedDeviceId && _state.value == ConnectionState.Connected
+                }?.socket
+            } else if (archiveBackend != null && (generation.get() != archiveBackend.generation ||
+                archiveMode != archiveBackend.mode || _state.value != ConnectionState.Connected)
+            ) {
+                null
+            } else {
+                ws
+            }
+            target?.send(RpcRequest(id, method, params).encode(json)) ?: false
         }
         if (!sent) {
             pending.remove(id)
