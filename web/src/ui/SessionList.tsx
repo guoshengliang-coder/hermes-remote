@@ -55,11 +55,19 @@ export function cancelSessionLoads(client: ReturnType<typeof useApp>["client"]) 
   for (const request of requests.values()) request.controller.abort();
   requests.clear();
 }
-export function loadSessions(client: ReturnType<typeof useApp>["client"], deviceId: string): Promise<SessionListItem[]> {
+export function loadSessions(
+  client: ReturnType<typeof useApp>["client"],
+  deviceId: string,
+  { afterMutation = false } = {},
+): Promise<SessionListItem[]> {
   let requests = listRequests.get(client);
   if (!requests) { requests = new Map(); listRequests.set(client, requests); }
   const pending = requests.get(deviceId);
-  if (pending) return pending.promise;
+  if (pending) {
+    if (!afterMutation) return pending.promise;
+    const fresh = () => loadSessions(client, deviceId);
+    return pending.promise.then(fresh, fresh);
+  }
   const controller = new AbortController();
   const promise = loadProfileSessionPages(client, deviceId, controller.signal).finally(() => {
     if (requests!.get(deviceId)?.promise === promise) requests!.delete(deviceId);

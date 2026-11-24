@@ -1,5 +1,5 @@
 import { conversationScope } from "../app/conversationMemory";
-import { useEffect, useMemo, useState } from "preact/hooks";
+import { useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { draftKey, saveDraft } from "../app/drafts";
 import { toAppError } from "../app/failures";
 import { defaultProjectPath } from "../app/localPrefs";
@@ -37,15 +37,7 @@ export function moveError(error: unknown): AppError {
   return appError("HR-SESS-005", error instanceof Error ? error.message : String(error));
 }
 
-export function SessionActionSheet({
-  session,
-  archived = false,
-  busy = false,
-  onClose,
-  onChanged,
-  move,
-  start,
-}: {
+type SessionActionProps = {
   session: SessionListItem;
   /** The archived page's sheet: unarchive · delete. */
   archived?: boolean;
@@ -57,17 +49,45 @@ export function SessionActionSheet({
   move?: (cwd: string) => Promise<void>;
   /** Open straight on one step (the chat's 「归档对话」 or its project subtitle). */
   start?: "archive" | "move";
-}) {
+};
+
+export function SessionActionSheet(props: SessionActionProps) {
+  const { account, device } = useApp();
+  const { session } = props;
+  const scope = JSON.stringify([account?.id, device?.deviceId, explicitProfile(session), session.id]);
+  return <ScopedSessionActionSheet key={scope} {...props} />;
+}
+
+function ScopedSessionActionSheet({
+  session,
+  archived = false,
+  busy = false,
+  onClose,
+  onChanged,
+  move,
+  start,
+}: SessionActionProps) {
   const app = useApp();
   const { t, language, client, device, features } = app;
   const deviceId = device?.deviceId ?? "";
   const [step, setStep] = useState<Step>(start ?? "menu");
   const [title, setTitle] = useState(session.title || session.display_name || "");
-  const [working, setWorking] = useState(false);
+  const [operation, setOperation] = useState<SessionChange | null>(null);
+  const [destination, setDestination] = useState<string | null>(null);
+  const inFlight = useRef(false);
+  const working = operation !== null;
+  const close = () => {
+    if (inFlight.current) return false;
+    onClose();
+  };
+  const pending = (label: string) => (
+    <span class="session-action-pending" role="status"><span aria-hidden="true" />{label}</span>
+  );
   const [error, setError] = useState<AppError | null>(null);
+  const needsReadback = error !== null && ["HR-SESS-025", "HR-SESS-026", "HR-SESS-027", "HR-SESS-028"].includes(error.code);
   const profile = explicitProfile(session);
   const archiveAbort = useMemo(() => new AbortController(), [app.account?.id, deviceId, session.id, profile]);
-  useEffect(() => () => archiveAbort.abort(), [archiveAbort]);
+  useLayoutEffect(() => () => archiveAbort.abort(), [archiveAbort]);
   const name = session.title || session.display_name || t("未命名会话", "Untitled");
   const defaultProject = deviceId ? defaultProjectPath(deviceId) : null;
   const currentKey = projectKeyOf(session) ?? defaultProject;
@@ -84,18 +104,21 @@ export function SessionActionSheet({
   async function refresh() {
     if (!deviceId) return;
     try {
-      app.setSessions(await loadSessions(client, deviceId));
+      app.setSessions(await loadSessions(client, deviceId, { afterMutation: true }));
     } catch {
       /* the next visible refresh catches up */
     }
   }
 
-  async function run(work: () => Promise<unknown>, change: SessionChange, done: string | null) {
+  async function run(work: () => Promise<unknown>, change: SessionChange, done: string | null, path?: string) {
+    if (inFlight.current || archiveAbort.signal.aborted || needsReadback) return;
     if (!profile) {
       setError(appError("HR-SESS-029"));
       return;
     }
-    setWorking(true);
+    inFlight.current = true;
+    setOperation(change);
+    setDestination(path ?? null);
     setError(null);
     try {
       await work();
@@ -113,7 +136,11 @@ export function SessionActionSheet({
       setError(change === "moved" ? moveError(e) : change === "renamed" || change === "deleted"
         ? sessionMutationFailure(e) : toAppError(e, "device"));
     } finally {
-      setWorking(false);
+      inFlight.current = false;
+      if (!archiveAbort.signal.aborted) {
+        setOperation(null);
+        setDestination(null);
+      }
     }
   }
 
@@ -129,32 +156,33 @@ export function SessionActionSheet({
   if (step === "rename") {
     const clean = title.trim();
     return (
-      <Sheet title={t("重命名会话", "Rename conversation")} closeLabel={t("取消", "Cancel")} onClose={onClose}>
+      <Sheet title={t("重命名会话", "Rename conversation")} closeLabel={t("取消", "Cancel")} onClose={close} closeDisabled={working}>
         <div class="sheet-form">
           <input
             class="sheet-input"
+            disabled={working}
             value={title}
             maxLength={200}
             autoFocus
             enterkeyhint="done"
             onInput={(e) => setTitle((e.target as HTMLInputElement).value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && clean && !working) void run(() => client.updateSession(deviceId, session.id, { title: clean }, profile, revision, archiveAbort.signal), "renamed", null);
+              if (e.key === "Enter" && clean && !working) void run(() => client.updateSession(deviceId, session.id, { title: clean }, profile, revision, archiveAbort.signal), "renamed", t("已保存", "Saved"));
             }}
           />
-          {error ? <><ErrorNotice error={error} language={language} variant="inline" />{["HR-SESS-025", "HR-SESS-026", "HR-SESS-027", "HR-SESS-028"].includes(error.code) ? <button type="button" class="text-button" onClick={() => window.location.reload()}>{t("刷新状态", "Refresh state")}</button> : null}</> : null}
+          {error ? <><ErrorNotice error={error} language={language} variant="inline" />{needsReadback ? <button type="button" class="text-button" onClick={() => window.location.reload()}>{t("刷新状态", "Refresh state")}</button> : null}</> : null}
         </div>
         <div class="sheet-buttons">
-          <button type="button" class="text-button subtle" onClick={onClose}>
+          <button type="button" class="text-button subtle" disabled={working} onClick={close}>
             {t("取消", "Cancel")}
           </button>
           <button
             type="button"
             class="primary-button inline"
-            disabled={!clean || working}
-            onClick={() => void run(() => client.updateSession(deviceId, session.id, { title: clean }, profile, revision, archiveAbort.signal), "renamed", null)}
+            disabled={!clean || working || needsReadback}
+            onClick={() => void run(() => client.updateSession(deviceId, session.id, { title: clean }, profile, revision, archiveAbort.signal), "renamed", t("已保存", "Saved"))}
           >
-            {t("保存", "Save")}
+            {working ? pending(t("保存中…", "Saving…")) : t("保存", "Save")}
           </button>
         </div>
       </Sheet>
@@ -164,28 +192,28 @@ export function SessionActionSheet({
   if (step === "archive" || step === "delete") {
     const del = step === "delete";
     return (
-      <Sheet title={del ? t("删除会话？", "Delete conversation?") : t("归档这个对话？", "Archive this conversation?")} closeLabel={t("取消", "Cancel")} onClose={onClose}>
+      <Sheet title={del ? t("删除会话？", "Delete conversation?") : t("归档这个对话？", "Archive this conversation?")} closeLabel={t("取消", "Cancel")} onClose={close} closeDisabled={working}>
         <p class="sheet-body">
           {del
             ? t(`“${name}”将被永久删除。`, `"${name}" will be permanently deleted.`)
             : t("可在「已归档」中恢复。", "You can restore it from Archived.")}
         </p>
-        {error ? <><ErrorNotice error={error} language={language} variant="inline" />{["HR-SESS-025", "HR-SESS-026", "HR-SESS-027", "HR-SESS-028"].includes(error.code) ? <button type="button" class="text-button" onClick={() => window.location.reload()}>{t("刷新状态", "Refresh state")}</button> : null}</> : null}
+        {error ? <><ErrorNotice error={error} language={language} variant="inline" />{needsReadback ? <button type="button" class="text-button" onClick={() => window.location.reload()}>{t("刷新状态", "Refresh state")}</button> : null}</> : null}
         <div class="sheet-buttons">
-          <button type="button" class="text-button subtle" onClick={onClose}>
+          <button type="button" class="text-button subtle" disabled={working} onClick={close}>
             {t("取消", "Cancel")}
           </button>
           <button
             type="button"
             class={`primary-button inline${del ? " danger" : ""}`}
-            disabled={working}
+            disabled={working || needsReadback}
             onClick={() =>
               void (del
                 ? run(() => client.deleteSession(deviceId, session.id, profile, revision, archiveAbort.signal), "deleted", t("已删除", "Deleted"))
                 : run(() => archiveSession(client, deviceId, session.id, true, profile, revision, features.has("session-archive-rpc"), archiveAbort.signal), "archived", t("已归档", "Archived")))
             }
           >
-            {del ? t("删除", "Delete") : t("归档", "Archive")}
+            {working ? pending(del ? t("删除中…", "Deleting…") : t("归档中…", "Archiving…")) : del ? t("删除", "Delete") : t("归档", "Archive")}
           </button>
         </div>
       </Sheet>
@@ -194,8 +222,8 @@ export function SessionActionSheet({
 
   if (step === "move") {
     return (
-      <Sheet title={t("移动到项目", "Move to project")} closeLabel={t("关闭", "Close")} onClose={onClose}>
-        {error ? <><ErrorNotice error={error} language={language} variant="inline" />{["HR-SESS-025", "HR-SESS-026", "HR-SESS-027", "HR-SESS-028"].includes(error.code) ? <button type="button" class="text-button" onClick={() => window.location.reload()}>{t("刷新状态", "Refresh state")}</button> : null}</> : null}
+      <Sheet title={t("移动到项目", "Move to project")} closeLabel={t("关闭", "Close")} onClose={close} closeDisabled={working}>
+        {error ? <><ErrorNotice error={error} language={language} variant="inline" />{needsReadback ? <button type="button" class="text-button" onClick={() => window.location.reload()}>{t("刷新状态", "Refresh state")}</button> : null}</> : null}
         {projects.map((p) => {
           const current = p.path === currentKey;
           return (
@@ -203,13 +231,14 @@ export function SessionActionSheet({
               type="button"
               class={`picker-row${current ? " selected" : ""}`}
               key={p.path}
-              disabled={working}
+              disabled={working || needsReadback}
               onClick={() => {
-                if (current) return onClose();
+                if (current) return close();
                 void run(
                   () => (move ? move(p.path) : moveSessionTo(client, deviceId, session.id, p.path, profile)),
                   "moved",
                   t(`已移动到 ${p.label}`, `Moved to ${p.label}`),
+                  p.path,
                 );
               }}
             >
@@ -222,7 +251,9 @@ export function SessionActionSheet({
                   <bdi>{p.path}</bdi>
                 </span>
               </span>
-              <span class="picker-check">{current ? <CheckIcon size={18} /> : null}</span>
+              {destination === p.path
+                ? pending(t("移动中…", "Moving…"))
+                : <span class="picker-check">{current ? <CheckIcon size={18} /> : null}</span>}
             </button>
           );
         })}
@@ -232,18 +263,18 @@ export function SessionActionSheet({
   }
 
   return (
-    <Sheet closeLabel={t("关闭", "Close")} onClose={onClose}>
+    <Sheet closeLabel={t("关闭", "Close")} onClose={close} closeDisabled={working}>
       <div class="action-sheet-head">
         <span class="action-chip">{archived ? t("已归档", "Archived") : t("会话", "Conversation")}</span>
         <span class="action-title">{name}</span>
       </div>
-      {error ? <><ErrorNotice error={error} language={language} variant="inline" />{["HR-SESS-025", "HR-SESS-026", "HR-SESS-027", "HR-SESS-028"].includes(error.code) ? <button type="button" class="text-button" onClick={() => window.location.reload()}>{t("刷新状态", "Refresh state")}</button> : null}</> : null}
+      {error ? <><ErrorNotice error={error} language={language} variant="inline" />{needsReadback ? <button type="button" class="text-button" onClick={() => window.location.reload()}>{t("刷新状态", "Refresh state")}</button> : null}</> : null}
       {archived ? (
         <>
           {canManage ? (
             <SheetAction
-              label={t("取消归档", "Unarchive")}
-              disabled={working}
+              label={working ? pending(t("恢复中…", "Restoring…")) : t("取消归档", "Unarchive")}
+              disabled={working || needsReadback}
               onClick={() => void run(() => archiveSession(client, deviceId, session.id, false, profile, revision, features.has("session-archive-rpc"), archiveAbort.signal), "unarchived", t("已恢复", "Restored"))}
             />
           ) : null}
@@ -274,7 +305,7 @@ export function SessionActionSheet({
       {canDelete ? (
         <>
           <div class="sheet-divider" />
-          <SheetAction label={t("删除会话", "Delete conversation")} hint={t("不可撤销", "Can't be undone")} danger onClick={() => setStep("delete")} />
+          <SheetAction label={t("删除会话", "Delete conversation")} disabled={working || needsReadback} hint={t("不可撤销", "Can't be undone")} danger onClick={() => setStep("delete")} />
         </>
       ) : null}
     </Sheet>

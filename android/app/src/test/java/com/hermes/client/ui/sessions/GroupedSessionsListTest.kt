@@ -83,7 +83,7 @@ class GroupedSessionsListTest {
                                 unreadTokens = emptySet(), draftTokens = emptySet(), unsentTokens = emptySet(),
                                 defaultProjectPath = null, nowMs = now,
                                 onOpen = { opened = it }, onMoveToProject = {}, onTogglePin = {},
-                                onRename = { _, _ -> }, onArchive = {}, onDelete = {},
+                                onRename = { _, _ -> null }, onArchive = { null }, onDelete = { null },
                             )
                         }
                     }

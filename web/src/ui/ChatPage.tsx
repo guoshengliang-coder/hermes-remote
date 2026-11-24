@@ -1025,8 +1025,11 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
           busy={state.generating}
           onClose={() => setManage(null)}
           move={async (cwd) => {
-            const moved = await sessionRef.current!.moveWorkspace(cwd);
-            dispatch({ type: "event", event: { type: "session.info", sessionId: sessionRef.current!.liveSessionId ?? "", payload: { cwd: moved.cwd ?? cwd, ...(moved.branch ? { branch: moved.branch } : {}) } } });
+            const owner = sessionRef.current;
+            if (!owner) throw appError("HR-SESS-001");
+            const moved = await owner.moveWorkspace(cwd);
+            if (sessionRef.current !== owner) return;
+            dispatch({ type: "event", event: { type: "session.info", sessionId: owner.liveSessionId ?? "", payload: { cwd: moved.cwd ?? cwd, ...(moved.branch ? { branch: moved.branch } : {}) } } });
           }}
           onChanged={(change) => {
             if (change === "archived") navigate({ name: "list" });

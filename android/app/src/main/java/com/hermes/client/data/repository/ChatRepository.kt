@@ -192,12 +192,17 @@ class ChatRepository(private val client: HermesGatewayClient) {
      * through the runtime path. The gateway refuses while the session is mid-turn (4009) and when
      * the folder does not exist on the Mac (4017) — see [com.hermes.client.ui.sessions.workspaceMoveError].
      */
-    suspend fun moveWorkspace(sessionKey: String, cwd: String, profile: String? = null): WorkspaceInfo {
-        val result = client.call("session.workspace.move", buildJsonObject {
+    suspend fun moveWorkspace(
+        sessionKey: String,
+        cwd: String,
+        profile: String? = null,
+        deviceId: String? = null,
+    ): WorkspaceInfo {
+        val result = client.callWorkspaceMove(buildJsonObject {
             put("session_key", sessionKey)
             put("cwd", cwd)
             if (!profile.isNullOrBlank()) put("profile", profile)
-        })
+        }, expectedDeviceId = deviceId)
         val obj = result.jsonObject
         return WorkspaceInfo(
             cwd = obj["cwd"]?.jsonPrimitive?.contentOrNull?.ifBlank { null } ?: cwd,

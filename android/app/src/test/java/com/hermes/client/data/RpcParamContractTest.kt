@@ -66,6 +66,11 @@ class RpcParamContractTest {
             sent += firstArg<String>() to secondArg<JsonObject>()
             answerFor(firstArg())
         }
+        coEvery { client.callWorkspaceMove(any(), any()) } answers {
+            val method = "session.workspace.move"
+            sent += method to firstArg<JsonObject>()
+            answerFor(method)
+        }
         return client
     }
 

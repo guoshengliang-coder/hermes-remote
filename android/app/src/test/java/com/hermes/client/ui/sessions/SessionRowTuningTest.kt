@@ -88,7 +88,7 @@ class SessionRowTuningTest {
         SessionRow(
             session = session, isPinned = false, defaultProjectPath = null,
             onMoveToProject = {}, runtime = runtime, onOpen = {}, onTogglePin = {},
-            onRename = {}, onArchive = {}, onDelete = {},
+            onRename = { null }, onArchive = { null }, onDelete = { null },
         )
     }
 

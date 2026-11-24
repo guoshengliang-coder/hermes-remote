@@ -230,26 +230,36 @@ class SessionsViewModel @Inject constructor(
     private val _archived = MutableStateFlow(ArchivedUiState())
     val archivedState: StateFlow<ArchivedUiState> = _archived.asStateFlow()
 
-    fun loadArchived() = viewModelScope.launch {
+    private var archivedLoadVersion = 0L
+
+    fun loadArchived(afterMutation: Boolean = false) = viewModelScope.launch {
+        readArchived("archived_load", afterMutation)
+    }
+
+    private suspend fun readArchived(stage: String, afterMutation: Boolean = false): Boolean {
+        val version = ++archivedLoadVersion
+        val route = accountSessions?.routingContext()
         _archived.value = _archived.value.copy(loading = true, error = null)
-        try {
-            val all = sessions.archivedAllProfiles()
-            _archived.value = ArchivedUiState(sessions = all)
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            _archived.value = ArchivedUiState(
-                error = AppError(AppErrorCode.RPC_FAILED, retryable = true, technicalCause = e.message, stage = "archived_load"),
-            )
+        fun current() = archivedLoadVersion == version && accountSessions?.routingContext() == route
+        return try {
+            val all = sessions.archivedAllProfiles(afterMutation)
+            if (current()) _archived.value = ArchivedUiState(sessions = all)
+            true
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            if (current()) {
+                _archived.value = _archived.value.copy(
+                    loading = false,
+                    error = AppError(AppErrorCode.RPC_FAILED, true, failure.message, stage),
+                )
+            }
+            false
         }
     }
 
     fun unarchive(session: Session) = viewModelScope.launch {
-        runCatching { sessions.archive(session.id, archived = false, session.profile, session.deviceId) }
-            .onSuccess { loadArchived(); refresh() }
-            .onFailure { if (it !is kotlinx.coroutines.CancellationException) {
-                _rowMutationFailed.value = com.hermes.client.data.repository.archiveFailure(it)
-            } }
+        _rowMutationFailed.value = performArchive(session, archived = false)
     }
 
     /**
@@ -622,18 +632,7 @@ class SessionsViewModel @Inject constructor(
     /** Warm-start recovery for the Archived page. */
     suspend fun recoverArchivedForForeground(): Boolean {
         restoreSelectedRoute()
-        return try {
-            val all = sessions.archivedAllProfiles()
-            _archived.value = ArchivedUiState(sessions = all)
-            true
-        } catch (cancelled: kotlinx.coroutines.CancellationException) {
-            throw cancelled
-        } catch (error: Exception) {
-            _archived.value = ArchivedUiState(
-                error = AppError(AppErrorCode.RPC_FAILED, true, error.message, "archived_recovery"),
-            )
-            false
-        }
+        return readArchived("archived_recovery")
     }
 
     // True while the current event burst has seen a `message.complete`; cleared by its settle pass.
@@ -719,25 +718,40 @@ class SessionsViewModel @Inject constructor(
      * failure (busy session, missing folder, …) or null on success; the list and tree refresh.
      */
     suspend fun moveToProject(session: Session, project: Project): AppError? {
+        val route = accountSessions?.routingContext()
+        fun requireRoute() {
+            if (route != accountSessions?.routingContext() || route != accountSessions?.transportRoutingContext() ||
+                (session.deviceId != null && session.deviceId != route?.deviceId)) {
+                throw kotlinx.coroutines.CancellationException("Conversation route changed")
+            }
+        }
+        requireRoute()
         val path = project.path
             ?: return AppError(AppErrorCode.PROJECT_FOLDER_MISSING, retryable = false, stage = "workspace_move")
-        return runCatching { chat.moveWorkspace(session.id, path, session.profile) }
+        return runCatching { chat.moveWorkspace(session.id, path, session.profile, route?.deviceId) }
             .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
             .fold(
                 onSuccess = {
+                    requireRoute()
                     // The gateway answers a move with a `session.info` (running=false) for a live
                     // session; for a row that is not on screen the runtime store reads that as a
                     // completed-unread run. The user just acted on this session, so clear it —
                     // once now and once after the event has had time to land.
-                    val key = runtimeStore.runtimes.value.keys.firstOrNull { it.sessionId == session.id }
-                        ?: SessionRuntimeKey(session.profile, session.id, session.deviceId)
+                    val key = SessionRuntimeKey(session.profile, session.id, session.deviceId)
                     runtimeStore.markRead(key)
-                    viewModelScope.launch { delay(750L); runtimeStore.markRead(key) }
+                    viewModelScope.launch {
+                        delay(750L)
+                        requireRoute()
+                        runtimeStore.markRead(key)
+                    }
                     refresh()
                     if (_projects.value.tree.isNotEmpty()) loadProjectTree()
                     null
                 },
-                onFailure = { workspaceMoveError(it) },
+                onFailure = {
+                    requireRoute()
+                    workspaceMoveError(it)
+                },
             )
     }
 
@@ -759,31 +773,55 @@ class SessionsViewModel @Inject constructor(
     }
 
     fun rename(session: Session, title: String) = viewModelScope.launch {
-        runCatching { sessions.rename(session.id, title, session.profile, session.deviceId) }
-            .onSuccess { refreshListsHolding(session) }
-            .onFailure { onRowMutationFailed(it, AppErrorCode.SESSION_RENAME_FAILED, "rename") }
+        _rowMutationFailed.value = performRename(session, title)
     }
 
     fun archive(session: Session) = viewModelScope.launch {
-        // Archiving removes it from the active list — must carry the session's profile or the
-        // gateway 404s (wrong per-profile DB) and the session never disappears.
-        runCatching {
-            sessions.archive(session.id, archived = true, session.profile, session.deviceId)
-        }.onSuccess { refreshListsHolding(session) }
-            .onFailure { onRowMutationFailed(it, AppErrorCode.SESSION_ARCHIVE_FAILED, "archive") }
+        _rowMutationFailed.value = performArchive(session, archived = true)
     }
 
     fun delete(session: Session) = viewModelScope.launch {
-        runCatching { sessions.delete(session.id, session.profile, session.deviceId) }
-            .onSuccess { refreshListsHolding(session) }
-            .onFailure { onRowMutationFailed(it, AppErrorCode.SESSION_DELETE_FAILED, "delete") }
+        _rowMutationFailed.value = performDelete(session, archived = false)
     }
 
-    private fun onRowMutationFailed(failure: Throwable, code: AppErrorCode, stage: String) {
-        if (failure is kotlinx.coroutines.CancellationException) return
-        _rowMutationFailed.value = if (stage == "archive" || stage == "unarchive")
-            com.hermes.client.data.repository.archiveFailure(failure)
-        else com.hermes.client.data.repository.sessionMutationFailure(failure)
+    suspend fun performRename(session: Session, title: String): AppError? =
+        performRowMutation(session) { sessions.rename(session.id, title, session.profile, session.deviceId) }
+
+    suspend fun performArchive(session: Session, archived: Boolean): AppError? =
+        performRowMutation(session, reloadArchived = !archived, archiveAction = true) {
+            sessions.archive(session.id, archived, session.profile, session.deviceId)
+        }
+
+    suspend fun performDelete(session: Session, archived: Boolean): AppError? =
+        performRowMutation(session, reloadArchived = archived) {
+            sessions.delete(session.id, session.profile, session.deviceId)
+        }
+
+    private suspend fun performRowMutation(
+        session: Session,
+        reloadArchived: Boolean = false,
+        archiveAction: Boolean = false,
+        write: suspend () -> Unit,
+    ): AppError? {
+        val route = accountSessions?.routingContext()
+        fun requireRoute() {
+            if (route != accountSessions?.routingContext()) {
+                throw kotlinx.coroutines.CancellationException("Conversation route changed")
+            }
+        }
+        try {
+            write()
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            requireRoute()
+            return if (archiveAction) com.hermes.client.data.repository.archiveFailure(failure)
+            else com.hermes.client.data.repository.sessionMutationFailure(failure)
+        }
+        requireRoute()
+        if (reloadArchived) loadArchived(afterMutation = true)
+        refreshListsHolding(session)
+        return null
     }
 
     /** Pin/unpin keyed by the session's OWN profile, so it works regardless of the active one. */

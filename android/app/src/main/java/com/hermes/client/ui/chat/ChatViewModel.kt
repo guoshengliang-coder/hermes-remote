@@ -253,9 +253,6 @@ class ChatViewModel @Inject constructor(
     private val _workspaceProjects = MutableStateFlow<List<com.hermes.client.domain.Project>>(emptyList())
     val workspaceProjects: StateFlow<List<com.hermes.client.domain.Project>> = _workspaceProjects.asStateFlow()
 
-    private val _workspaceError = MutableStateFlow<com.hermes.client.data.error.AppError?>(null)
-    val workspaceError: StateFlow<com.hermes.client.data.error.AppError?> = _workspaceError.asStateFlow()
-    fun clearWorkspaceError() { _workspaceError.value = null }
 
     private var defaultProjectPath: String? = null
 
@@ -281,45 +278,45 @@ class ChatViewModel @Inject constructor(
         runCatching { projectCatalog.refresh() }.onSuccess { _workspaceProjects.value = it }
     }
 
-    /**
-     * Re-homes this chat into [project] (`session.workspace.move`) and refreshes the subtitle from
-     * the gateway's answer. Refused locally while a turn is running (the gateway would answer
-     * 4009 anyway); failures surface as registered codes via [workspaceError].
-     */
-    fun moveToProject(project: com.hermes.client.domain.Project, onDone: () -> Unit) {
+    /** Moves the current conversation, or updates the local project for an unsent draft. */
+    suspend fun moveToProject(project: com.hermes.client.domain.Project): com.hermes.client.data.error.AppError? {
         if (localDraft) {
             _workspace.value = SessionWorkspace(project.path, null, null,
                 project.label.takeUnless { project.id == com.hermes.client.ui.sessions.DEFAULT_PROJECT_ID })
-            onDone()
-            return
+            return null
         }
-        val id = storedSessionId.takeIf { it.isNotBlank() } ?: return
-        if (_state.value.isGenerating) {
-            _workspaceError.value = com.hermes.client.data.error.AppError(
-                com.hermes.client.data.error.AppErrorCode.SESSION_BUSY, retryable = true, stage = "workspace_move",
-            )
-            return
+        val id = storedSessionId
+        val profile = currentProfile
+        val device = currentDeviceId
+        val route = accountSessions?.transportRoutingContext()
+        fun requireOwner() {
+            if (storedSessionId != id || currentProfile != profile || currentDeviceId != device ||
+                accountSessions?.transportRoutingContext() != route || (device != null && route?.deviceId != device)
+            ) throw CancellationException("Conversation route changed")
         }
         val path = project.path
-        if (path == null) {
-            _workspaceError.value = com.hermes.client.data.error.AppError(
-                com.hermes.client.data.error.AppErrorCode.PROJECT_FOLDER_MISSING, retryable = false, stage = "workspace_move",
-            )
-            return
+        if (id.isBlank() || _state.value.isGenerating || path == null) {
+            val code = when {
+                id.isBlank() -> com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND
+                _state.value.isGenerating -> com.hermes.client.data.error.AppErrorCode.SESSION_BUSY
+                else -> com.hermes.client.data.error.AppErrorCode.PROJECT_FOLDER_MISSING
+            }
+            return com.hermes.client.data.error.AppError(code, retryable = code == com.hermes.client.data.error.AppErrorCode.SESSION_BUSY, stage = "workspace_move")
         }
-        val profile = currentProfile
-        viewModelScope.launch {
-            runCatching { chat.moveWorkspace(id, path, profile) }
-                .onSuccess { info ->
-                    if (storedSessionId == id) applyWorkspace(info.cwd ?: path, info.branch, info.gitRepoRoot)
-                    onDone()
-                }
-                .onFailure { e ->
-                    if (e is CancellationException) throw e
-                    _workspaceError.value = com.hermes.client.ui.sessions.workspaceMoveError(e)
-                }
+        requireOwner()
+        val info = try {
+            chat.moveWorkspace(id, path, profile, device)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            requireOwner()
+            return com.hermes.client.ui.sessions.workspaceMoveError(failure)
         }
+        requireOwner()
+        applyWorkspace(info.cwd ?: path, info.branch, info.gitRepoRoot)
+        return null
     }
+
     private var appLanguage: AppLanguage =
         LanguagePreference.SYSTEM.resolve()
 
@@ -1059,7 +1056,6 @@ class ChatViewModel @Inject constructor(
         _botOrigin.value = com.hermes.client.ui.sessions.botOriginOf(cachedMeta)
         _locallySentIds.value = emptySet()
         _workspace.value = null
-        _workspaceError.value = null
         viewModelScope.launch {
             defaultProjectPath = runCatching { projectPrefs.defaultProjectPath.first() }.getOrNull()
             if (storedSessionId != id) return@launch
@@ -1738,14 +1734,24 @@ class ChatViewModel @Inject constructor(
                 com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND,
                 retryable = false, stage = "session_archive",
             )
-        return runCatching { sessions.archive(id, archived = true, runtimeKey?.profile, currentDeviceId) }
-            .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
-            .fold(
-                onSuccess = { null },
-                onFailure = {
-                    com.hermes.client.data.repository.archiveFailure(it)
-                },
-            )
+        val profile = runtimeKey?.profile
+        val device = currentDeviceId
+        val route = accountSessions?.transportRoutingContext()
+        fun requireOwner() {
+            if (storedSessionId != id || runtimeKey?.profile != profile || currentDeviceId != device ||
+                accountSessions?.transportRoutingContext() != route
+            ) throw CancellationException("Conversation route changed")
+        }
+        val failure = try {
+            sessions.archive(id, archived = true, profile, device)
+            null
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            com.hermes.client.data.repository.archiveFailure(failure)
+        }
+        requireOwner()
+        return failure
     }
 
     /** A send that raised, kept so the bubble's tap-to-retry can replay it with its attachments. */

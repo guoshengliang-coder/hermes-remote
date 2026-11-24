@@ -1,6 +1,14 @@
 package com.hermes.client.ui.sessions
 
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.junit4.createComposeRule
+import com.github.takahirom.roborazzi.ExperimentalRoborazziApi
+import com.github.takahirom.roborazzi.RoborazziOptions
+import com.github.takahirom.roborazzi.RoborazziTaskType
+import com.github.takahirom.roborazzi.captureRoboImage
+import java.io.File
+import kotlinx.coroutines.CompletableDeferred
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -43,14 +51,22 @@ class SessionRowArchiveConfirmTest {
     private var archived = 0
     private var deleted = 0
 
-    private fun showRow() {
+    private fun showRow(dark: Boolean = false, reply: CompletableDeferred<Unit>? = null) {
         compose.setContent {
             InChinese {
-                HermesTheme(darkTheme = false) {
+                HermesTheme(darkTheme = dark) {
                     SessionRow(
                         session = session, isPinned = false, defaultProjectPath = null,
-                        onMoveToProject = {}, onOpen = {}, onTogglePin = {}, onRename = {},
-                        onArchive = { archived++ }, onDelete = { deleted++ },
+                        onMoveToProject = {}, onOpen = {}, onTogglePin = {}, onRename = { null },
+                        onArchive = {
+                            archived++
+                            reply?.await()
+                            null
+                        },
+                        onDelete = {
+                            deleted++
+                            null
+                        },
                     )
                 }
             }
@@ -94,4 +110,27 @@ class SessionRowArchiveConfirmTest {
         compose.onNodeWithText("删除会话？").assertExists()
         assertEquals(0, deleted)
     }
+    @Test fun pending_archive_light() = checkPendingArchive(dark = false)
+    @Test fun pending_archive_app_dark_system_light() = checkPendingArchive(dark = true)
+
+    @OptIn(ExperimentalRoborazziApi::class)
+    private fun checkPendingArchive(dark: Boolean) {
+        val reply = CompletableDeferred<Unit>()
+        showRow(dark, reply)
+        compose.onNodeWithText("归档会话").performClick()
+        compose.onNodeWithText("归档").performClick()
+        compose.onNodeWithText("归档中…").assertExists()
+        compose.onNodeWithText("取消").assertIsNotEnabled()
+        assertEquals(1, archived)
+
+        val image = File("build/outputs/hg267/archive-pending-$dark.png")
+        image.parentFile?.mkdirs()
+        compose.onNode(isDialog()).captureRoboImage(image.absolutePath,
+            roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record))
+
+        compose.runOnIdle { reply.complete(Unit) }
+        compose.onNodeWithText("归档中…").assertDoesNotExist()
+        assertEquals(1, archived)
+    }
+
 }

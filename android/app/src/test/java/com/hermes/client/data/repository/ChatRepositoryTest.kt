@@ -168,25 +168,25 @@ class ChatRepositoryTest {
 
     @Test fun moveWorkspace_targets_the_stored_key_with_profile_and_parses_the_answer() = runTest {
         val client = mockk<HermesGatewayClient>(relaxed = true)
-        coEvery { client.call(any(), any()) } returns buildJsonObject {
+        coEvery { client.callWorkspaceMove(any(), any()) } returns buildJsonObject {
             put("cwd", "/Users/me/proj")
             put("branch", "main")
             put("git_repo_root", "/Users/me/proj")
         }
         val repo = ChatRepository(client)
 
-        val info = repo.moveWorkspace(sessionKey = "stored-1", cwd = "/Users/me/proj", profile = "work")
+        val info = repo.moveWorkspace(sessionKey = "stored-1", cwd = "/Users/me/proj", profile = "work", deviceId = "mac-a")
 
         assertEquals("main", info.branch)
         assertEquals("/Users/me/proj", info.gitRepoRoot)
         coVerify {
-            client.call(
-                "session.workspace.move",
+            client.callWorkspaceMove(
                 match {
                     it["session_key"]?.jsonPrimitive?.content == "stored-1" &&
                         it["cwd"]?.jsonPrimitive?.content == "/Users/me/proj" &&
                         it["profile"]?.jsonPrimitive?.content == "work"
                 },
+                "mac-a",
             )
         }
     }

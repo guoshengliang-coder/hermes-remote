@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.unit.dp
-import com.hermes.client.ui.localization.localizedMessage
 import com.hermes.client.ui.localization.localizedSummary
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -140,7 +139,6 @@ fun SessionsScreen(
     val defaultProjectPath by vm.defaultProjectPath.collectAsStateWithLifecycle()
     // Session whose「移动到项目…」picker is open (from the long-press menu).
     var moveTarget by remember { mutableStateOf<Session?>(null) }
-    val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val language = LocalAppLanguage.current
     // The Chats list always creates in the gateway's launch directory — the default project.
@@ -301,9 +299,10 @@ fun SessionsScreen(
                                             nowMs = nowMs,
                                             onOpen = { onOpen(ChatLaunch.existing(s)) },
                                             onTogglePin = { vm.togglePin(s) },
-                                            onRename = { vm.rename(s, it) },
-                                            onArchive = { vm.archive(s) },
-                                            onDelete = { vm.delete(s) },
+                                            onRename = { vm.performRename(s, it) },
+                                            onArchive = { vm.performArchive(s, true) },
+                                            onDelete = { vm.performDelete(s, false) },
+                                            onRefreshMutation = vm::refresh,
                                             modifier = Modifier.animateItem(),
                                         )
                                     }
@@ -458,9 +457,10 @@ fun SessionsScreen(
                                 onOpen = { openExisting(it) },
                                 onMoveToProject = { moveTarget = it },
                                 onTogglePin = { vm.togglePin(it) },
-                                onRename = { session, title -> vm.rename(session, title) },
-                                onArchive = { vm.archive(it) },
-                                onDelete = { vm.delete(it) },
+                                onRename = { session, title -> vm.performRename(session, title) },
+                                onArchive = { vm.performArchive(it, true) },
+                                onDelete = { vm.performDelete(it, false) },
+                                onRefreshMutation = vm::refresh,
                             )
                         }
                     }
@@ -514,16 +514,7 @@ fun SessionsScreen(
             projects = projects,
             currentProjectId = projectOf(target, projects)?.id,
             onDismiss = { moveTarget = null },
-            onPick = { project ->
-                moveTarget = null
-                val label = if (project.id == DEFAULT_PROJECT_ID) localized(language, "默认项目", "Default project") else project.label
-                scope.launch {
-                    val error = vm.moveToProject(target, project)
-                    val text = error?.localizedMessage(language)
-                        ?: localized(language, "已移动到 $label", "Moved to $label")
-                    Toast.makeText(context, text, if (error != null) Toast.LENGTH_LONG else Toast.LENGTH_SHORT).show()
-                }
-            },
+            onPick = { project -> vm.moveToProject(target, project) },
         )
     }
 }
@@ -541,9 +532,9 @@ internal fun SessionRow(
     hasUnsent: Boolean = false,
     onOpen: () -> Unit,
     onTogglePin: () -> Unit,
-    onRename: (String) -> Unit,
-    onArchive: () -> Unit,
-    onDelete: () -> Unit,
+    onRename: suspend (String) -> com.hermes.client.data.error.AppError?,
+    onArchive: suspend () -> com.hermes.client.data.error.AppError?,
+    onDelete: suspend () -> com.hermes.client.data.error.AppError?,
     /**
      * Renders this row for the Bots segment (HG-54): no project in the subline, 模型未知 instead of
      * a silently missing model, and a status line of `<relative time> · <N messages>` instead of
@@ -555,7 +546,10 @@ internal fun SessionRow(
     nowMs: Long = 0L,
     selected: Boolean = false,
     modifier: Modifier = Modifier,
+    onRefreshMutation: () -> Unit = {},
 ) {
+    val feedback = rememberSessionActionFeedback(session.deviceId, session.profile, session.id)
+    val context = LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var confirmingDelete by remember { mutableStateOf(false) }
@@ -699,57 +693,70 @@ internal fun SessionRow(
 
     if (renaming) {
         var title by remember { mutableStateOf(session.title) }
-        AlertDialog(
-            onDismissRequest = { renaming = false },
-            title = { Text(localized(language, "重命名会话", "Rename session")) },
-            text = {
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    singleLine = true,
-                )
+        SessionActionDialog(
+            feedback = feedback,
+            title = localized(language, "重命名会话", "Rename session"),
+            action = localized(language, "保存", "Save"),
+            pendingLabel = localized(language, "保存中…", "Saving…"),
+            enabled = title.isNotBlank(),
+            onDismiss = { renaming = false },
+            onConfirm = {
+                feedback.submit({ onRename(title.trim()) }) {
+                    renaming = false
+                    Toast.makeText(context, localized(language, "已保存", "Saved"), Toast.LENGTH_SHORT).show()
+                }
             },
-            confirmButton = {
-                TextButton(
-                    onClick = { renaming = false; if (title.isNotBlank()) onRename(title.trim()) },
-                ) { Text(localized(language, "保存", "Save")) }
-            },
-            dismissButton = { TextButton(onClick = { renaming = false }) { Text(localized(language, "取消", "Cancel")) } },
-        )
+            onRefresh = onRefreshMutation,
+        ) {
+            OutlinedTextField(
+                value = title,
+                enabled = !feedback.pending,
+                onValueChange = { title = it },
+                singleLine = true,
+            )
+        }
     }
 
     if (confirmingArchive) {
-        AlertDialog(
-            onDismissRequest = { confirmingArchive = false },
-            title = { Text(localized(language, "归档这个对话？", "Archive this conversation?")) },
-            text = {
-                Text(
-                    localized(
-                        language,
-                        "归档后它会从会话列表移到「已归档」，随时可以恢复。",
-                        "It moves out of your conversation list into 已归档, and you can restore it any time.",
-                    ),
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = { confirmingArchive = false; onArchive() }) {
-                    Text(localized(language, "归档", "Archive"))
+        SessionActionDialog(
+            feedback = feedback,
+            title = localized(language, "归档这个对话？", "Archive this conversation?"),
+            action = localized(language, "归档", "Archive"),
+            pendingLabel = localized(language, "归档中…", "Archiving…"),
+            onDismiss = { confirmingArchive = false },
+            onConfirm = {
+                feedback.submit(onArchive) {
+                    confirmingArchive = false
+                    Toast.makeText(context, localized(language, "已归档", "Archived"), Toast.LENGTH_SHORT).show()
                 }
             },
-            dismissButton = { TextButton(onClick = { confirmingArchive = false }) { Text(localized(language, "取消", "Cancel")) } },
-        )
+            onRefresh = onRefreshMutation,
+        ) {
+            Text(localized(language,
+                "归档后它会从会话列表移到「已归档」，随时可以恢复。",
+                "It moves out of your conversation list into 已归档, and you can restore it any time.",
+            ))
+        }
     }
 
     if (confirmingDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmingDelete = false },
-            title = { Text(localized(language, "删除会话？", "Delete session?")) },
-            text = { Text(localized(language, "“${session.title}”将被永久删除。", "\"${session.title}\" will be permanently deleted.")) },
-            confirmButton = {
-                TextButton(onClick = { confirmingDelete = false; onDelete() }) { Text(localized(language, "删除", "Delete")) }
+        SessionActionDialog(
+            feedback = feedback,
+            title = localized(language, "删除会话？", "Delete session?"),
+            action = localized(language, "删除", "Delete"),
+            pendingLabel = localized(language, "删除中…", "Deleting…"),
+            destructive = true,
+            onDismiss = { confirmingDelete = false },
+            onConfirm = {
+                feedback.submit(onDelete) {
+                    confirmingDelete = false
+                    Toast.makeText(context, localized(language, "已删除", "Deleted"), Toast.LENGTH_SHORT).show()
+                }
             },
-            dismissButton = { TextButton(onClick = { confirmingDelete = false }) { Text(localized(language, "取消", "Cancel")) } },
-        )
+            onRefresh = onRefreshMutation,
+        ) {
+            Text(localized(language, "“${session.title}”将被永久删除。", "\"${session.title}\" will be permanently deleted."))
+        }
     }
 }
 

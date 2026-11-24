@@ -35,9 +35,10 @@ internal fun GroupedSessionsList(
     onOpen: (Session) -> Unit,
     onMoveToProject: (Session) -> Unit,
     onTogglePin: (Session) -> Unit,
-    onRename: (Session, String) -> Unit,
-    onArchive: (Session) -> Unit,
-    onDelete: (Session) -> Unit,
+    onRename: suspend (Session, String) -> com.hermes.client.data.error.AppError?,
+    onArchive: suspend (Session) -> com.hermes.client.data.error.AppError?,
+    onDelete: suspend (Session) -> com.hermes.client.data.error.AppError?,
+    onRefreshMutation: () -> Unit = {},
 ) {
     val language = LocalAppLanguage.current
     val (needsYou, others) = splitNeedsYou(sessions) { runtimeFor(it)?.phase }
@@ -85,6 +86,7 @@ internal fun GroupedSessionsList(
                         onRename = { onRename(session, it) },
                         onArchive = { onArchive(session) },
                         onDelete = { onDelete(session) },
+                        onRefreshMutation = onRefreshMutation,
                     )
                 }
             }

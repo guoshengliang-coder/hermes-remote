@@ -4978,3 +4978,29 @@ button.chat-workspace:disabled {
 .chat-subtitle .role-owner-name { color: var(--on-surface-variant); flex-shrink: 0; max-width: 45%; }
 .chat-subtitle .chat-workspace { flex: 1; min-width: 0; }
 .chat-subtitle .chat-status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+
+.session-action-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: .375rem;
+  white-space: nowrap;
+}
+.session-action-pending > span {
+  inline-size: .875rem;
+  block-size: .875rem;
+  flex: none;
+  border: 2px solid color-mix(in srgb, currentColor 35%, transparent);
+  border-block-start-color: currentColor;
+  border-radius: 50%;
+  animation: session-action-spin .85s linear infinite;
+}
+button:disabled:has(.session-action-pending) {
+  opacity: 1;
+}
+@keyframes session-action-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .session-action-pending > span { animation: none; }
+}
