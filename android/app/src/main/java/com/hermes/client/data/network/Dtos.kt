@@ -99,6 +99,8 @@ import kotlinx.serialization.json.contentOrNull
     @Serializable(with = MessageContentSerializer::class) val displayContent: String? = null,
     // Server-injected timeline markers (async_delegation_complete, model_switch, hidden, …).
     // Optional: older gateways and plain user turns simply omit them.
+    @SerialName("message_uid") val messageUid: String? = null,
+    @SerialName("absorbed_message_uids") val absorbedMessageUids: kotlinx.serialization.json.JsonElement? = null,
     @SerialName("display_kind") val displayKind: String? = null,
     @SerialName("display_metadata") val displayMetadata: kotlinx.serialization.json.JsonObject? = null,
     // Reasoning as Hermes persists it. Both columns carry the same text; reasoning_content is the
