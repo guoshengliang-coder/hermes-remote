@@ -1,7 +1,7 @@
 import { loadProfileSessionPages } from "../app/profileSessionPages";
 import { useProfilePreferences } from "../app/profilePreferences";
 import { explicitProfile } from "../app/profile";
-import { useEffect, useLayoutEffect, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { useListReturn } from "../app/useListReturn";
 import { useStartupPage } from "../startup/readiness";
 import { toAppError } from "../app/failures";
@@ -27,21 +27,22 @@ export function ArchivedPage() {
   const [error, setError] = useState<AppError | null>(null);
   useStartupPage("archived", rows !== null, error);
   const [attempt, setAttempt] = useState(0);
+  const readVersion = useRef(0);
   const [actionFor, setActionFor] = useState<SessionListItem | null>(null);
   useLayoutEffect(() => { listReturn.remember({ rows }); listReturn.restore(); });
 
   useEffect(() => {
     if (!deviceId) return;
-    let live = true;
+    const version = ++readVersion.current;
+    const current = () => version === readVersion.current && !controller.signal.aborted;
     setError(null);
     const controller = new AbortController();
     loadProfileSessionPages(client, deviceId, controller.signal, true)
       .then(
-        (items) => live && setRows(items.filter(s => s.archived !== false)),
-        (e: unknown) => live && setError(toAppError(e, "device")),
+        (items) => current() && setRows(items.filter(s => s.archived !== false)),
+        (e: unknown) => current() && setError(toAppError(e, "device")),
       );
     return () => {
-      live = false;
       controller.abort();
     };
   }, [deviceId, attempt]);
@@ -89,7 +90,13 @@ export function ArchivedPage() {
           session={actionFor}
           archived
           onClose={() => setActionFor(null)}
-          onChanged={() => setRows((current) => current?.filter((r) => r.id !== actionFor.id || explicitProfile(r) !== explicitProfile(actionFor)) ?? null)}
+          onChanged={() => {
+            // The open page might still be loading a snapshot taken before this write.
+            readVersion.current++;
+            setRows((current) => current?.filter((row) =>
+              row.id !== actionFor.id || explicitProfile(row) !== explicitProfile(actionFor)) ?? null);
+            setAttempt((current) => current + 1);
+          }}
         />
       ) : null}
     </div>

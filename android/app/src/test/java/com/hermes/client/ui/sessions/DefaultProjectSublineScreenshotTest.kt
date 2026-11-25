@@ -67,7 +67,7 @@ class DefaultProjectSublineScreenshotTest {
                                         // Root is unknown on upgraded installs until another default create.
                                         defaultProjectPath = if (s.id == "default") "/Users/me" else null,
                                         onMoveToProject = {}, onOpen = {}, onTogglePin = {},
-                                        onRename = {}, onArchive = {}, onDelete = {},
+                                        onRename = { null }, onArchive = { null }, onDelete = { null },
                                     )
                                 }
                             }

@@ -106,9 +106,9 @@ class SessionRepository(
      * aborted request. Each REST call carries its own deadline, so an entry cannot linger.
      */
     @Suppress("UNCHECKED_CAST")
-    private suspend fun <T> coalesced(key: String, block: suspend () -> T): T {
+    private suspend fun <T> coalesced(key: String, fresh: Boolean = false, block: suspend () -> T): T {
         val deferred = synchronized(inFlightFetches) {
-            inFlightFetches[key] ?: scope.async { block() }.also { started ->
+            inFlightFetches[key]?.takeUnless { fresh } ?: scope.async { block() }.also { started ->
                 inFlightFetches[key] = started
                 started.invokeOnCompletion {
                     synchronized(inFlightFetches) {
@@ -279,9 +279,9 @@ class SessionRepository(
     }
 
     /** All archived sessions across every profile (the cross-profile archived view). */
-    suspend fun archivedAllProfiles(): List<Session> {
+    suspend fun archivedAllProfiles(afterMutation: Boolean = false): List<Session> {
         val context = accountSessions?.routingContext()
-        return coalesced("$ARCHIVED_ALL_KEY:${routeKey(context)}") {
+        return coalesced("$ARCHIVED_ALL_KEY:${routeKey(context)}", fresh = afterMutation) {
             bindToRoute(
                 loadSessionPages(context, EXCLUDED_SOURCES, archivedOnly = true),
                 context,

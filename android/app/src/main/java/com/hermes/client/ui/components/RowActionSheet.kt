@@ -26,6 +26,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -76,11 +77,14 @@ fun RowActionSheet(
     typeLabel: String,
     title: String,
     onDismiss: () -> Unit,
+    closeEnabled: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val canClose by androidx.compose.runtime.rememberUpdatedState(closeEnabled)
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = hermesSheetState(),
+        onDismissRequest = { if (canClose) onDismiss() },
+        sheetGesturesEnabled = closeEnabled,
+        sheetState = hermesSheetState { it != androidx.compose.material3.SheetValue.Hidden || canClose },
         // The mock's 24dp, not M3's 28dp default. Light is the page's OWN paper (§2.5 forbids
         // hardcoding a container colour to fix a cast; this one comes from the token family, and
         // the scrim plus the top hairline are what separate it from the list behind it).
@@ -88,7 +92,7 @@ fun RowActionSheet(
         containerColor = rowMenuSheetColor(),
         dragHandle = { RowActionSheetHandle() },
     ) {
-        RowActionSheetContent(typeLabel = typeLabel, title = title, onClose = onDismiss, content = content)
+        RowActionSheetContent(typeLabel = typeLabel, title = title, onClose = { if (canClose) onDismiss() }, content = content)
     }
 }
 
@@ -212,6 +216,7 @@ fun RowActionItem(
     value: String? = null,
     destructive: Boolean = false,
     enabled: Boolean = true,
+    labelContent: (@Composable () -> Unit)? = null,
 ) {
     val ink = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
     val glyph = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
@@ -223,13 +228,14 @@ fun RowActionItem(
             .padding(horizontal = 8.dp)
             .clip(RoundedCornerShape(12.dp))
             .clickable(enabled = enabled, onClick = onClick)
-            .alpha(if (enabled) 1f else 0.38f)
+            .alpha(if (enabled || labelContent != null) 1f else 0.38f)
             .padding(horizontal = 20.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, contentDescription = null, tint = glyph, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(14.dp))
-        Text(label, style = RowMenuAction, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (labelContent == null) Text(label, style = RowMenuAction, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        else labelContent()
         Spacer(Modifier.weight(1f))
         when {
             value != null -> {
