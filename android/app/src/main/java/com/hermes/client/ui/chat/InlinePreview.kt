@@ -64,6 +64,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -319,9 +320,69 @@ internal fun inlinePreviewAccent(dark: Boolean): Color =
 internal fun inlinePreviewHorizontal(dx: Float, dy: Float, slop: Int): Boolean =
     abs(dx) > slop && abs(dx) > abs(dy)
 
-internal const val INLINE_PREVIEW_HEIGHT_SCRIPT =
-    "(function(){var d=document.documentElement,b=document.body;" +
-        "return d&&b?Math.ceil(Math.max(b.getBoundingClientRect().height,b.scrollHeight)):-1})()"
+// The document's scroll height has a viewport floor. Measure visible content inside
+// body instead, without changing the author's layout or its viewport-dependent styles.
+internal val INLINE_PREVIEW_HEIGHT_SCRIPT = """
+    (function() {
+        const body = document.body;
+        if (!body) return -1;
+        const bodyStyle = getComputedStyle(body);
+        const range = document.createRange();
+        let bottom = 0;
+        let fixedBottom = 0;
+        function measure(container) {
+            for (const node of container.childNodes) {
+                if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
+                    range.selectNodeContents(node);
+                    bottom = Math.max(bottom, range.getBoundingClientRect().bottom);
+                }
+                if (node.nodeType !== Node.ELEMENT_NODE) continue;
+                const style = getComputedStyle(node);
+                if (style.display === "none") continue;
+                if (style.display === "contents") {
+                    measure(node);
+                    continue;
+                }
+                const box = node.getBoundingClientRect();
+                if (!box.height && !box.width) continue;
+                if (style.position === "fixed") {
+                    fixedBottom = Math.max(fixedBottom, box.height, box.bottom);
+                    continue;
+                }
+                const viewportWrapper = node.childElementCount > 0 &&
+                    Math.abs(box.height - innerHeight) <= 1 &&
+                    style.overflowY === "visible" && style.backgroundColor === "rgba(0, 0, 0, 0)" &&
+                    style.backgroundImage === "none" && node.getClientRects().length === 1 &&
+                    ["Top", "Right", "Bottom", "Left"].every(side => !parseFloat(style["border" + side + "Width"])) &&
+                    getComputedStyle(node, "::before").content === "none" &&
+                    getComputedStyle(node, "::after").content === "none";
+                if (viewportWrapper) {
+                    const previous = bottom;
+                    measure(node);
+                    if (bottom > previous) {
+                        bottom += (parseFloat(style.paddingBottom) || 0) +
+                            Math.max(0, parseFloat(style.marginBottom) || 0);
+                    }
+                    continue;
+                }
+                const overflow = style.overflowY === "visible"
+                    ? Math.max(0, node.scrollHeight - node.clientHeight) : 0;
+                bottom = Math.max(bottom, box.bottom + Math.max(overflow, parseFloat(style.marginBottom) || 0));
+            }
+        }
+        measure(body);
+        if (!bottom) {
+            // A document without flow content can still paint the chart itself.
+            const painted = bodyStyle.backgroundImage !== "none" ||
+                bodyStyle.backgroundColor !== "rgba(0, 0, 0, 0)" ||
+                getComputedStyle(body, "::before").content !== "none" ||
+                getComputedStyle(body, "::after").content !== "none";
+            return Math.ceil(Math.max(1, fixedBottom,
+                painted ? Math.max(body.getBoundingClientRect().height, body.scrollHeight) : 0));
+        }
+        return Math.ceil(Math.max(1, bottom + scrollY + (parseFloat(bodyStyle.paddingBottom) || 0)));
+    })()
+""".trimIndent()
 
 private class InlinePreviewWebView(context: Context, private val onPageTap: () -> Unit) : WebView(context) {
     private val slop = ViewConfiguration.get(context).scaledTouchSlop
@@ -520,6 +581,7 @@ private fun PreviewFrame(
     val document = remember(token) { inlinePreviewDocument(html, previewThemePrelude(theme)).toByteArray(Charsets.UTF_8) }
     var loaded by remember(token) { mutableStateOf(false) }
     var layoutRevision by remember(token) { mutableIntStateOf(0) }
+    var frameWidth by remember(token) { mutableIntStateOf(0) }
     var web by remember(token) { mutableStateOf<WebView?>(null) }
     val latestOnHeight by rememberUpdatedState(onHeight)
     val latestOnFailure by rememberUpdatedState(onFailure)
@@ -528,7 +590,7 @@ private fun PreviewFrame(
         delay(PREVIEW_LOAD_TIMEOUT_MS)
         if (!loaded) latestOnFailure("load timed out")
     }
-    LaunchedEffect(token, loaded, layoutRevision) {
+    LaunchedEffect(token, loaded, layoutRevision, frameWidth) {
         if (!loaded) return@LaunchedEffect
         var elapsed = 0L
         for (at in MEASURE_SCHEDULE_MS) {
@@ -560,7 +622,7 @@ private fun PreviewFrame(
                 view.stopLoading()
                 view.destroy()
             },
-            modifier = modifier,
+            modifier = modifier.onSizeChanged { frameWidth = it.width },
         )
     }
 }

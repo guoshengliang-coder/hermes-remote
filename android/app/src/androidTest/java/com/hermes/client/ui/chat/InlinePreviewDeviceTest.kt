@@ -53,11 +53,11 @@ class InlinePreviewDeviceTest {
                         InlinePreviewHost(
                             scope = scope,
                             fetch = {
-                                """<div id="wide" style="overflow-x:auto;width:100%;height:210px">
+                                """<style>body{min-height:100vh}</style><main style="min-height:100vh"><div id="wide" style="overflow-x:auto;width:100%;height:210px">
                                     <button id="control" style="width:1000px;height:180px;background:var(--accent)"
                                         onclick="if(event.isTrusted){this.dataset.clicks=Number(this.dataset.clicks||0)+1;
-                                            setTimeout(()=>document.getElementById('details').hidden=false,150)}">Wide chart</button>
-                                </div><div id="details" hidden style="height:140px">Details</div>"""
+                                            setTimeout(()=>document.getElementById('details').hidden=this.dataset.clicks==='2',150)}">Wide chart</button>
+                                </div><div id="details" hidden style="height:140px">Details</div></main>"""
                             },
                             cwd = { "/" },
                             open = {},
@@ -103,6 +103,7 @@ class InlinePreviewDeviceTest {
             width = webView.width
             height = webView.height
         }
+        assertTrue("The chart starts at 210dp", kotlin.math.abs(height / webView.resources.displayMetrics.density - 210) <= 2)
         val x = leftTop[0] + width * 0.8f
         val y = leftTop[1] + height * 0.65f
         gesture(x, y, -width * 0.6f, 0f)
@@ -125,6 +126,12 @@ class InlinePreviewDeviceTest {
             instrumentation.runOnMainSync { grown = webView.height > height }
             grown
         }
+        gesture(x, y, 0f, 0f)
+        await("collapsed details release the viewport height") {
+            var restored = false
+            instrumentation.runOnMainSync { restored = webView.height == height }
+            restored && clicks() == 2
+        }
         var expandBounds: Rect? = null
         await("fullscreen button") {
             expandBounds = findExpand(instrumentation.uiAutomation.rootInActiveWindow)
@@ -135,7 +142,7 @@ class InlinePreviewDeviceTest {
         await("expand") { expansions.get() == 1 }
         gesture(x, y, 0f, -height * 0.5f)
         await("chat scroll") { chatPosition() > 0 }
-        assertEquals(1, clicks())
+        assertEquals(2, clicks())
         assertEquals(1, expansions.get())
     }
 
