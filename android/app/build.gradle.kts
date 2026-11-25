@@ -166,6 +166,8 @@ android {
         // other cores idle for the whole test task; half the cores keeps room for the Gradle
         // daemon and the Robolectric sandbox each fork loads.
         unitTests.all {
+            // Robolectric downloads its instrumented SDKs separately from Gradle dependencies.
+            it.systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
             it.maxParallelForks = (Runtime.getRuntime().availableProcessors() / 2).coerceAtLeast(1)
             it.maxHeapSize = "1g"
         }
