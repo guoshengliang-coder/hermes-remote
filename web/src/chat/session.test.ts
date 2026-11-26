@@ -76,7 +76,7 @@ describe("ChatSession", () => {
     const actions: ChatAction[] = [];
     // One stored row: a conversation with history, so a reclaimed session (4007) stays terminal
     // instead of being silently recreated (that path is covered below).
-    const upload = vi.fn(async (_device: string, name: string, _file: Blob, _mime: string) => ({ path: `/tmp/${name}` }));
+    const upload = vi.fn(async (_device: string, name: string, _file: Blob, _mime: string, _signal?: AbortSignal) => ({ path: `/tmp/${name}` }));
     const client = { messages: async () => ({ messages: [{ id: 1, role: "user", content: "earlier", timestamp: 1 }] }), settled: async () => undefined, uploadFile: upload } as unknown as GatewayClient;
     const session = new ChatSession({
       client,
@@ -122,13 +122,66 @@ describe("ChatSession", () => {
           : { jsonrpc: "2.0", id: prompt.id, result: {} });
         await sending;
       }
-      expect(upload.mock.calls).toEqual([
+      expect(upload.mock.calls.map(args => args.slice(0, 4))).toEqual([
         ["dev-mac", "photo.png", photo, "image/png"], ["dev-mac", "report.pdf", file, "application/pdf"],
         ["dev-mac", "photo.png", photo, "image/png"], ["dev-mac", "report.pdf", file, "application/pdf"],
       ]);
       expect(actions).toContainEqual(expect.objectContaining({ type: "user-failed", key: "voice-message", error: expect.objectContaining({ code: "HR-SESS-007" }) }));
       expect(actions).toContainEqual({ type: "user-delivered", key: "voice-message", startRun: false });
     } finally { session.dispose(); }
+  });
+
+  it("HG-268 keeps ownership when the route detaches before the journal commit", async () => {
+    const { session, ws } = await readySession();
+    let commit!: (ready: boolean) => void;
+    const progress = {
+      prepare: () => new Promise<boolean>(resolve => { commit = resolve; }),
+      beforeCreate: vi.fn(async () => {}),
+      created: vi.fn(async () => {}),
+      beforeSubmit: vi.fn(async () => {}),
+      settled: vi.fn(async () => {}),
+    };
+    try {
+      const sending = session.send("k", "slow local commit", [], progress);
+      expect(session.pendingSendCompletion).toBeDefined();
+      session.detachPage();
+      expect(ws().readyState).toBe(1);
+      expect(ws().last("prompt.submit")).toBeUndefined();
+      commit(true);
+      await tick();
+      const request = ws().last("prompt.submit")!;
+      expect(request).toBeDefined();
+      expect(progress.beforeSubmit).toHaveBeenCalledOnce();
+      ws().receive({ jsonrpc: "2.0", id: request.id, result: {} });
+      expect(await sending).toBe(true);
+      expect(progress.settled).toHaveBeenCalledExactlyOnceWith("sent");
+    } finally {
+      session.dispose();
+    }
+  });
+
+  it("HG-268 aborts an in-flight upload when its chat scope is invalidated", async () => {
+    const { session, ws, upload } = await readySession();
+    let uploadSignal: AbortSignal | undefined;
+    upload.mockImplementation((_device, _name, _file, _mime, signal) => new Promise((_, reject) => {
+      uploadSignal = signal;
+      signal!.addEventListener("abort", () => reject(signal!.reason), { once: true });
+    }));
+    try {
+      const file = new Blob(["file"], { type: "text/plain" });
+      const sending = session.send("k", "read", [{ id: "file", file, name: "note.txt", mimeType: file.type, kind: "file" }]);
+      await tick();
+      expect(uploadSignal?.aborted).toBe(false);
+      session.detachPage();
+      expect(uploadSignal?.aborted).toBe(false);
+      session.dispose();
+      expect(uploadSignal?.aborted).toBe(true);
+      expect(await sending).toBe(false);
+      expect(ws().last("file.attach")).toBeUndefined();
+      expect(ws().last("prompt.submit")).toBeUndefined();
+    } finally {
+      session.dispose();
+    }
   });
 
   it("HG-166 sends config.set to the live session and parses confirmation, deferral and canonical results", async () => {
@@ -427,5 +480,74 @@ describe("ChatSession", () => {
       expect(failed.error).toMatchObject({ code: "HR-SYNC-001", retryable: true });
       expect(failed.error.details).toContain("HR-SYNC-003");
     });
+  });
+});
+
+describe("HG-268 send lifetime", () => {
+  it.each([null, "stored"] as const)("continues a pending send after the page detaches from %s", async (storedSessionId) => {
+    let ws!: FakeWebSocket;
+    const session = new ChatSession({
+      client: { messages: async () => ({ messages: [] }), settled: async () => undefined } as unknown as GatewayClient,
+      deviceId: "mac", storedSessionId, dispatch: () => {},
+      socketFactory: url => new HermesSocket({ url, factory: () => (ws = new FakeWebSocket()) }),
+    });
+    session.start();
+    try {
+      await tick();
+      ws.receive({ jsonrpc: "2.0", method: "event", params: { type: "gateway.ready", payload: {} } });
+      ws.receive({ jsonrpc: "2.0", id: ws.last("client.capabilities")!.id, result: { server_requests: [] } });
+      await tick();
+
+      const sending = session.send("user-1", "hello", []);
+      await tick();
+      const preparation = ws.last(storedSessionId ? "session.resume" : "session.create")!;
+      expect(preparation).toBeDefined();
+
+      // Route exit used to close the socket while this acknowledgement was pending.
+      session.detachPage();
+      ws.receive({ jsonrpc: "2.0", id: preparation.id, result: { session_id: "live", stored_session_id: "stored" } });
+      await tick();
+
+      const submits = ws.sent.filter(frame => frame.method === "prompt.submit");
+      expect(submits).toHaveLength(1);
+      ws.receive({ jsonrpc: "2.0", id: submits[0]!.id, result: {} });
+      expect(await sending).toBe(true);
+      expect(ws.readyState).toBe(3);
+    } finally {
+      session.dispose();
+    }
+  });
+
+  it("still closes immediately on explicit disposal during a detached send", async () => {
+    const onStored = vi.fn();
+    const { session, ws } = await (async () => {
+      let socket!: FakeWebSocket;
+      const chat = new ChatSession({
+        client: { settled: async () => undefined } as unknown as GatewayClient,
+        deviceId: "mac", storedSessionId: null, dispatch: () => {}, onStored,
+        socketFactory: url => new HermesSocket({ url, factory: () => (socket = new FakeWebSocket()) }),
+      });
+      chat.start();
+      await tick();
+      socket.receive({ jsonrpc: "2.0", method: "event", params: { type: "gateway.ready", payload: {} } });
+      await tick();
+      return { session: chat, ws: socket };
+    })();
+    try {
+      const sending = session.send("user-1", "hello", []);
+      await tick();
+      const creation = ws.last("session.create")!;
+      expect(creation).toBeDefined();
+      session.detachPage();
+      expect(ws.readyState).toBe(1);
+      ws.receive({ jsonrpc: "2.0", id: creation.id, result: { session_id: "live", stored_session_id: "stored" } });
+      session.dispose();
+      expect(ws.readyState).toBe(3);
+      expect(await sending).toBe(false);
+      expect(onStored).not.toHaveBeenCalled();
+      expect(ws.last("prompt.submit")).toBeUndefined();
+    } finally {
+      session.dispose();
+    }
   });
 });

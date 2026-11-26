@@ -63,6 +63,8 @@ export const CATALOG = {
   "HR-SESS-003": { zh: "项目文件夹在 Mac 上不存在，请重新加载项目后重试。", en: "The project folder no longer exists on the Mac. Reload projects and retry.", retryable: true, action: "retry" },
   "HR-SESS-005": { zh: "无法移动会话到该项目，请重试。", en: "Couldn't move the conversation to that project. Retry.", retryable: true, action: "retry" },
   "HR-SESS-004": { zh: "会话正在运行，无法移动项目，请等待完成后重试。", en: "The conversation is running, so its project can't be changed. Wait for it to finish and retry.", retryable: true, action: "retry" },
+  "HR-SESS-022": { zh: "消息投递结果未知，请重新核对状态。暂时无法撤回或重发。", en: "Message delivery is unknown. Check its status; it cannot be withdrawn or resent yet.", retryable: false, action: "details" },
+  "HR-SESS-030": { zh: "无法保存待发送消息，请检查本机存储后重试。", en: "Could not save the pending message. Check local storage and try again.", retryable: true, action: "retry" },
   "HR-SESS-007": { zh: "消息未发送，点按气泡重试。", en: "The message was not sent. Tap the bubble to retry.", retryable: true, action: "retry" },
   "HR-SESS-013": { zh: "该会话正在另一个客户端上运行，请在那边结束后重试。", en: "This conversation is running on another client. Finish it there, then retry.", retryable: true, action: "retry" },
   "HR-SESS-016": { zh: "Mac 上的 Hermes 找不到 PDF 渲染依赖，无法附加 PDF。", en: "Hermes on the Mac can't find its PDF rendering dependency, so the PDF can't be attached.", retryable: false, action: "open-mac" },

@@ -626,3 +626,34 @@ it("voice mode keeps the same Stop action and preserves the text draft (HG-254)"
   act(() => h.host.querySelector<HTMLButtonElement>('.composer-voice')!.click());
   expect(h.host.querySelector('textarea')!.value).toBe('已有草稿');
 });
+
+
+it("HG-268 keeps the composer intact when durable send admission fails", async () => {
+  let decide!: (value: boolean) => void;
+  const onSend = vi.fn(() => new Promise<boolean>(resolve => { decide = resolve; }));
+  const h = mount({ onSend });
+  const input = type(h.host, "keep this message");
+  const button = h.host.querySelector<HTMLButtonElement>('button[aria-label="发送"]')!;
+  act(() => { button.click(); button.click(); });
+  expect(onSend).toHaveBeenCalledTimes(1);
+  expect(input.value).toBe("keep this message");
+  await act(async () => decide(false));
+  expect(input.value).toBe("keep this message");
+  act(() => button.click());
+  await act(async () => decide(true));
+  expect(h.host.querySelector("textarea")!.value).toBe("");
+});
+
+
+it("HG-268 consumes an accepted draft in the editor reopened during a delayed handoff", async () => {
+  let commit!: (value: boolean) => void;
+  const draftKey = "hg268-reopen";
+  const h = mount({ draftKey, onSend: () => new Promise<boolean>(resolve => { commit = resolve; }) });
+  type(h.host, "accepted once");
+  act(() => h.host.querySelector<HTMLButtonElement>('button[aria-label="发送"]')!.click());
+  act(() => render(null, h.host));
+  const reopened = mount({ draftKey });
+  expect(reopened.host.querySelector("textarea")!.value).toBe("accepted once");
+  await act(async () => commit(true));
+  expect(reopened.host.querySelector("textarea")!.value).toBe("");
+});

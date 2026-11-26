@@ -442,6 +442,9 @@ class ChatViewModel @Inject constructor(
 
     // The composer's opening text: this conversation's saved draft (HG-41), or text handed off
     // from a share (Share-to-Hermes). ChatScreen pre-fills the composer with it once.
+    // The editor survives recreation of this ViewModel's UI, but is restored from the draft
+    // store on navigation. A late send handoff cannot resurrect a saveable navigation snapshot.
+    internal val composerDraft = androidx.compose.runtime.mutableStateOf("")
     private val _initialDraft = MutableStateFlow<String?>(null)
     val initialDraft: StateFlow<String?> = _initialDraft.asStateFlow()
     private var initialSharedText: String? = null
@@ -456,6 +459,7 @@ class ChatViewModel @Inject constructor(
     private var draftToken: String? = null
     private var conversationDrafts: com.hermes.client.data.repository.DraftSnapshot = draftStore
     private var draftSaveJob: kotlinx.coroutines.Job? = null
+    private var draftClearJob: Job? = null
     /**
      * Guards the composer-versus-disk race at open. The composer starts empty and only fills in
      * once the stored draft has been read, so until that read lands a blank composer means "not
@@ -505,7 +509,7 @@ class ChatViewModel @Inject constructor(
         val token = draftToken ?: return
         draftSaveJob?.cancel()
         val drafts = conversationDrafts
-        draftScope.launch { drafts.clear(token) }
+        draftClearJob = draftScope.launch { drafts.clear(token) }
     }
 
     val instanceModels get() = favoritesStore.instance
@@ -857,6 +861,7 @@ class ChatViewModel @Inject constructor(
     private var pendingRecreatedId: String? = null
     private var currentProfile: String? = null
     private var currentDeviceId: String? = null
+    private var boundSendAccountId: String? = null
     private var liveHandleGate = CompletableDeferred<String>()
     private val resumeMutex = Mutex()
 
@@ -892,6 +897,7 @@ class ChatViewModel @Inject constructor(
         currentProfile = profile
         currentDeviceId = device
         val account = accountSessions?.session?.value
+        boundSendAccountId = account?.accountId ?: accountSessions?.transportRoutingContext()?.accountId
         conversationDrafts = draftStore.forOwner(com.hermes.client.ui.workspace.workspaceSessionKey(listOf(
             account?.baseUrl.orEmpty(), account?.accountId ?: "signed-out")))
         draftToken = com.hermes.client.data.repository.SessionReadStore.token(profile, id, currentDeviceId)
@@ -961,7 +967,84 @@ class ChatViewModel @Inject constructor(
         cwd = _workspace.value?.cwd,
         model = _currentModel.value.takeIf { _explicitSessionOverride.value },
         provider = _currentProvider.value.takeIf { _explicitSessionOverride.value },
-        reasoning = _reasoningEffort.value)
+        reasoning = _reasoningEffort.value, startInCreatedSession = ::startCreatedTurn,
+        prepareCreation = accountSessions?.transportRoutingContext()?.let { route ->
+            val localId = storedSessionId
+            val profile = currentProfile
+            val prepare: suspend (FirstTurn) -> FirstTurnCreation = { turn ->
+                prepareFirstTurnCreation(turn, localId, profile, route)
+            }
+            prepare
+        },
+    )
+
+    private suspend fun prepareFirstTurnCreation(
+        turn: FirstTurn,
+        localId: String,
+        profile: String?,
+        route: com.hermes.client.data.auth.AccountRoutingContext,
+    ): FirstTurnCreation {
+        if (accountSessions?.transportRoutingContext() != route) throw CancellationException("Conversation route changed")
+        val attachments = stageUnsentAttachments(turn.files)
+        if (attachments.size != turn.files.size) throw com.hermes.client.data.error.MessageJournalWriteFailed()
+        if (accountSessions?.transportRoutingContext() != route) throw CancellationException("Conversation route changed")
+        val token = SessionReadStore.token(profile, localId, route.deviceId)
+        val previous = unsentStore.readAll(token).firstOrNull {
+            it.conversation?.accountId == route.accountId && it.conversation.localCreation
+        }
+        if (previous?.deliveryUnconfirmed == true) throw com.hermes.client.data.error.FirstTurnCreationUnconfirmed()
+        val id = previous?.messageId ?: "u-${java.util.UUID.randomUUID()}"
+        val conversation = com.hermes.client.data.repository.PendingSendConversation(
+            route.accountId, route.deviceId, profile, localId, turn.cwd, localCreation = true,
+            model = turn.model, provider = turn.provider, reasoning = turn.reasoning,
+        )
+        val awaiting = com.hermes.client.data.repository.UnsentRecord(
+            token = token, messageId = id, text = turn.text,
+            code = com.hermes.client.data.error.AppErrorCode.MESSAGE_OUTCOME_UNKNOWN.value,
+            retryable = false, attachments = turn.files.size, attachmentMeta = attachments, updatedAt = System.currentTimeMillis(),
+            deliveryUnconfirmed = true, conversation = conversation,
+        )
+        try {
+            unsentStore.saveForDelivery(awaiting)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            throw com.hermes.client.data.error.MessageJournalWriteFailed()
+        }
+        val unsent = awaiting.copy(
+            code = com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED.value,
+            retryable = true, deliveryUnconfirmed = false,
+        )
+        return FirstTurnCreation(id, bind = { storedId ->
+            unsentStore.bindCreation(token, unsent.copy(
+                token = SessionReadStore.token(profile, storedId, route.deviceId),
+                conversation = conversation.copy(sessionId = storedId, localCreation = false),
+            ))
+        }, failBeforeCreate = {
+            unsentStore.saveForDelivery(unsent)
+        })
+    }
+
+    private fun startCreatedTurn(turn: FirstTurn, id: String, profile: String, device: String?): Boolean {
+        val route = accountSessions?.transportRoutingContext() ?: return false
+        if (route.accountId != boundSendAccountId || route.deviceId != device || !localDraft) return false
+        draftLoadJob?.cancel()
+        draftModelJob?.cancel()
+        storedSessionId = id
+        sessionId = id
+        currentProfile = profile
+        currentDeviceId = device
+        runtimeKey = runtimeStore.register(id, profile, device)
+        unsentToken = SessionReadStore.token(profile, id, device)
+        sessionKnownEmpty = true
+        // The application task owns its own resume; it does not wait for a new navigation entry.
+        liveHandleGate = CompletableDeferred<String>().also {
+            it.completeExceptionally(IllegalStateException("created conversation needs a live handle"))
+        }
+        pendingFirstTurnSettings = turn
+        dispatch(turn.text, turn.files, turn.onDelivered, recoveryMessageId = turn.recoveryMessageId)
+        return true
+    }
 
     fun open(
         id: String,
@@ -1022,6 +1105,7 @@ class ChatViewModel @Inject constructor(
         unsentComposer = null
         _editingUnsentId.value = null
         _composerRecoveryError.value = null
+        composerDraft.value = ""
         resumeJob?.cancel()
         liveHandleGate.completeExceptionally(CancellationException("session changed"))
         liveHandleGate = CompletableDeferred()
@@ -1030,6 +1114,7 @@ class ChatViewModel @Inject constructor(
         storedSessionId = id
         currentProfile = profile
         currentDeviceId = resolvedDevice
+        boundSendAccountId = account?.accountId ?: accountSessions?.transportRoutingContext()?.accountId
         _sessionAccessState.value = SessionAccessState.UNKNOWN
         val key = runtimeStore.register(id, profile, resolvedDevice)
         runtimeKey = key
@@ -1123,6 +1208,7 @@ class ChatViewModel @Inject constructor(
         val ps = pendingShareStore.take(id)
         initialSharedText = ps?.text
         viewModelScope.launch {
+            runtimeStore.activeSend(key)?.join()
             val saved = drafts.read(token)
             if (storedSessionId != id) return@launch
             if (unsentComposer == null && (!draftTouched || !ps?.text.isNullOrBlank())) {
@@ -1300,6 +1386,7 @@ class ChatViewModel @Inject constructor(
         if (!resumeDeferred) {
             resumeJob = viewModelScope.launch {
                 try {
+                    runtimeStore.activeSend(key)?.join()
                     withTimeoutOrNull(3_000L) { refreshSessionAccess(id, profile, null) }
                     val handle = withTimeout(LIVE_HANDLE_TIMEOUT_MS) { recoverLiveHandle(id, profile, key) }
                     if (storedSessionId == id && liveHandleGate === gateForOpen) {
@@ -1318,7 +1405,7 @@ class ChatViewModel @Inject constructor(
         }
         pendingShareStore.takeTurn(account?.accountId, resolvedDevice, profile, id)?.let { turn ->
             pendingFirstTurnSettings = turn
-            dispatch(turn.text, turn.files, turn.onDelivered)
+            dispatch(turn.text, turn.files, turn.onDelivered, recoveryMessageId = turn.recoveryMessageId)
         }
         titleJob?.cancel()
         titleJob = viewModelScope.launch {
@@ -1713,13 +1800,37 @@ class ChatViewModel @Inject constructor(
         return rows.filter { it.id == id }.map { it.profile }.distinct().singleOrNull()
     }
 
+    internal fun launchSessionCreation(block: suspend kotlinx.coroutines.CoroutineScope.() -> Unit): Job =
+        runtimeStore.launchSessionCreation(viewModelScope.coroutineContext.minusKey(Job), block)
+
     suspend fun createNewSession(profile: String, turn: FirstTurn? = null): String {
         val route = accountSessions?.transportRoutingContext()
         val device = currentDeviceId
-        if (route != null && route.deviceId != device) throw com.hermes.client.data.error.SessionOwnerUnconfirmed()
-        val id = chat.createSession(profile, turn?.cwd).id
+        if (route != null && (route.deviceId != device || route.accountId != boundSendAccountId)) {
+            throw com.hermes.client.data.error.SessionOwnerUnconfirmed()
+        }
+        val creation = turn?.prepareCreation?.invoke(turn)
+        val id = try {
+            if (route != null) kotlinx.coroutines.withContext(
+            com.hermes.client.data.network.SendTransportOwner(route) { accountSessions?.transportRoutingContext() },
+            ) { chat.createSession(profile, turn?.cwd).id } else chat.createSession(profile, turn?.cwd).id
+        } catch (error: Exception) {
+            if (error is com.hermes.client.data.network.GatewayRequestNotSentException ||
+                error is com.hermes.client.data.network.GatewayReadinessTimeoutException
+            ) {
+                creation?.failBeforeCreate?.invoke()
+            } else if (creation != null && error !is CancellationException) {
+                throw com.hermes.client.data.error.FirstTurnCreationUnconfirmed()
+            }
+            throw error
+        }
         if (accountSessions?.transportRoutingContext() != route || currentDeviceId != device) throw CancellationException("Conversation route changed")
-        turn?.let { pendingShareStore.putTurn(route?.accountId, device, profile, id, it) }
+        creation?.bind?.invoke(id)
+        turn?.copy(recoveryMessageId = creation?.messageId)?.let {
+            if (it.startInCreatedSession?.invoke(it, id, profile, device) != true) {
+                pendingShareStore.putTurn(route?.accountId, device, profile, id, it)
+            }
+        }
         return id
     }
 
@@ -1957,8 +2068,12 @@ class ChatViewModel @Inject constructor(
      */
     private fun seedUnsent(token: String, sessionId: String, key: SessionRuntimeKey?) {
         viewModelScope.launch {
+            key?.let(runtimeStore::activeSend)?.join()
             unsentWriteJob?.join()
             unsentStore.readAll(token).forEach { record ->
+                if (record.conversation != null && record.conversation.accountId != accountSessions?.session?.value?.accountId) {
+                    return@forEach
+                }
                 if (storedSessionId != sessionId || unsentToken != token) return@launch
                 if ((token to record.messageId) in removedUnknownNotices) return@forEach
                 if (failedSends.containsKey(record.messageId)) return@forEach
@@ -2166,11 +2281,20 @@ class ChatViewModel @Inject constructor(
         // A terminal failure (the conversation is gone upstream) keeps its bubble and its code.
         // Re-dispatching would only repeat the same 4001/4007 and replace one dead error with
         // another; the UI does not offer the tap either, this is the belt to that braces.
-        if (!failed.error.retryable) return
-        forgetUnsent(messageId)
-        runtimeKey?.let { runtimeStore.removeMessage(it, messageId) }
-            ?: mutateState { it.withoutMessage(messageId) }
-        dispatch(failed.text, failed.attachments)
+        if (!failed.error.retryable || sendJob?.isActive == true || runtimeKey?.let(runtimeStore::activeSend) != null) return
+        if (accountSessions != null) {
+            val route = accountSessions.transportRoutingContext() ?: return
+            if (route.deviceId != currentDeviceId || route.accountId != boundSendAccountId) return
+            failedSends.remove(messageId)
+            runtimeKey?.let { runtimeStore.removeMessage(it, messageId) }
+                ?: mutateState { it.withoutMessage(messageId) }
+            dispatch(failed.text, failed.attachments, recoveryMessageId = messageId)
+        } else {
+            forgetUnsent(messageId)
+            runtimeKey?.let { runtimeStore.removeMessage(it, messageId) }
+                ?: mutateState { it.withoutMessage(messageId) }
+            dispatch(failed.text, failed.attachments)
+        }
     }
 
     /**
@@ -2193,13 +2317,24 @@ class ChatViewModel @Inject constructor(
             ?: mutateState { it.withDelivery(messageId, delivery) }
     }
 
-    fun send(text: String): Boolean = sendWithReceipt(text, null)
+    fun send(
+        text: String,
+        onPrepared: ((com.hermes.client.data.error.AppError?) -> Unit)? = null,
+    ): Boolean = sendWithReceipt(text, null, onPrepared)
 
-    private fun sendWithReceipt(text: String, onDelivered: (() -> Unit)?): Boolean {
+    private fun sendWithReceipt(
+        text: String,
+        onDelivered: (() -> Unit)?,
+        onPrepared: ((com.hermes.client.data.error.AppError?) -> Unit)? = null,
+    ): Boolean {
         if (localDraft || _sessionAccessState.value == SessionAccessState.OWNED_ELSEWHERE || _composerRecoveryError.value != null) return false
         val atts = _state.value.pendingAttachments
-        if (text.isBlank() && atts.isEmpty()) return false
-        unsentComposer?.let { editor ->
+        if ((text.isBlank() && atts.isEmpty()) || (onPrepared != null &&
+                (sendJob?.isActive == true || runtimeKey?.let(runtimeStore::activeSend) != null))
+        ) return false
+        val editor = unsentComposer
+        fun clearRecoveryEditor() {
+            if (editor == null || unsentComposer !== editor) return
             unsentComposer = null
             _editingUnsentId.value = null
             draftSaveJob?.cancel()
@@ -2209,29 +2344,58 @@ class ChatViewModel @Inject constructor(
                     ?: mutateState { it.withoutMessage(editor.messageId) }
             }
         }
-        // Clear the staging strip immediately. The cached thumbnails are attached to the sent turn
-        // on an IO dispatcher below, so large images never block the Compose main thread.
-        mutateState { it.copy(pendingAttachments = emptyList()) }
-        dispatch(text, atts, onDelivered)
+        val prepared = onPrepared?.let { notify ->
+            { error: com.hermes.client.data.error.AppError? ->
+                if (error == null) clearRecoveryEditor()
+                notify(error)
+            }
+        }
+        if (prepared == null) {
+            clearRecoveryEditor()
+            mutateState { it.copy(pendingAttachments = emptyList()) }
+        }
+        dispatch(text, atts, onDelivered, prepared)
         return true
     }
 
     /** HG-196: final speech completes the composer; rejected auto-sends leave its contents intact. */
-    fun sendVoiceText(text: String, draft: String = "", onDelivered: (() -> Unit)? = null): Boolean {
+    fun sendVoiceText(
+        text: String,
+        draft: String = "",
+        onDelivered: (() -> Unit)? = null,
+        onPrepared: ((com.hermes.client.data.error.AppError?) -> Unit)? = null,
+    ): Boolean {
         if (text.isBlank() || _sessionAccessState.value == SessionAccessState.OWNED_ELSEWHERE ||
             connectionState.value !is ConnectionState.Connected || _state.value.isGenerating ||
             _attachingSessions.value > 0) return false
         val combined = if (draft.isBlank()) text.trim() else draft.trimEnd() + "\n" + text.trim()
-        return sendWithReceipt(combined, onDelivered)
+        return sendWithReceipt(combined, onDelivered, onPrepared)
     }
 
     private fun dispatch(
         text: String,
         atts: List<PendingAttachment>,
         onDelivered: (() -> Unit)? = null,
+        onPrepared: ((com.hermes.client.data.error.AppError?) -> Unit)? = null,
+        recoveryMessageId: String? = null,
     ) {
-        val messageId = "u-${java.util.UUID.randomUUID()}"
+        val messageId = recoveryMessageId ?: "u-${java.util.UUID.randomUUID()}"
         val firstSettings = pendingFirstTurnSettings
+        val manager = accountSessions
+        val route = manager?.transportRoutingContext()?.takeIf {
+            it.deviceId == currentDeviceId && it.accountId == boundSendAccountId
+        }
+        val owner = route?.let {
+            com.hermes.client.data.network.SendTransportOwner(it) { manager?.transportRoutingContext() }
+        }
+        if (manager != null && owner == null) {
+            val failure = com.hermes.client.data.error.AppError(
+                com.hermes.client.data.error.AppErrorCode.SESSION_PROFILE_UNCONFIRMED, retryable = false,
+            )
+            if (onPrepared != null) onPrepared(failure)
+            else if (recoveryMessageId == null) rememberUnsent(messageId, FailedSend(text, atts, failure))
+            return
+        }
         val pending = PendingSend()
         pendingSends[messageId] = pending
         val expectedStoredId = storedSessionId
@@ -2246,7 +2410,9 @@ class ChatViewModel @Inject constructor(
         // than letting the gate run out its 25-second timeout on the very first message.
         if (resumeDeferred && !gateForSend.isCompleted) {
             resumeDeferred = false
-            resumeJob = viewModelScope.launch {
+            if (owner != null) {
+                gateForSend.completeExceptionally(IllegalStateException("send owns the deferred resume"))
+            } else resumeJob = viewModelScope.launch {
                 try {
                     val key = runtimeKey ?: return@launch
                     val handle = recoverLiveHandle(expectedStoredId, expectedProfile, key)
@@ -2264,11 +2430,54 @@ class ChatViewModel @Inject constructor(
                 }
             }
         }
-        // Enter the cancellation handler before navigation can clear the scope, even when image
-        // caching suspends on IO. The local turn is recorded before any suspend point.
-        sendJob = viewModelScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+        fun requireSendOwner() {
+            if (owner?.isCurrent() == false) throw CancellationException("Send route changed")
+        }
+        val sendTurn: suspend kotlinx.coroutines.CoroutineScope.() -> Unit = sendTurn@{
             var submitStarted = false
+            var durablePreparation: com.hermes.client.data.repository.UnsentRecord? = null
             try {
+                requireSendOwner()
+                if (owner != null || onPrepared != null) {
+                    try {
+                        val token = checkNotNull(expectedToken)
+                        val attachments = stageUnsentAttachments(atts)
+                        check(attachments.size == atts.size) { "message attachments were not saved" }
+                        requireSendOwner()
+                        val preparation = com.hermes.client.data.repository.UnsentRecord(
+                            token = token, messageId = messageId, text = text,
+                            code = com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED.value,
+                            attachments = atts.size, attachmentMeta = attachments, updatedAt = System.currentTimeMillis(),
+                            conversation = route?.let { com.hermes.client.data.repository.PendingSendConversation(
+                                accountId = it.accountId, deviceId = it.deviceId, profile = expectedProfile,
+                                sessionId = expectedStoredId, cwd = firstSettings?.cwd ?: _workspace.value?.cwd,
+                            ) },
+                        )
+                        unsentStore.saveForDelivery(preparation)
+                        durablePreparation = preparation
+                        requireSendOwner()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        val failure = com.hermes.client.data.error.AppError(
+                            com.hermes.client.data.error.AppErrorCode.MESSAGE_JOURNAL_FAILED, retryable = true,
+                        )
+                        if (onPrepared != null) onPrepared(failure)
+                        else {
+                            rememberUnsent(messageId, FailedSend(text, atts, failure), expectedToken)
+                            runtimeKey?.let { key -> runtimeStore.updateChat(key) {
+                                it.withUserMessage(text, messageId = messageId).withDelivery(
+                                    messageId, com.hermes.client.domain.DeliveryState.FAILED,
+                                )
+                            } }
+                        }
+                        return@sendTurn
+                    }
+                    val admitted = atts.mapTo(mutableSetOf()) { it.id }
+                    mutateState { state -> state.copy(pendingAttachments = state.pendingAttachments.filterNot { it.id in admitted }) }
+                    onPrepared?.invoke(null)
+                    draftClearJob?.join()
+                }
                 val outgoingImages = atts.filter { it.kind == AttachmentKind.IMAGE }.map { a ->
                     com.hermes.client.domain.ChatImage(
                         id = a.id, mimeType = a.mimeType,
@@ -2320,6 +2529,7 @@ class ChatViewModel @Inject constructor(
                 } catch (timeout: TimeoutCancellationException) {
                     throw IllegalStateException("live handle preparation timed out", timeout)
                 }
+                requireSendOwner()
                 check(storedSessionId == expectedStoredId || storedSessionId == pendingRecreatedId) {
                     "conversation changed before send"
                 }
@@ -2357,8 +2567,18 @@ class ChatViewModel @Inject constructor(
                     messageId = messageId,
                     onSubmitStarted = {
                         sendContext.ensureActive()
+                        requireSendOwner()
+                        val preparation = durablePreparation
+                        if (preparation != null) {
+                            unsentStore.saveForDelivery(preparation.copy(
+                                code = com.hermes.client.data.error.AppErrorCode.MESSAGE_OUTCOME_UNKNOWN.value,
+                                retryable = false, deliveryUnconfirmed = true,
+                            ))
+                        } else {
+                            rememberUnconfirmed(messageId, text, atts, expectedToken).join()
+                        }
                         submitStarted = true; pending.submitted = true
-                        rememberUnconfirmed(messageId, text, atts, expectedToken).join()
+                        requireSendOwner()
                     },
                     onSubmitRejected = { submitStarted = false; pending.submitted = false },
                     onRemoteAttachmentStarted = { sendContext.ensureActive(); pending.remoteAttachmentStarted = true },
@@ -2378,7 +2598,9 @@ class ChatViewModel @Inject constructor(
                         retryable = true, technicalCause = "cancelled before prompt submission",
                         stage = "prompt_prepare",
                     )
-                    rememberUnsent(messageId, FailedSend(text, atts, error), expectedToken)
+                    if (route == null || manager?.session?.value?.accountId == route.accountId) {
+                        rememberUnsent(messageId, FailedSend(text, atts, error), expectedToken)
+                    }
                     val cancelledKey = runtimeStore.runtimes.value.entries
                         .firstOrNull { (_, runtime) -> runtime.chat.messages.any { it.id == messageId } }?.key
                         ?: expectedKey
@@ -2433,7 +2655,7 @@ class ChatViewModel @Inject constructor(
                     expectedKey?.let { runtimeStore.updateUserDelivery(it, messageId, com.hermes.client.domain.DeliveryState.UNCONFIRMED) }
                         ?: mutateState { it.withDelivery(messageId, com.hermes.client.domain.DeliveryState.UNCONFIRMED) }
                     expectedKey?.let(runtimeStore::requestReuseReconcile)
-                    return@launch
+                    return@sendTurn
                 }
                 val rpcCode = (e as? GatewayRpcException)?.code
                 val gone = e is SessionGoneException
@@ -2516,6 +2738,11 @@ class ChatViewModel @Inject constructor(
                 }
             }
         }
+        sendJob = if (owner != null && expectedKey != null) {
+            runtimeStore.launchSend(expectedKey, viewModelScope.coroutineContext.minusKey(kotlinx.coroutines.Job) + owner, sendTurn)
+        } else {
+            viewModelScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED, block = sendTurn)
+        }
         pending.job = sendJob
     }
 
@@ -2565,6 +2792,7 @@ class ChatViewModel @Inject constructor(
                 "submit stored=$storedId handle=$handle chars=${text.length} attachments=${attachments.size}",
             )
             val fileRefs = mutableListOf<String>()
+            val retainAcknowledgedFiles = mutableListOf<suspend () -> Unit>()
             attachments.forEach { attachment ->
                 val uploaded = try {
                     attachment.stagedFile?.let { fileRepository.uploadStagedFile(it, attachment.name, attachment.mimeType) }
@@ -2603,15 +2831,17 @@ class ChatViewModel @Inject constructor(
                         // The phone already holds this file — it uploaded it. Keep the staged copy
                         // in the download cache and point the message at it, so opening it never
                         // depends on the file still existing on the Mac (HG-249).
-                        val localPath = fileRepository.adoptSent(
-                            attachment.stagedFile, attached.path ?: uploaded.path, attachment.name, currentDeviceId,
-                        )
-                        val sent = fileRepository.rememberSent(
-                            com.hermes.client.domain.ChatFile(attachment.id, attachment.name, attachment.mimeType,
-                                attachment.sizeBytes, remotePath = attached.path ?: uploaded.path, localPath = localPath),
-                            attached.refText, storedId, profile, currentDeviceId,
-                        )
-                        updateSentFile(messageId, attachment.id) { sent }
+                        retainAcknowledgedFiles += {
+                            val localPath = fileRepository.adoptSent(
+                                attachment.stagedFile, attached.path ?: uploaded.path, attachment.name, currentDeviceId,
+                            )
+                            val sent = fileRepository.rememberSent(
+                                com.hermes.client.domain.ChatFile(attachment.id, attachment.name, attachment.mimeType,
+                                    attachment.sizeBytes, remotePath = attached.path ?: uploaded.path, localPath = localPath),
+                                attached.refText, storedId, profile, currentDeviceId,
+                            )
+                            updateSentFile(messageId, attachment.id) { sent }
+                        }
                     }
                 }
             }
@@ -2631,6 +2861,8 @@ class ChatViewModel @Inject constructor(
                 }
                 submitAttempt { chat.submit(handle, submittedText) }
             }
+            // A refusal or lost acknowledgement must leave the journal's original files intact.
+            retainAcknowledgedFiles.forEach { retain -> runCatching { retain() } }
         }
 
         try {
@@ -2667,7 +2899,9 @@ class ChatViewModel @Inject constructor(
         recoverLiveHandle(storedId, profile, runtimeKey ?: error("no runtime bound"))
     } catch (gone: GatewayRpcException) {
         if (gone.code != SESSION_NOT_FOUND_CODE) throw gone
-        if (!sessionKnownEmpty) throw SessionGoneException(gone.message ?: "session not found")
+        if (!sessionKnownEmpty || currentCoroutineContext()[com.hermes.client.data.network.SendTransportOwner] != null) {
+            throw SessionGoneException(gone.message ?: "session not found")
+        }
         recreateConversation(storedId, profile)
     }
 

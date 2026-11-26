@@ -2369,6 +2369,81 @@ class ChatViewModelTest {
         assertEquals("first", unsent.read(draftToken)?.text)
     }
 
+    @Test fun first_turn_can_move_from_a_closed_draft_to_the_confirmed_conversation() = runUnsentComposerTest {
+        val manager = mockk<com.hermes.client.data.auth.AccountSessionManager>(relaxed = true)
+        val route = com.hermes.client.data.auth.AccountRoutingContext("account", "mac")
+        every { manager.session } returns MutableStateFlow(null)
+        every { manager.transportRoutingContext() } returns route
+        coEvery { chatRepo.resume("confirmed", "work") } returns "live"
+        val runtime = newRuntimeStore()
+        val vm = buildVm(accountSessions = manager, runtimeStore = runtime)
+        val owner = androidx.lifecycle.ViewModelStore()
+        owner.put("draft", vm)
+        vm.openLocalDraft("draft-first", "work", "/workspace")
+        runCurrent()
+        val turn = vm.firstTurn("first message")
+        val creation = turn.prepareCreation!!.invoke(turn)
+        val localToken = com.hermes.client.data.repository.SessionReadStore.token("work", "draft-first", "mac")
+        assertTrue(unsent.read(localToken)!!.deliveryUnconfirmed)
+        owner.clear()
+
+        creation.bind("confirmed")
+        val confirmed = turn.copy(recoveryMessageId = creation.messageId)
+        assertTrue(confirmed.startInCreatedSession!!.invoke(confirmed, "confirmed", "work", "mac"))
+        runCurrent()
+
+        assertNull(unsent.read(localToken))
+        coVerify(exactly = 1) { chatRepo.submit("live", "first message") }
+        val result = runtime.runtimes.value.values.single { it.key.sessionId == "confirmed" }.chat.messages.single()
+        assertEquals(creation.messageId, result.id)
+        assertEquals(com.hermes.client.domain.DeliveryState.SENT, result.delivery)
+    }
+
+    @Test fun clearing_an_account_chat_does_not_cancel_an_in_flight_submit() = runUnsentComposerTest {
+        val manager = mockk<com.hermes.client.data.auth.AccountSessionManager>(relaxed = true)
+        val route = com.hermes.client.data.auth.AccountRoutingContext("account", "mac")
+        every { manager.session } returns MutableStateFlow(null)
+        every { manager.transportRoutingContext() } returns route
+        val acknowledged = kotlinx.coroutines.CompletableDeferred<Unit>()
+        coEvery { chatRepo.resume("s1", null) } returns "live-1"
+        coEvery { chatRepo.submit("live-1", "first") } coAnswers { acknowledged.await() }
+        val runtime = newRuntimeStore()
+        val vm = buildVm(accountSessions = manager, runtimeStore = runtime)
+        val owner = androidx.lifecycle.ViewModelStore()
+        owner.put("chat", vm)
+        vm.open("s1", requestedDeviceId = "mac")
+        runCurrent()
+        assertTrue(vm.send("first"))
+        runCurrent()
+        coVerify(exactly = 1) { chatRepo.submit("live-1", "first") }
+
+        owner.clear()
+        acknowledged.complete(Unit)
+        runCurrent()
+
+        val original = runtime.runtimes.value.values.single { it.key.sessionId == "s1" }
+        assertEquals(com.hermes.client.domain.DeliveryState.SENT, original.chat.messages.last().delivery)
+        coVerify(exactly = 1) { chatRepo.submit("live-1", "first") }
+    }
+
+    @Test fun a_stale_chat_editor_cannot_send_under_another_account_on_the_same_mac() = runUnsentComposerTest {
+        val manager = mockk<com.hermes.client.data.auth.AccountSessionManager>(relaxed = true)
+        var route = com.hermes.client.data.auth.AccountRoutingContext("original", "mac")
+        every { manager.session } returns MutableStateFlow(null)
+        every { manager.transportRoutingContext() } answers { route }
+        val vm = buildVm(accountSessions = manager)
+        vm.open("s1", requestedDeviceId = "mac")
+        runCurrent()
+
+        route = route.copy(accountId = "another")
+        var rejected: com.hermes.client.data.error.AppError? = null
+        vm.send("stale draft") { rejected = it }
+        runCurrent()
+
+        assertEquals(com.hermes.client.data.error.AppErrorCode.SESSION_PROFILE_UNCONFIRMED, rejected?.code)
+        coVerify(exactly = 0) { chatRepo.submit(any(), "stale draft") }
+    }
+
     @Test fun clearing_the_chat_before_submit_preserves_an_unsent_turn() = runUnsentComposerTest {
         coEvery { chatRepo.resume("s1", null) } coAnswers { kotlinx.coroutines.awaitCancellation() }
         val runtime = newRuntimeStore()

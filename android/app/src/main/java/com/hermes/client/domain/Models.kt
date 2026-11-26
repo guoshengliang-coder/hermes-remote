@@ -35,6 +35,8 @@ data class Session(
     val chatType: String? = null,
     /** Upstream's mutation fence; echo it as `expected_revision` on archive/rename/delete. */
     val runtimeRevision: Int? = null,
+    val pendingLocalCreation: Boolean = false,
+    val pendingCreationUnconfirmed: Boolean = false,
 )
 
 data class ToolCall(

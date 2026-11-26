@@ -225,6 +225,8 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "无法移动会话到该项目，请重试。", "Couldn't move the conversation to that project. Retry.")
         AppErrorCode.PROJECT_FELL_BACK_TO_DEFAULT ->
             localized(language, "项目文件夹在 Mac 上不存在，会话已建在默认项目。", "The project folder no longer exists on the Mac, so the conversation was created in the default project.")
+        AppErrorCode.MESSAGE_JOURNAL_FAILED ->
+            localized(language, "无法保存待发送消息，请检查本机存储后重试。", "Could not save the pending message. Check local storage and try again.")
         AppErrorCode.MESSAGE_SEND_FAILED ->
             localized(language, "消息未发送，点按气泡重试。", "The message was not sent. Tap the bubble to retry.")
         AppErrorCode.SESSION_OWNED_ELSEWHERE ->

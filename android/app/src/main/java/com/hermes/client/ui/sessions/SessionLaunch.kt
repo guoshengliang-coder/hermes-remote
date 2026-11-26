@@ -11,12 +11,12 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -29,7 +29,6 @@ import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
 import com.hermes.client.ui.localization.localizedMessage
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
 
 // Creating and opening a chat is identical on the Chats list, the Projects page and the Archive
 // page — same in-flight guard, same fallback toast, same profile-switch-before-open. It lived
@@ -53,7 +52,11 @@ internal fun rememberSessionCreator(
     activeProfile: String?,
     onOpen: (ChatLaunch) -> Unit,
 ): SessionCreator {
-    val scope = rememberCoroutineScope()
+    var mounted by remember { mutableStateOf(true) }
+    DisposableEffect(Unit) {
+        mounted = true
+        onDispose { mounted = false }
+    }
     val context = LocalContext.current
     val language = LocalAppLanguage.current
     var creating by remember { mutableStateOf(false) }
@@ -65,9 +68,10 @@ internal fun rememberSessionCreator(
         val cwd = if (turn != null) turn.cwd else folder.takeIf { owner == activeProfile }
         if (!creating) {
             creating = true
-            scope.launch {
+            vm.launchSessionCreation {
                 try {
                     val created = vm.createSession(cwd, owner, turn)
+                    if (!mounted) return@launchSessionCreation
                     if (created.fellBackToDefault) {
                         // The folder is gone on the Mac and the gateway silently used its own
                         // launch dir instead — say so rather than leave the chat in a surprise
@@ -79,11 +83,14 @@ internal fun rememberSessionCreator(
                         )
                         Toast.makeText(context, error.localizedMessage(language), Toast.LENGTH_LONG).show()
                     }
-                    choosing = false
-                    onOpen(ChatLaunch.new(created.id, owner, created.deviceId))
+                    if (choosing) {
+                        choosing = false
+                        onOpen(ChatLaunch.new(created.id, owner, created.deviceId))
+                    }
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
+                    if (e is com.hermes.client.data.error.FirstTurnCreationUnconfirmed) choosing = false
                     val error = com.hermes.client.data.error.newChatFailure(
                         e, vm.consecutiveDroppedConnections,
                     )

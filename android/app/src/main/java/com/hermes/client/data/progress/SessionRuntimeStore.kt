@@ -228,6 +228,33 @@ class SessionRuntimeStore(
      */
     private val watchdogEnabled: Boolean = false,
 ) {
+    internal fun launchSessionCreation(
+        context: kotlin.coroutines.CoroutineContext,
+        block: suspend CoroutineScope.() -> Unit,
+    ): kotlinx.coroutines.Job = appScope.launch(context, block = block)
+
+    private val activeSendJobs = java.util.concurrent.ConcurrentHashMap<SessionRuntimeKey, kotlinx.coroutines.Job>()
+
+    internal fun activeSend(key: SessionRuntimeKey): kotlinx.coroutines.Job? = activeSendJobs[key]
+
+    internal fun activeSendsOnDevice(deviceId: String): List<kotlinx.coroutines.Job> =
+        activeSendJobs.entries.filter { it.key.deviceId == deviceId }.map { it.value }
+
+    internal fun launchSend(
+        key: SessionRuntimeKey,
+        context: kotlin.coroutines.CoroutineContext,
+        block: suspend CoroutineScope.() -> Unit,
+    ): kotlinx.coroutines.Job {
+        val job = appScope.launch(context, start = kotlinx.coroutines.CoroutineStart.LAZY, block = block)
+        activeSendJobs.putIfAbsent(key, job)?.let { existing ->
+            job.cancel()
+            return existing
+        }
+        job.invokeOnCompletion { activeSendJobs.remove(key, job) }
+        job.start()
+        return job
+    }
+
     private val _runtimes = MutableStateFlow<Map<SessionRuntimeKey, SessionRuntime>>(emptyMap())
     val runtimes: StateFlow<Map<SessionRuntimeKey, SessionRuntime>> = _runtimes.asStateFlow()
     private var pendingAttachmentOwner: String? = null

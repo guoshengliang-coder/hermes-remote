@@ -74,6 +74,7 @@ data class GatewayWebSocketEndpoint(
     val url: String,
     val bearerToken: String? = null,
     val accountDeviceId: String? = null,
+    val accountId: String? = null,
 )
 
 data class BackoffPolicy(
@@ -133,7 +134,7 @@ open class HermesGatewayClient(
     private val _state = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _state.asStateFlow()
 
-    private data class ReadySocket(val generation: Int, val deviceId: String?, val socket: WebSocket)
+    private data class ReadySocket(val generation: Int, val deviceId: String?, val accountId: String?, val socket: WebSocket)
 
     // Set by the ready callback and read under lifecycleLock.
     private var readySocket: ReadySocket? = null
@@ -570,7 +571,7 @@ open class HermesGatewayClient(
             }
             ws = socketClient.newWebSocket(
                 request,
-                makeListener(gen, hasBearerToken, endpoint.accountDeviceId),
+                makeListener(gen, hasBearerToken, endpoint.accountDeviceId, endpoint.accountId),
             )
         }
     }
@@ -605,6 +606,7 @@ open class HermesGatewayClient(
         gen: Int,
         accountTransport: Boolean,
         accountDeviceId: String?,
+        accountId: String?,
     ) = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
             // Do NOT set state to Connected here. Wait for gateway.ready event.
@@ -664,7 +666,7 @@ open class HermesGatewayClient(
                                 // socket resumes before advertising would have its questions withdrawn.
                                 advertiseServerRequests(webSocket, gen)
                                 archiveMode = if (msg.event.payloadIsObject) sessionArchiveMode(msg.event.payload) else SessionArchiveMode.UNKNOWN
-                                readySocket = ReadySocket(gen, accountDeviceId, webSocket)
+                                readySocket = ReadySocket(gen, accountDeviceId, accountId, webSocket)
                                 _state.value = ConnectionState.Connected
                                 readyGate.complete(Unit)
                                 ConnectionRecoveryTrace.finish(recoveryCycle)
@@ -968,6 +970,8 @@ open class HermesGatewayClient(
         // Wait until gateway.ready has been received before sending any RPC.
         // The await() happens BEFORE registering in `pending`, so a timeout here never leaks
         // a pending entry.
+        val sendOwner = kotlinx.coroutines.currentCoroutineContext()[SendTransportOwner]
+        if (sendOwner?.isCurrent() == false) throw GatewayRequestNotSentException("send route changed")
         awaitReadiness(method)
         val id = nextId.getAndIncrement()
         val deferred = CompletableDeferred<JsonElement>()
@@ -985,7 +989,12 @@ open class HermesGatewayClient(
         val sentConnectionId = connectionId
         if (!quiet) DebugLog.log("ws") { "rpc#$id conn=$sentConnectionId → $method" }
         val sent = synchronized(lifecycleLock) {
-            val target = if (expectedGeneration != null) {
+            val target = if (sendOwner != null) {
+                readySocket?.takeIf {
+                    it.deviceId == sendOwner.route.deviceId && it.accountId == sendOwner.route.accountId &&
+                        it.generation == generation.get() && _state.value == ConnectionState.Connected && sendOwner.isCurrent()
+                }?.socket
+            } else if (expectedGeneration != null) {
                 readySocket?.takeIf {
                     it.generation == expectedGeneration && generation.get() == expectedGeneration &&
                         it.deviceId == expectedDeviceId && _state.value == ConnectionState.Connected

@@ -8,11 +8,13 @@ import { resetOverlays } from "../app/overlayHistory";
 import type { ChatSessionOptions } from "../chat/session";
 import { ChatPage } from "./ChatPage";
 
-const fixture = vi.hoisted(() => ({ connections: [] as ChatSessionOptions[], probes: [] as number[] }));
+const fixture = vi.hoisted(() => ({ connections: [] as ChatSessionOptions[], probes: [] as number[], pending: undefined as Promise<void> | undefined, detach: vi.fn(), dispose: vi.fn() }));
 vi.mock("../chat/session", () => ({ ChatSession: class {
   storedSessionId: string | null;
   constructor(private options: ChatSessionOptions) { this.storedSessionId = options.storedSessionId; fixture.connections.push(options); }
-  dispose() {}
+  get pendingSendCompletion() { return fixture.pending; }
+  detachPage() { fixture.detach(); }
+  dispose() { fixture.dispose(); }
   start() {
     this.options.dispatch({ type: "history", rows: [{ id: 1, role: "user", content: "question", timestamp: 1 }] });
     this.options.dispatch({ type: "connection", state: "ready" });
@@ -22,9 +24,10 @@ vi.mock("../chat/session", () => ({ ChatSession: class {
 } }));
 let host: HTMLElement;
 let app: AppContextValue;
-const draw = async (id = "a") => act(async () => render(<AppContext.Provider value={app}><ChatPage sessionId={id}/></AppContext.Provider>, host));
+const draw = async (id: string | null = "a") => act(async () => render(<AppContext.Provider value={app}><ChatPage sessionId={id}/></AppContext.Provider>, host));
 beforeEach(() => {
   fixture.connections.length = 0; fixture.probes.length = 0;
+  fixture.pending = undefined; fixture.detach.mockClear(); fixture.dispose.mockClear();
   localStorage.clear(); clearConversationMemory();
   host = document.createElement("div"); document.body.append(host);
   app = { t: (zh: string) => zh, language: "zh", account: { id: "account" }, device: { deviceId: "mac" }, client: {}, features: new Set(),
@@ -87,4 +90,35 @@ it("HG-261 retains the project next to the role beneath the title", async () => 
   const role = host.querySelector(".chat-title .role-owner-name")!;
   expect(role.parentElement!.querySelector(".chat-workspace-name")?.textContent).toBe("project");
   expect(host.querySelector("h1")!.parentElement!.contains(role)).toBe(false);
+});
+
+
+it("HG-268 leaves a pending route send attached to its connection until it settles", async () => {
+  await draw();
+  let settle!: () => void;
+  fixture.pending = new Promise(resolve => { settle = resolve; });
+  await act(async () => render(null, host));
+  expect(fixture.detach).toHaveBeenCalledTimes(1);
+  expect(fixture.dispose).not.toHaveBeenCalled();
+
+  await draw();
+  expect(fixture.connections).toHaveLength(1);
+  fixture.pending = undefined;
+  await act(async () => settle());
+  expect(fixture.connections).toHaveLength(2);
+});
+
+
+it("HG-268 reopening New waits for its unbound send before creating another connection", async () => {
+  app = { ...app, profileCatalog: { default: "Default" } };
+  await draw(null);
+  let settle!: () => void;
+  fixture.pending = new Promise(resolve => { settle = resolve; });
+  await act(async () => render(null, host));
+  await draw(null);
+  expect(fixture.connections).toHaveLength(1);
+  expect(host.querySelector<HTMLButtonElement>('button[aria-label="发送"]')?.disabled ?? true).toBe(true);
+  fixture.pending = undefined;
+  await act(async () => settle());
+  expect(fixture.connections).toHaveLength(2);
 });

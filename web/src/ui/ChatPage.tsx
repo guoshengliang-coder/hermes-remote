@@ -1,3 +1,5 @@
+import { finishSend, listSends, restoreSendAttachments, stageSend, updateSend, type SendPhase } from "../chat/sendJournal";
+import { closeChatPage, detachChatPage, trackChatPage, waitForDetachedSend } from "../chat/detachedSends";
 import { RoleSheet } from "./RoleSheet";
 import { deriveProjects, disambiguatedLabels } from "../app/projects";
 import { inboxKey } from "../app/inbox";
@@ -12,7 +14,7 @@ import { isDefaultProjectPath, projectLabelOfPath } from "../app/projects";
 import { explicitProfile } from "../app/profile";
 import type { VoiceDeliveryReceipt } from "../chat/voiceRecordings";
 import { isBotSession } from "../app/sources";
-import { navigate, returnFromChat } from "../app/router";
+import { currentRoute, navigate, pageSnapshotKey, returnFromChat } from "../app/router";
 import { useApp } from "../app/store";
 import type { PendingAttachment } from "../chat/attachments";
 import { hasOpenQuestion, initialChatState, reduceChat, type ChatItem } from "../chat/model";
@@ -66,7 +68,6 @@ import { conversationScope, readConversationView, viewWriter } from "../app/conv
 // Chat page for /app/s/<storedSessionId> and /app/new. A new chat keeps the same page (and
 // socket) when its first send gives it a durable id and the URL is replaced.
 
-let localSeq = 0;
 
 /** Within this distance of the top the next older history page is fetched (HG-104). */
 const OLDER_TRIGGER_PX = 320;
@@ -101,10 +102,10 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
   const workspace = useWorkspace();
   const preferences = useProfilePreferences();
   const profileNames = useProfileNames();
-  const [selected, setSelected] = useState("default");
+  const [selected, setSelected] = useState(profileHint ?? "default");
   useLayoutEffect(() => {
-    if (sessionId === null) setSelected("default");
-  }, [sessionId, device?.deviceId, app.account?.id]);
+    if (sessionId === null) setSelected(profileHint ?? "default");
+  }, [sessionId, profileHint, device?.deviceId, app.account?.id]);
   const choices = profileNames.filter(name => !preferences.hidden(name));
   const newProfile = choices.includes(selected) ? selected : null;
   const accountName = newProfile ? preferences.label(newProfile) : null;
@@ -160,6 +161,9 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
     (profile == null || app.sessions.filter(row => row.id === sessionId).length !== 1);
   const inaccessible = ambiguous || (!!profile && preferences.hidden(profile));
   const boundRoute = useRef<string | null>(null);
+  const boundSessionId = useRef<string | null>(null);
+  const [detachedRevision, setDetachedRevision] = useState(0);
+  const [waitingForDetachedSend, setWaitingForDetachedSend] = useState(false);
   const viewKey = conversationScope(app.account?.id, device?.deviceId ?? "", sessionId === null ? null : profile, sessionId);
   const restoring = useRef<ScrollAnchor | null>(null);
   const view = useRef<ChatView>({ anchor: null, following: true, searchOpen: false, query: "", focus: 0 });
@@ -184,6 +188,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
       setManage(null); setModelOpen(false); setAnswerMenu(null); setBotNotice(null);
       setProcesses([]); setProcessesOpen(false); setOwnedElsewhere(false);
       pendingFiles.current.clear();
+      journalIds.current.clear();
     }
     const save = viewWriter<ChatView>(viewKey);
     return () => save({ ...view.current, anchor: restoring.current ?? anchor.current, following: stick.current });
@@ -224,26 +229,38 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
   useLayoutEffect(() => {
     if (!device || !listReady) return;
     if (inaccessible) {
-      sessionRef.current?.dispose();
+      if (sessionRef.current) closeChatPage(sessionRef.current);
       sessionRef.current = null;
       navigate({name: "list"}, {replace: true});
       return;
     }
     if (sessionId === null && !profile) {
-      sessionRef.current?.dispose();
+      if (sessionRef.current) closeChatPage(sessionRef.current);
       sessionRef.current = null;
       dispatch({ type: "reset" });
       return;
     }
     const current = sessionRef.current;
-    if (current && sessionId !== null && current.storedSessionId === sessionId && boundRoute.current === profile) return;
-    current?.dispose();
+    if (current && sessionId !== null && current.storedSessionId === sessionId && boundRoute.current === profile) {
+      boundSessionId.current = sessionId;
+      return;
+    }
+    if (current) detachChatPage(current, app.account?.id, device.deviceId, boundRoute.current, boundSessionId.current === null);
+    sessionRef.current = null;
     dispatch({ type: "reset" });
+    const settling = waitForDetachedSend(app.account?.id, device.deviceId, profile, sessionId);
+    setWaitingForDetachedSend(Boolean(settling));
+    if (settling) {
+      let active = true;
+      void settling.then(() => { if (active) setDetachedRevision(revision => revision + 1); });
+      return () => { active = false; };
+    }
     setChosenModel(null);
     setExplicitModelOverride(false);
     setReasoning(null);
     const project = draftProject;
     newChatProject.current = sessionId === null && project && (project.profile ?? "default") === profile ? project : null;
+    const openingPage = pageSnapshotKey(location.pathname);
     const session = new ChatSession({
       client,
       deviceId: device.deviceId,
@@ -252,11 +269,15 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
       profile,
       dispatch: action => { if (sessionRef.current === session) dispatch(action); },
       onStored: (id) => {
-        if (sessionRef.current !== session) return;
         for (const receipt of creatingVoiceReceipts.current.get(session) ?? []) receipt.onStored?.(id);
         creatingVoiceReceipts.current.delete(session);
+        if (sessionRef.current !== session) return;
         setStoredId(id);
-        navigate({ name: "chat", sessionId: id, profile: profile ?? undefined }, { replace: true });
+        const route = currentRoute();
+        if (pageSnapshotKey(location.pathname) === openingPage &&
+            (route.name === "new" || (route.name === "chat" && route.sessionId === sessionId))) {
+          navigate({ name: "chat", sessionId: id, profile: profile ?? undefined }, { replace: true });
+        }
       },
       onAuthLost: app.authLost,
       // A top-level create lands in Hermes' launch folder: that is the default project (Android
@@ -266,15 +287,17 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
       },
     });
     boundRoute.current = profile;
+    boundSessionId.current = sessionId;
     sessionRef.current = session;
+    trackChatPage(session, app.account?.id, device.deviceId);
     setStoredId(sessionId);
     session.start();
-  }, [sessionId, device?.deviceId, listReady, profile, inaccessible, draftProject]);
+  }, [sessionId, device?.deviceId, listReady, profile, inaccessible, draftProject, detachedRevision]);
 
-  useEffect(() => () => {
-    sessionRef.current?.dispose();
+  useLayoutEffect(() => () => {
+    if (sessionRef.current) detachChatPage(sessionRef.current, app.account?.id, device?.deviceId, boundRoute.current, boundSessionId.current === null);
     sessionRef.current = null;
-  }, []);
+  }, [app.account?.id, device?.deviceId]);
 
   useEffect(() => {
     if (storedId) app.markSeen(storedId, profile);
@@ -495,42 +518,110 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
   }, []);
 
   const voiceDeliveries = useRef(new Map<string, VoiceDeliveryReceipt>());
-  function send(text: string, attachments: PendingAttachment[], confirmed = false, onDelivered?: VoiceDeliveryReceipt) {
-    if (inaccessible || (sessionId === null && !newProfile)) return;
+  const journalIds = useRef(new Set<string>());
+
+  async function requireTransition(id: string, expected: readonly SendPhase[], phase: SendPhase, sessionId?: string) {
+    if (!await updateSend(id, expected, { phase, ...(sessionId ? { sessionId } : {}) })) throw new Error("message operation changed");
+  }
+
+  function sendProgress(id: string, prepare: () => Promise<boolean>) {
+    return {
+      prepare,
+      beforeCreate: () => requireTransition(id, ["active"], "creating"),
+      created: (storedId: string) => requireTransition(id, ["creating"], "active", storedId),
+      beforeSubmit: () => requireTransition(id, ["active"], "submitting"),
+      settled: async (outcome: "sent" | "failed" | "unknown") => {
+        if (outcome === "sent") await finishSend(id);
+        else await updateSend(id, ["active", "creating", "submitting"], { phase: outcome });
+      },
+    };
+  }
+
+  useEffect(() => {
+    if (!app.account?.id || !device || !profile || waitingForDetachedSend) return;
+    let active = true;
+    void listSends({ account: app.account.id, device: device.deviceId, profile }, sessionId).then(records => {
+      if (!active) return;
+      for (const record of records) {
+        if (stateRef.current.items.some(item => item.key === record.id) || journalIds.current.has(record.id)) continue;
+        journalIds.current.add(record.id);
+        const attachments = restoreSendAttachments(record);
+        pendingFiles.current.set(record.id, attachments);
+        dispatch({ type: "user-sent", key: record.id, text: record.text, nowMs: record.createdAt,
+          localFiles: attachments.map(attachment => attachment.name) });
+        const safelyRetryable = (record.phase === "failed" || record.phase === "prepared") &&
+          (sessionId !== null || record.cwd === (newChatProject.current?.path ?? null));
+        dispatch({ type: "user-failed", key: record.id, error: appError(safelyRetryable ? "HR-SESS-007" : "HR-SESS-022") });
+      }
+    }, () => {});
+    return () => { active = false; };
+  }, [app.account?.id, device?.deviceId, profile, sessionId, waitingForDetachedSend, detachedRevision]);
+  async function send(text: string, attachments: PendingAttachment[], confirmed = false, onDelivered?: VoiceDeliveryReceipt) {
+    if (inaccessible || (sessionId === null && !newProfile) || !app.account?.id || !device || !profile) return false;
     const session = sessionRef.current;
-    if (!session) return;
+    if (!session || session.pendingSendCompletion) return false;
     // First message into a bot conversation: say once, per channel, that it stays in Hermes (§5.16).
     const bot = storedId ? ownedRow(storedId) : undefined;
     if (!confirmed && bot && isBotSession(bot) && !botNoticeSeen(bot.source!)) {
       setBotNotice({ text, attachments, onDelivered });
-      return;
+      return true;
     }
-    const key = `l-${++localSeq}`;
-    pendingFiles.current.set(key, attachments);
-    stick.current = true;
-    dispatch({
-      type: "user-sent",
-      key,
-      text,
-      localImages: attachments.flatMap((a) => (a.previewUrl ? [a.previewUrl] : [])),
-      localFiles: attachments.filter((a) => a.kind === "file").map((a) => a.name),
-      nowMs: Date.now(),
-    });
-    if (onDelivered) voiceDeliveries.current.set(key, onDelivered);
-    if (onDelivered && !session.storedSessionId) {
-      const receipts = creatingVoiceReceipts.current.get(session) ?? new Set<VoiceDeliveryReceipt>();
-      receipts.add(onDelivered); creatingVoiceReceipts.current.set(session, receipts);
-    }
-    void session.send(key, text, attachments).then(delivered => {
-      if (delivered) { voiceDeliveries.current.get(key)?.(); voiceDeliveries.current.delete(key); }
+    const key = crypto.randomUUID();
+    const stamp = Date.now();
+    const record = {
+      id: key, account: app.account.id, device: device.deviceId, profile, sessionId: session.storedSessionId,
+      cwd: newChatProject.current?.path ?? null, text, createdAt: stamp,
+    };
+    return new Promise<boolean>(resolve => {
+      const progress = sendProgress(key, async () => {
+        try {
+          await stageSend(record, attachments);
+          await requireTransition(key, ["prepared"], "active");
+        } catch {
+          if (sessionRef.current === session) app.flash(appError("HR-SESS-030"));
+          resolve(false);
+          return false;
+        }
+        if (sessionRef.current === session) {
+          journalIds.current.add(key);
+          pendingFiles.current.set(key, attachments);
+          stick.current = true;
+          dispatch({
+            type: "user-sent", key, text, nowMs: stamp,
+            localImages: attachments.flatMap(a => a.previewUrl ? [a.previewUrl] : []),
+            localFiles: attachments.filter(a => a.kind === "file").map(a => a.name),
+          });
+        }
+        if (onDelivered && !session.storedSessionId) {
+          const receipts = creatingVoiceReceipts.current.get(session) ?? new Set<VoiceDeliveryReceipt>();
+          receipts.add(onDelivered);
+          creatingVoiceReceipts.current.set(session, receipts);
+        }
+        resolve(true);
+        return true;
+      });
+      void session.send(key, text, attachments, progress).then(delivered => {
+        if (delivered) onDelivered?.();
+        else if (onDelivered && sessionRef.current === session) voiceDeliveries.current.set(key, onDelivered);
+        resolve(false);
+      }, () => resolve(false));
     });
   }
 
   function retry(item: ChatItem) {
     const session = sessionRef.current;
-    if (!session) return;
-    dispatch({ type: "user-retry", key: item.key });
-    void session.send(item.key, item.text, pendingFiles.current.get(item.key) ?? []).then(delivered => {
+    if (!session || session.pendingSendCompletion || !journalIds.current.has(item.key)) return;
+    const progress = sendProgress(item.key, async () => {
+      try {
+        await requireTransition(item.key, ["failed", "prepared"], "active");
+        if (sessionRef.current === session) dispatch({ type: "user-retry", key: item.key });
+        return true;
+      } catch {
+        if (sessionRef.current === session) app.flash(appError("HR-SESS-030"));
+        return false;
+      }
+    });
+    void session.send(item.key, item.text, pendingFiles.current.get(item.key) ?? [], progress).then(delivered => {
       if (delivered) { voiceDeliveries.current.get(item.key)?.(); voiceDeliveries.current.delete(item.key); }
     });
   }
@@ -547,7 +638,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
 
   function regenerate() {
     const last = [...state.items].reverse().find((i) => i.role === "user" && !i.note && i.text.trim());
-    if (last) send(last.text, []);
+    if (last && last.error?.code !== "HR-SESS-022") void send(last.text, []);
   }
 
   async function refresh() {
@@ -658,6 +749,11 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
   const lastAssistantKey = [...state.items].reverse().find((i) => i.role === "assistant" && !i.note)?.key ?? null;
   const actionsFor = (item: ChatItem): MessageActions => ({
     onRetry: retry,
+    ...(storedId && item.error?.code === "HR-SESS-022" ? { onCheckDelivery: () => {
+      void sessionRef.current?.loadHistory({ quiet: true }).then(ok => {
+        app.flash(ok ? appError("HR-SESS-022") : appError("HR-SYNC-001"));
+      });
+    } } : {}),
     onOpenImage: (images, index) => setViewer({ images, index }),
     onUserMenu: (it) => setUserMenu(it),
     onViewSource: (it) => setAnswerMenu(it),
@@ -922,7 +1018,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
           t={t}
           language={language}
           generating={state.generating}
-          disabled={state.terminal || !device || inaccessible || (sessionId === null && !newProfile)}
+          disabled={waitingForDetachedSend || state.terminal || !device || inaccessible || (sessionId === null && !newProfile)}
           voiceReady={state.connection === "ready"}
           onSend={(text, files, onDelivered) => send(text, files, false, onDelivered)}
           onInterrupt={() => void sessionRef.current?.interrupt()}

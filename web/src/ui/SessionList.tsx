@@ -1,3 +1,4 @@
+import { listSendRows, observeSendJournal, type SendListRow } from "../chat/sendJournal";
 import { RoleSheet } from "./RoleSheet";
 import { roleIncluded, toggleRole } from "../app/roleFilter";
 import { loadProfileSessionPages } from "../app/profileSessionPages";
@@ -16,7 +17,7 @@ import { defaultProjectPath } from "../app/localPrefs";
 import { useProfileNames, useProfilePreferences } from "../app/profilePreferences";
 import { explicitProfile } from "../app/profile";
 import { pinToken } from "../app/pins";
-import { deriveProjects, disambiguatedLabels, inProject } from "../app/projects";
+import { deriveProjects, disambiguatedLabels, inProject, basename } from "../app/projects";
 import { navigate } from "../app/router";
 import { rowView } from "../app/rowStatus";
 import { isBotSession, isListable } from "../app/sources";
@@ -97,6 +98,22 @@ export function SessionList() {
   useLayoutEffect(() => { setProfileFilter(null); setRoleFilterOpen(false); }, [app.account?.id, app.device?.deviceId]);
   const visibleSessions = useMemo(() => app.sessions.filter(s => !prefs.hidden(explicitProfile(s) ?? "default")), [app.sessions, prefs.hidden]);
   const { t, language, device, client } = app;
+  const sendOwner = JSON.stringify([app.account?.id, device?.deviceId]);
+  const [sendSnapshot, setSendSnapshot] = useState<{ owner: string; rows: SendListRow[] }>();
+  const sendRows = sendSnapshot?.owner === sendOwner ? sendSnapshot.rows : [];
+  useEffect(() => {
+    const account = app.account?.id;
+    const mac = device?.deviceId;
+    if (!account || !mac) return;
+    let revision = 0;
+    const refresh = () => {
+      const requested = ++revision;
+      void listSendRows(account, mac).then(rows => { if (revision === requested) setSendSnapshot({ owner: sendOwner, rows }); }, () => {});
+    };
+    const stop = observeSendJournal(refresh);
+    refresh();
+    return () => { revision++; stop(); };
+  }, [sendOwner]);
   const paneActive = useWorkspace().listVisible !== false;
   const listReturn = useListReturn(`sessions:${device?.deviceId}`, { searching: false, query: "", botFolded: [] as string[] });
   const [loading, setLoading] = useState(app.sessions.length === 0);
@@ -344,6 +361,26 @@ export function SessionList() {
         <main class="content">
           {!searching ? <HealthStrip /> : null}
           {offline ? <ErrorNotice error={appError("HR-CONN-005")} language={language} onRetry={() => refresher.current?.now()} variant="banner" /> : null}
+          {!searching && segment === "chats" ? sendRows.filter((row, index) =>
+            !prefs.hidden(row.profile) && (profileFilter === null || roleIncluded(profileFilter, names, row.profile)) &&
+            (!filter || (filter.profile === row.profile && filter.path === row.cwd)) &&
+            !visibleSessions.some(session => session.id === row.sessionId && explicitProfile(session) === row.profile && isListable(session)) &&
+            sendRows.findIndex(other => other.profile === row.profile && other.sessionId === row.sessionId) === index,
+          ).map(row => (
+            <button type="button" key={row.id} class="session-row" onClick={() => {
+              if (row.sessionId) open(row.sessionId, null, row.profile);
+              else {
+                app.setProjectFilter(row.cwd === null ? null : { path: row.cwd, profile: row.profile, label: basename(row.cwd) });
+                navigate({ name: "new", profile: row.profile });
+              }
+            }}>
+              <span class="row-main">
+                <span class="row-title">{row.text.trim().split("\n")[0]?.slice(0, 80) || t("新会话", "New chat")}</span>
+                <span class="row-sub">{row.phase === "failed" ? t("未发送", "Not sent") : row.phase === "unknown"
+                  ? t("投递结果未知", "Delivery unknown") : t("待确认发送状态", "Send status pending")}</span>
+              </span>
+            </button>
+          )) : null}
           {searching ? (
             <SearchView
               query={query}

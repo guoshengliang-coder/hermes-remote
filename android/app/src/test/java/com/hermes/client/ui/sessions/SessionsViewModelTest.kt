@@ -960,7 +960,9 @@ class SessionsViewModelTest {
 
     @Test fun create_restores_selected_mac_and_returns_that_device_affinity() = runTest {
         val accountSessions = mockk<com.hermes.client.data.auth.AccountSessionManager>()
+        every { accountSessions.session } returns MutableStateFlow(null)
         every { accountSessions.routingContext() } returns null
+        every { accountSessions.transportRoutingContext() } returns null
         every { accountSessions.restoreSelectedDeviceRoute() } returns true
         every { sessionRepo.currentDeviceId() } returns "mac-default"
         coEvery { chatRepo.createSession("default", null) } returns
