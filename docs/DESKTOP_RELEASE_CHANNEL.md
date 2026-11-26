@@ -1,5 +1,15 @@
 # Desktop release channel
 
+## HG-269 approved internal release: 0.2.54 / build 57
+
+The owner approved the established arm64 internal app channel, installation on the Mac mini,
+and a 60-minute observation after the new app launches. The release includes HG-269 (PR #775,
+merged as `044b6ae94ca2b8804dcd495e207006f51676b31f`), which uses the lightweight loopback
+health endpoint for routine Desktop refresh, with a 404/405 fallback for older Hermes.
+Retain the currently trusted release configuration and signed component references. Build from
+clean current main, verify the exact app/Node/Connector/Hermes combination and public DMG,
+and synchronize the website and app-update indexes with the unified internal publisher.
+
 ## HG-258 approved release preparation: 0.2.53 / build 56
 
 On 2026-11-16 the owner approved Desktop 0.2.53/build 56 and component channel 0.4.18,
