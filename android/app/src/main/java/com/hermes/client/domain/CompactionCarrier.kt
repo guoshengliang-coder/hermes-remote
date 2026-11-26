@@ -1,5 +1,13 @@
 package com.hermes.client.domain
 
+import com.hermes.client.data.network.MessageDto
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+
 /**
  * Hermes' context-compaction carrier, projected for display.
  *
@@ -29,6 +37,67 @@ object CompactionCarrier {
     /** Legacy form: the live user message follows this marker. */
     const val SUMMARY_END_MARKER =
         "--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---"
+
+    internal const val REPLAY_HEADER =
+        "[STILL IN PROGRESS — this is the active request, restated after the " +
+            "compaction boundary because it was not finished yet. Continue it; do not start over.]"
+
+    private val modelSwitchPreamble = Regex(
+        """^\[System: The active model for this chat has changed to [^\r\n]+\. From this point forward, use this runtime metadata when answering questions about what model/provider is active\.\]\s*"""
+    )
+
+    /** Project a whole loaded window, so an older page can replace a recovered copy with the original. */
+    internal fun withoutReplayCopies(rows: List<Pair<MessageDto, ChatMessage>>): List<ChatMessage> {
+        val seenByPrompt = mutableMapOf<ChatMessage, MutableSet<String>>()
+        return rows.mapNotNull { (row, message) ->
+            if (message.role != Role.USER || (message.displayKind != null && message.displayKind != "steer")) {
+                return@mapNotNull message
+            }
+            val text = message.text.trimStart()
+            if (!text.startsWith(REPLAY_HEADER) || !row.isReplayCarrier()) {
+                val ids = seenByPrompt.getOrPut(promptKey(message)) { mutableSetOf() }
+                row.messageUid?.let(ids::add)
+                return@mapNotNull message
+            }
+
+            val recovered = message.copy(
+                text = modelSwitchPreamble.replaceFirst(text.removePrefix(REPLAY_HEADER).trimStart(), "")
+            )
+            val absorbed = row.absorbedMessageUids.asUidList()
+            val relatedIds = absorbed + listOfNotNull(row.messageUid)
+            // A standalone replay can get a fresh UID without an absorbed ID.
+            val unlinkedReplay = absorbed.isEmpty() && row.content.orEmpty().trimStart().startsWith(REPLAY_HEADER)
+            val key = promptKey(recovered)
+            val previousIds = seenByPrompt[key]
+            val alreadyShown = previousIds != null &&
+                (unlinkedReplay || relatedIds.isEmpty() || previousIds.isEmpty() || relatedIds.any(previousIds::contains))
+            seenByPrompt.getOrPut(key) { mutableSetOf() }.addAll(relatedIds)
+            recovered.takeUnless { alreadyShown }
+        }
+    }
+
+    private fun MessageDto.isReplayCarrier(): Boolean {
+        val raw = content.orEmpty().trimStart()
+        val flagged = (displayMetadata?.get("compaction_inflight_task_restatement") as? JsonPrimitive)
+            ?.booleanOrNull == true
+        return flagged || raw.startsWith(PRIOR_CONTEXT_HEADER) ||
+            PURE_HANDOFF_PREFIXES.any { raw.startsWith(it, ignoreCase = true) } ||
+            displayContent != null || (messageUid == null && raw.startsWith(REPLAY_HEADER))
+    }
+
+    private fun promptKey(message: ChatMessage) = ChatMessage(
+        id = "", role = Role.USER, text = message.text.trim(), images = message.images, files = message.files
+    )
+
+    // SQLite-backed history can return these IDs as a JSON-encoded string.
+    private fun JsonElement?.asUidList(): List<String> {
+        val array = when (this) {
+            is JsonArray -> this
+            is JsonPrimitive -> contentOrNull?.let { runCatching { Json.parseToJsonElement(it) }.getOrNull() } as? JsonArray
+            else -> null
+        }
+        return array.orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+    }
 
     /** Openers of a carrier that holds nothing but a handoff. */
     private val PURE_HANDOFF_PREFIXES = listOf("[CONTEXT COMPACTION", "[CONTEXT SUMMARY")
