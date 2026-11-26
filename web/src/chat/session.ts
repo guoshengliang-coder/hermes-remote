@@ -46,6 +46,14 @@ export interface BackgroundProcess {
   outputTail: string;
 }
 
+export interface SendProgress {
+  prepare(): Promise<boolean>;
+  beforeCreate(): Promise<void>;
+  created(id: string): Promise<void>;
+  beforeSubmit(): Promise<void>;
+  settled(result: "sent" | "failed" | "unknown"): Promise<void>;
+}
+
 export interface ChatSessionOptions {
   client: GatewayClient;
   deviceId: string;
@@ -84,6 +92,7 @@ export class ChatSession {
   private attempt = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
+  private pageDetached = false;
   private resuming: Promise<string> | null = null;
   private creating: Promise<string> | null = null;
   private droppedBeforeReady = 0;
@@ -98,6 +107,8 @@ export class ChatSession {
   private runRevision = 0;
   private running: boolean | null = null;
   private submitting = false;
+  private readonly lifetime = new AbortController();
+  private sendCompletion: Promise<void> | undefined;
   private lifecycleSequence = -1;
   private lifecycleDirty = false;
   private lifecycleProbe: Promise<void> | null = null;
@@ -126,8 +137,20 @@ export class ChatSession {
     this.connect();
   }
 
+  get pendingSendCompletion(): Promise<void> | undefined {
+    return this.disposed ? undefined : this.sendCompletion;
+  }
+
+  /** Leaving the route releases the page, while the send still owns the connection. */
+  detachPage(): void {
+    this.pageDetached = true;
+    if (!this.submitting) this.dispose();
+  }
+
+  /** Immediately close on account or device invalidation, even during submission. */
   dispose(): void {
     this.disposed = true;
+    this.lifetime.abort();
     document.removeEventListener("visibilitychange", this.onVisible);
     window.removeEventListener("online", this.onOnline);
     if (this.timer) clearTimeout(this.timer);
@@ -485,14 +508,17 @@ export class ChatSession {
     }
   }
 
-  private create(): Promise<string> {
+  private create(progress?: SendProgress): Promise<string> {
     this.creating ??= (async () => {
       const { method, params } = sessionCreate({ cwd: this.o.cwd, profile: this.o.profile });
       try {
         const result = await this.call<SessionCreateResult>(method, params);
+        this.lifetime.signal.throwIfAborted();
         this.confirmProfile(result.info);
         this.liveId = result.session_id;
         this.storedId = result.stored_session_id || result.session_id;
+        if (progress) await progress.created(this.storedId);
+        this.lifetime.signal.throwIfAborted();
         this.o.onStored?.(this.storedId);
         const cwd = typeof result.info?.cwd === "string" ? result.info.cwd : null;
         this.o.onCreated?.({ cwd, requestedCwd: Boolean(this.o.cwd?.trim()) });
@@ -512,7 +538,7 @@ export class ChatSession {
   }
 
   /** Run an RPC on the live handle; a 4001 (stale handle) resumes once and retries. */
-  private async onLive<T>(build: (liveId: string) => { method: string; params: JsonObject }): Promise<T> {
+  private async onLive<T>(build: (liveId: string) => { method: string; params: JsonObject }, allowRecreate = true): Promise<T> {
     const live = await this.liveHandle();
     try {
       const { method, params } = build(live);
@@ -523,7 +549,7 @@ export class ChatSession {
         const { method, params } = build(fresh);
         return await this.call<T>(method, params);
       }
-      if (this.reclaimedWhileEmpty(error)) {
+      if (allowRecreate && this.reclaimedWhileEmpty(error)) {
         const fresh = await this.recreate();
         const { method, params } = build(fresh);
         return await this.call<T>(method, params);
@@ -545,25 +571,51 @@ export class ChatSession {
    * Upload and attach every pending attachment (images: image.attach; files: file.attach, whose
    * ref_text lines are appended to the prompt — Android's flow), then prompt.submit.
    */
-  async send(key: string, text: string, attachments: readonly PendingAttachment[]): Promise<boolean> {
+  async send(key: string, text: string, attachments: readonly PendingAttachment[], progress?: SendProgress): Promise<boolean> {
+    if (this.disposed || this.pageDetached || this.submitting) {
+      await progress?.settled("failed").catch(() => {});
+      this.o.dispatch({ type: "user-failed", key, error: appError("HR-SESS-007", "send was not admitted") });
+      return false;
+    }
     let submittedRevision: number | null = null;
     let previousRunning: boolean | null = null;
+    let creating = false;
     this.submitting = true;
+    let complete!: () => void;
+    this.sendCompletion = new Promise(resolve => { complete = resolve; });
     try {
+      if (progress && !await progress.prepare()) return false;
+      this.lifetime.signal.throwIfAborted();
       let prompt = text;
+      if (progress && !this.storedId) {
+        await progress.beforeCreate();
+        this.lifetime.signal.throwIfAborted();
+        creating = true;
+        await this.create(progress);
+        creating = false;
+      }
       if (attachments.length) {
         await this.liveHandle();
         for (const attachment of attachments) {
-          const uploaded = await this.o.client.uploadFile(this.o.deviceId, attachment.name, attachment.file, attachment.mimeType);
+          this.lifetime.signal.throwIfAborted();
+          const uploaded = await this.o.client.uploadFile(
+            this.o.deviceId, attachment.name, attachment.file, attachment.mimeType, this.lifetime.signal,
+          );
+          this.lifetime.signal.throwIfAborted();
           if (!uploaded?.path) throw new Error("upload response contained no path");
           if (attachment.kind === "image") {
-            await this.onLive((live) => imageAttach(live, uploaded.path));
+            await this.onLive((live) => imageAttach(live, uploaded.path), !progress);
           } else {
-            const result = await this.onLive<FileAttachResult>((live) => fileAttach(live, uploaded.path, attachment.name));
+            const result = await this.onLive<FileAttachResult>((live) => fileAttach(live, uploaded.path, attachment.name), !progress);
             if (!result || typeof result.ref_text !== "string") throw new Error("file.attach answered without ref_text");
             prompt += result.ref_text.startsWith("\n") ? result.ref_text : `\n${result.ref_text}`;
           }
         }
+      }
+      if (progress) {
+        await this.liveHandle();
+        await progress.beforeSubmit();
+        this.lifetime.signal.throwIfAborted();
       }
       await this.onLive((live) => {
         // The preparation/upload/resume has finished; the run now waits on Hermes, not on its
@@ -573,7 +625,8 @@ export class ChatSession {
         this.running = true;
         this.o.dispatch({ type: "running", running: true });
         return promptSubmit(live, prompt);
-      });
+      }, !progress);
+      await progress?.settled("sent").catch(() => {});
       this.storedRowCount = null;
       this.o.dispatch({ type: "user-delivered", key, startRun: false });
       return true;
@@ -581,6 +634,14 @@ export class ChatSession {
       if (submittedRevision !== null && submittedRevision === this.runRevision) {
         this.running = previousRunning;
         this.o.dispatch({ type: "running", running: previousRunning === true });
+      }
+      const explicitlyRefused = error instanceof HermesSocketError && error.kind === "rpc" &&
+        [RPC.STALE_SESSION, RPC.SESSION_NOT_FOUND, 4090].includes(error.code ?? 0);
+      const unknown = progress && (creating || submittedRevision !== null) && !neverSent(error) && !explicitlyRefused;
+      await progress?.settled(unknown ? "unknown" : "failed").catch(() => {});
+      if (unknown) {
+        this.o.dispatch({ type: "user-failed", key, error: appError("HR-SESS-022") });
+        return false;
       }
       // One place per failure. A session that no longer exists (4007) is terminal for the whole page,
       // so its page notice explains the disabled composer and the bubble is only marked failed. Every
@@ -594,7 +655,10 @@ export class ChatSession {
       return false;
     } finally {
       this.submitting = false;
-      this.reconcileRun();
+      this.sendCompletion = undefined;
+      complete();
+      if (this.pageDetached) this.dispose();
+      else this.reconcileRun();
     }
   }
 

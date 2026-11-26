@@ -296,7 +296,8 @@ fun ChatScreen(
     val savedPrompts by vm.savedPrompts.collectAsStateWithLifecycle()
     var showPromptSheet by remember { mutableStateOf(false) }
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { vm.stopReading() } }
-    var draft by rememberConversationState("chat:$sessionId:draft") { "" }
+    val draftState = if (localDraft) rememberConversationState("chat:$sessionId:draft") { "" } else vm.composerDraft
+    var draft by draftState
     var composerFocused by rememberSaveable(sessionId) { mutableStateOf(false) }
     var searchOpen by rememberConversationState("chat:$sessionId:searchOpen") { false }
     var query by rememberConversationState("chat:$sessionId:query") { "" }
@@ -531,25 +532,29 @@ fun ChatScreen(
     var botNoticeOpen by remember { mutableStateOf(false) }
     var pendingVoiceText by remember(sessionId) { mutableStateOf<String?>(null) }
 
+    fun submitTyped() {
+        val sentText = draft
+        vm.send(sentText) { failure ->
+            if (failure != null) {
+                android.widget.Toast.makeText(context, failure.localizedMessage(language), android.widget.Toast.LENGTH_LONG).show()
+            } else if (draft == sentText) {
+                draft = ""
+                vm.clearDraft()
+                sendToBottomTick = System.currentTimeMillis()
+                collapseComposer()
+            }
+        }
+    }
+
     fun submit() {
         if (!canSend) return
         if (botNoticeNeeded) {
-            // Deliberately before the draft is cleared: cancelling must leave what was typed.
             botNoticeOpen = true
             return
         }
         haptic.performHapticFeedback(HapticFeedbackType.Confirm)
         if (onDraftSend != null) { onDraftSend(vm.firstTurn(draft)); return }
-        if (!vm.send(draft)) return
-        draft = ""
-        // Ahead of the debounce: the row must lose its 「草稿」 marker as the message leaves, not
-        // a moment later.
-        vm.clearDraft()
-        // Sending hands the stage to the run: drop the keyboard and the expanded composer so
-        // the viewport shows the new instruction and what happens next. The scroll-to-bottom is
-        // driven by THIS action (tick), never inferred from data changes.
-        sendToBottomTick = System.currentTimeMillis()
-        collapseComposer()
+        submitTyped()
     }
 
     // Image attach: read picked/captured bytes and stage them onto the session.
@@ -1034,17 +1039,26 @@ fun ChatScreen(
             onDraftSend(vm.firstTurn(draft).copy(onDelivered = recording?.let { saved -> { runCatching { voiceStore.remove(saved.id) }; Unit } }))
             return
         }
-        if (preparingAttachments == 0 && vm.sendVoiceText(text, draft, recording?.let { saved -> { runCatching { voiceStore.remove(saved.id) }; Unit } })) {
-            haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-            draft = ""
-            vm.clearDraft()
-            sendToBottomTick = System.currentTimeMillis()
-            collapseComposer()
-        } else {
+        val previousDraft = draft
+        val receipt = recording?.let { saved -> { runCatching { voiceStore.remove(saved.id) }; Unit } }
+        fun keepVoiceText() {
             draft = appendDictation(draft, text)
             voiceMode = false
             composerFocused = true
         }
+        val admitted = preparingAttachments == 0 && vm.sendVoiceText(text, previousDraft, receipt) { failure ->
+            if (failure != null) {
+                android.widget.Toast.makeText(context, failure.localizedMessage(language), android.widget.Toast.LENGTH_LONG).show()
+                keepVoiceText()
+            } else if (draft == previousDraft) {
+                haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                draft = ""
+                vm.clearDraft()
+                sendToBottomTick = System.currentTimeMillis()
+                collapseComposer()
+            }
+        }
+        if (!admitted) keepVoiceText()
     }
     fun beginVoice(replay: com.hermes.client.data.voice.VoiceRecording? = null, retrySend: Boolean = false) {
         if (voiceSession != null || replay?.active == true || !voiceRecoveryLoaded || voiceStorageBusy || !sessionWritable ||
@@ -2399,12 +2413,7 @@ fun ChatScreen(
                             pendingVoiceText = null
                         } else {
                             haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                            if (vm.send(draft)) {
-                                draft = ""
-                                vm.clearDraft()
-                                sendToBottomTick = System.currentTimeMillis()
-                                collapseComposer()
-                            }
+                            submitTyped()
                         }
                     },
                 ) { Text(localized(language, "知道了，发送", "Got it, send")) }
@@ -2560,15 +2569,18 @@ fun ChatScreen(
             val format = pendingShareFormat
             if (!creatingNewChat) {
                 creatingNewChat = true
-                exportScope.launch {
+                vm.launchSessionCreation {
                     try {
                         val target = ChatLaunch.new(vm.createNewSession(owner, turn), owner, sessionDeviceId)
-                        choosingNewProfile = false
-                        pendingShareFormat = null
-                        if (format != null) deliverInto(target, format) else onNewChat(target)
+                        if (choosingNewProfile) {
+                            choosingNewProfile = false
+                            pendingShareFormat = null
+                            if (format != null) deliverInto(target, format) else onNewChat(target)
+                        }
                     } catch (cancelled: kotlinx.coroutines.CancellationException) {
                         throw cancelled
                     } catch (error: Exception) {
+                        if (error is com.hermes.client.data.error.FirstTurnCreationUnconfirmed) choosingNewProfile = false
                         val failure = com.hermes.client.data.error.newChatFailure(error, 0)
                         android.widget.Toast.makeText(context, failure.localizedMessage(language), android.widget.Toast.LENGTH_LONG).show()
                     } finally {

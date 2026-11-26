@@ -338,6 +338,7 @@ export function TimelineNoteRow({ note, body }: { note: TimelineNote; body: stri
 
 export interface MessageActions {
   onRetry?: (item: ChatItem) => void;
+  onCheckDelivery?: () => void;
   onOpenImage?: (images: ViewerImage[], index: number) => void;
   /** Only on the latest settled answer while nothing is generating (Android canRegenerate). */
   onRegenerate?: () => void;
@@ -452,6 +453,9 @@ export function MessageView({ item, actions = {}, chartContext, previewCwd }: { 
           >
             {item.text}
           </div>
+        ) : null}
+        {item.error?.code === "HR-SESS-022" && actions.onCheckDelivery ? (
+          <button type="button" class="text-button" onClick={actions.onCheckDelivery}>{t("重新核对", "Check status")}</button>
         ) : null}
         {item.send === "failed" && item.error ? (
           <ErrorNotice error={item.error} language={language} onRetry={actions.onRetry && item.error.retryable ? () => actions.onRetry!(item) : undefined} variant="inline" />

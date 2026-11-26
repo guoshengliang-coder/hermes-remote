@@ -21,7 +21,17 @@ import com.hermes.client.ui.localization.l10n
 /** The first turn remains local until the selected destination is created. */
 data class FirstTurn(val text: String, val files: List<PendingAttachment>, val cwd: String? = null,
     val model: String? = null, val provider: String? = null, val reasoning: String? = null,
-    val onDelivered: (() -> Unit)? = null)
+    val onDelivered: (() -> Unit)? = null,
+    val startInCreatedSession: ((FirstTurn, String, String, String?) -> Boolean)? = null,
+    val prepareCreation: (suspend (FirstTurn) -> FirstTurnCreation)? = null,
+    val recoveryMessageId: String? = null,
+)
+
+data class FirstTurnCreation(
+    val messageId: String,
+    val bind: suspend (String) -> Unit,
+    val failBeforeCreate: suspend () -> Unit,
+)
 
 @Composable
 internal fun NewProfileChat(
@@ -52,12 +62,12 @@ internal fun NewProfileChat(
             onPick = { if (!busy) onCreate(it, null) }, onDismiss = onClose)
         return
     }
-    NewChatWindow(onDismiss = { if (!busy) onClose() }) {
+    NewChatWindow(onDismiss = onClose) {
         CompositionLocalProvider(LocalViewModelStoreOwner provides storeOwner) {
             val vm: ChatViewModel = hiltViewModel()
             if (owner != null) ChatScreen(sessionId = draftId, sessionProfile = owner, isNewSession = true, vm = vm,
                 localDraft = true, draftCwd = initialCwd.takeIf { owner == initialProjectProfile }, draftBusy = busy,
-                onMenu = { if (!busy) onClose() },
+                onMenu = onClose,
                 onDraftSend = { turn -> if (!busy && !submitted) { submitted = true; onCreate(owner, turn) } },
                 draftRoleSwitch = {
                     TextButton(onClick = { picking = true }, enabled = !busy && !submitted) { Text(l10n("切换角色", "Switch role")) }

@@ -22,6 +22,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.unit.dp
 import com.hermes.client.ui.localization.localizedSummary
+import com.hermes.client.ui.localization.localizedMessage
+import com.hermes.client.data.error.AppError
+import com.hermes.client.data.error.AppErrorCode
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -136,6 +139,7 @@ fun SessionsScreen(
     val unreadTokens by vm.unreadTokens.collectAsStateWithLifecycle()
     val draftTokens by vm.draftTokens.collectAsStateWithLifecycle()
     val unsentTokens by vm.unsentTokens.collectAsStateWithLifecycle()
+    val sessionsWithPendingSends by vm.sessionsWithPendingSends.collectAsStateWithLifecycle()
     val defaultProjectPath by vm.defaultProjectPath.collectAsStateWithLifecycle()
     // Session whose「移动到项目…」picker is open (from the long-press menu).
     var moveTarget by remember { mutableStateOf<Session?>(null) }
@@ -144,7 +148,64 @@ fun SessionsScreen(
     // The Chats list always creates in the gateway's launch directory — the default project.
     // Creating INTO a project is the Projects page's job (docs/DESIGN.md §5.3).
     val creator = rememberSessionCreator(vm, activeProfile, onOpen)
-    val openExisting = { session: Session -> onOpen(ChatLaunch.existing(session)) }
+    var pendingCreation by remember(vm.roleFilterScope()) { mutableStateOf<Session?>(null) }
+    val openExisting = { session: Session ->
+        if (session.pendingLocalCreation) pendingCreation = session else onOpen(ChatLaunch.existing(session))
+    }
+    pendingCreation?.let { local ->
+        var record by remember(local.id) { mutableStateOf<com.hermes.client.data.repository.UnsentRecord?>(null) }
+        LaunchedEffect(local.id) { record = vm.pendingCreation(local) }
+        val pending = record
+        var retrying by remember(local.id) { mutableStateOf(false) }
+        if (pending != null) {
+            val localizedError = AppError(
+                if (pending.deliveryUnconfirmed) AppErrorCode.MESSAGE_OUTCOME_UNKNOWN else AppErrorCode.MESSAGE_SEND_FAILED,
+                retryable = !pending.deliveryUnconfirmed,
+            )
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { pendingCreation = null },
+                title = { Text(localized(language, "新会话", "New chat")) },
+                text = { androidx.compose.foundation.layout.Column {
+                    Text(localizedError.localizedMessage(language))
+                    if (pending.text.isNotBlank()) {
+                        androidx.compose.foundation.text.selection.SelectionContainer { Text(pending.text) }
+                    }
+                    pending.attachmentMeta.forEach { attachment -> Text(attachment.name) }
+                } },
+                confirmButton = {
+                    TextButton(enabled = !retrying, onClick = {
+                        if (pending.deliveryUnconfirmed) {
+                            vm.refresh()
+                            pendingCreation = null
+                        } else {
+                            retrying = true
+                            vm.launchSessionCreation {
+                                try {
+                                    val created = vm.retryPendingCreation(local)
+                                    if (pendingCreation?.id == local.id) {
+                                        pendingCreation = null
+                                        onOpen(ChatLaunch.new(created.id, local.profile, created.deviceId))
+                                    }
+                                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                    throw cancelled
+                                } catch (error: Exception) {
+                                    val failure = com.hermes.client.data.error.newChatFailure(error, vm.consecutiveDroppedConnections)
+                                    android.widget.Toast.makeText(context, failure.localizedMessage(language), android.widget.Toast.LENGTH_LONG).show()
+                                    record = vm.pendingCreation(local)
+                                } finally { retrying = false }
+                            }
+                        }
+                    }) {
+                        Text(if (pending.deliveryUnconfirmed) localized(language, "重新核对", "Check status")
+                            else localized(language, "重试发送", "Retry send"))
+                    }
+                },
+                dismissButton = { TextButton(onClick = { pendingCreation = null }) {
+                    Text(localized(language, "关闭", "Close"))
+                } },
+            )
+        }
+    }
 
     // I1: route to Setup when a 401 is received
     LaunchedEffect(state.unauthorized) {
@@ -370,8 +431,8 @@ fun SessionsScreen(
                 val sessionsListState = rememberLazyListState()
                 val revealScope = rememberCoroutineScope()
                 var needsYouPill by remember { mutableStateOf(0) }
-                val needsYouIds = remember(state.sessions, runtimes) {
-                    splitNeedsYou(state.sessions) { s -> vm.runtimeFor(s, runtimes)?.phase }
+                val needsYouIds = remember(sessionsWithPendingSends, runtimes) {
+                    splitNeedsYou(sessionsWithPendingSends) { s -> vm.runtimeFor(s, runtimes)?.phase }
                         .first.map { "${it.profile.orEmpty()}:${it.id}" }.toSet()
                 }
                 var revealedNeedsYou by remember { mutableStateOf<Set<String>?>(null) }
@@ -425,13 +486,13 @@ fun SessionsScreen(
                         // frame after its row is the same defect, one size smaller. So does 未发送
                         // (HG-49), which is read off disk by the same kind of store.
                         pins == null || drafts == null || unsent == null ||
-                            (state.loading && state.sessions.isEmpty()) ->
+                            (state.loading && sessionsWithPendingSends.isEmpty()) ->
                             com.hermes.client.ui.components.ListLoadingState()
-                        state.error != null && state.sessions.isEmpty() -> com.hermes.client.ui.components.ErrorState(
+                        state.error != null && sessionsWithPendingSends.isEmpty() -> com.hermes.client.ui.components.ErrorState(
                             error = state.error!!,
                             onRetry = { vm.refresh() },
                         )
-                        state.sessions.isEmpty() ->
+                        sessionsWithPendingSends.isEmpty() ->
                             com.hermes.client.ui.components.EmptyState(
                                 title = localized(language, "暂无会话", "No sessions yet"),
                                 subtitle = localized(language, "点击右下角的加号开始对话。", "Tap the plus button to start a conversation."),
@@ -443,7 +504,7 @@ fun SessionsScreen(
                                 com.hermes.client.data.repository.PinStore.token(s.profile, s.id, s.deviceId) in pins
                             }
                             GroupedSessionsList(
-                                sessions = state.sessions,
+                                sessions = sessionsWithPendingSends,
                                 isPinned = isPinned,
                                 runtimeFor = { vm.runtimeFor(it, runtimes) },
                                 unreadTokens = unreadTokens,
@@ -494,7 +555,7 @@ fun SessionsScreen(
                             }
                         }
                     }
-                    if (state.loading && state.sessions.isNotEmpty()) {
+                    if (state.loading && sessionsWithPendingSends.isNotEmpty()) {
                         // Content already on screen: a 2dp line at the top, never a cover.
                         com.hermes.client.ui.components.TopProgressLine(
                             modifier = Modifier.align(Alignment.TopCenter),
@@ -592,10 +653,10 @@ internal fun SessionRow(
             .semantics { this.selected = selected }
             .combinedClickable(
                 onClick = onOpen,
-                onLongClick = {
+                onLongClick = if (session.pendingLocalCreation) null else ({
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     menuOpen = true
-                },
+                }),
             )
             .padding(
                 horizontal = 16.dp,
@@ -635,9 +696,11 @@ internal fun SessionRow(
             // prose face and a neutral colour rather than borrowing a runtime phase's hue, which
             // would claim a run state that no one here is in.
             val unsentLine = !isBot && sessionStatusIsUnsent(runtime, hasUnsent)
-            val statusText =
-                if (isBot) botStatusLine(session, nowMs, language)
-                else sessionStatusLine(runtime, language, hasUnsent)
+            val statusText = when {
+                session.pendingCreationUnconfirmed -> localized(language, "待确认发送状态", "Send status pending")
+                isBot -> botStatusLine(session, nowMs, language)
+                else -> sessionStatusLine(runtime, language, hasUnsent)
+            }
             statusText?.let { label ->
                 androidx.compose.foundation.layout.Spacer(Modifier.size(com.hermes.client.ui.tuning.tunedStatusGap())) // TUNING-TEMP
                 Text(
@@ -649,7 +712,7 @@ internal fun SessionRow(
                     // "this did not work", and a second red would have to justify itself in
                     // design-conformance.json (docs/DESIGN.md §7).
                     color = when {
-                        isBot -> MaterialTheme.colorScheme.outline
+                        isBot || session.pendingCreationUnconfirmed -> MaterialTheme.colorScheme.outline
                         unsentLine -> statusColor(StatusTone.BAD)
                         else -> runtimeColor(runtime!!.phase)
                     },

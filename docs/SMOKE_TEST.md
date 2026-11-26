@@ -2426,3 +2426,10 @@ conversation/Mac while a response is delayed. Only the original target may recei
 Check unknown outcomes with read-only refresh, never an automatic second write. Verify narrow
 iPhone Safari/Home Screen and Android Chrome, reduced motion and screen-reader announcements.
 Physical-browser and real-network verification remain pending.
+
+### HG-268 · Web 聊天发送与列表导航
+
+- Chrome 和 Safari/PWA 分别延迟本地持久化、创建、恢复连接、上传和提交确认。使用顶部返回与浏览器后退，在服务器接收记录中核查每次发送只出现一次。
+- 在保存未完成时返回并马上重开。同一份草稿被发送接管后应从两个页面的编辑状态消除；期间另行录入的文字应保留。浏览器存储不可用时原文和附件保留。
+- 关闭标签页再重开，核对已知未发送完整可恢复，确认丢失时只可查询。对相同文案发送两次，核对两条操作不靠文本对账。
+- 在项目中创建并在首条失败后从列表重开，核对角色和原项目。检查帐号退出、Mac 切换和会话快速重开，确认迟到结果不会把用户送回旧会话。

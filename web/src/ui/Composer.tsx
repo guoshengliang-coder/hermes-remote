@@ -38,7 +38,7 @@ export interface ComposerProps {
   language: Language;
   generating: boolean;
   disabled: boolean;
-  onSend: (text: string, attachments: PendingAttachment[], onDelivered?: VoiceDeliveryReceipt) => void;
+  onSend: (text: string, attachments: PendingAttachment[], onDelivered?: VoiceDeliveryReceipt) => void | boolean | Promise<boolean>;
   onInterrupt: () => void;
   /** Where unsent text is kept (app/drafts.ts); null keeps it in memory only. */
   draftKey?: string | null;
@@ -69,7 +69,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
   const [generatingCount, setGeneratingCount] = useState(0);
   const camera = useRef<HTMLInputElement>(null);
   const photos = useRef<HTMLInputElement>(null);
-  const [text, setText, flushDraft] = useDraftText(draftKey);
+  const [text, setText, flushDraft, holdDraft] = useDraftText(draftKey);
   const attachmentDraft = useAttachmentDraft(draftKey);
   const { attachments, set: setAttachments } = attachmentDraft;
   const [problem, setProblem] = useState<AppError | null>(null);
@@ -436,15 +436,32 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
 
   const canSend = !disabled && !preparing && generatingCount === 0 && (text.trim() !== "" || attachments.length > 0);
 
+  const admitting = useRef(false);
   function sendContent(message: string, onDelivered?: VoiceDeliveryReceipt) {
+    if (admitting.current) return;
     const state = latest.current;
-    if (onDelivered) state.onSend(message.trim(), state.attachments, onDelivered);
-    else state.onSend(message.trim(), state.attachments);
-    setText("");
-    flushDraft();
-    setAttachments([]); // preview URLs now belong to the sent bubble
-    setProblem(null); setVoiceNotice("");
-    collapse();
+    const draft = attachmentDraft.capture();
+    const textDraft = holdDraft();
+    const accept = () => {
+      if (!draft.isCurrent()) return;
+      textDraft.consume();
+      draft.write(current => current.filter(attachment => !state.attachments.includes(attachment)));
+      setProblem(null); setVoiceNotice("");
+      collapse();
+    };
+    const accepted = onDelivered
+      ? state.onSend(message.trim(), state.attachments, onDelivered)
+      : state.onSend(message.trim(), state.attachments);
+    if (accepted instanceof Promise) {
+      admitting.current = true;
+      void accepted.then(value => { if (value) accept(); }, () => {}).finally(() => {
+        textDraft.release();
+        admitting.current = false;
+      });
+    } else {
+      if (accepted !== false) accept();
+      textDraft.release();
+    }
   }
 
   function send() {

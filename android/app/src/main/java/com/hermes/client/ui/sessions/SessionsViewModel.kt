@@ -25,6 +25,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -184,6 +186,76 @@ class SessionsViewModel @Inject constructor(
         unsentStore.tokens
             .catch { emit(emptySet()) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    val sessionsWithPendingSends: StateFlow<List<Session>> = combine(
+        state,
+        unsentStore.pendingConversations.catch { emit(emptyList()) },
+        accountSessions?.session ?: flowOf(null),
+    ) { current, pending, account ->
+        val rows = pending.mapNotNull { record ->
+            val conversation = record.conversation ?: return@mapNotNull null
+            if (account == null || conversation.accountId != account.accountId ||
+                conversation.deviceId != account.selectedDeviceId
+            ) return@mapNotNull null
+            val profile = conversation.profile ?: "default"
+            if (current.sessions.any { it.id == conversation.sessionId && (it.profile ?: "default") == profile &&
+                it.deviceId == conversation.deviceId
+            }) return@mapNotNull null
+            Session(
+                id = conversation.sessionId,
+                title = record.text.lineSequence().firstOrNull().orEmpty().ifBlank {
+                    record.attachmentMeta.firstOrNull()?.name.orEmpty()
+                }.take(80),
+                model = null, provider = null, messageCount = 0, profile = profile,
+                cwd = conversation.cwd, deviceId = conversation.deviceId, lastActive = record.updatedAt,
+                pendingLocalCreation = conversation.localCreation,
+                pendingCreationUnconfirmed = conversation.localCreation && record.deliveryUnconfirmed,
+            )
+        }.distinctBy { Triple(it.id, it.profile, it.deviceId) }
+        rows + current.sessions
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), state.value.sessions)
+
+    suspend fun pendingCreation(session: Session): com.hermes.client.data.repository.UnsentRecord? {
+        val route = accountSessions?.routingContext() ?: return null
+        if (session.deviceId != route.deviceId || !session.pendingLocalCreation) return null
+        val token = com.hermes.client.data.repository.SessionReadStore.token(session.profile, session.id, session.deviceId)
+        return unsentStore.readAll(token).firstOrNull {
+            it.conversation?.accountId == route.accountId && it.conversation.localCreation
+        }?.takeIf { accountSessions.routingContext() == route }
+    }
+
+    suspend fun retryPendingCreation(session: Session): CreateResult {
+        val record = pendingCreation(session)?.takeUnless { it.deliveryUnconfirmed }
+            ?: throw com.hermes.client.data.error.SessionOwnerUnconfirmed()
+        val conversation = checkNotNull(record.conversation)
+        val profile = conversation.profile ?: "default"
+        val attachments = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            check(record.attachmentMeta.size == record.attachments)
+            record.attachmentMeta.map { meta ->
+                val file = java.io.File(meta.path)
+                check(file.isFile && file.length() > 0)
+                val kind = com.hermes.client.ui.chat.attachmentKind(meta.mimeType, meta.name)
+                com.hermes.client.ui.chat.PendingAttachment(
+                    meta.id,
+                    if (kind == com.hermes.client.ui.chat.AttachmentKind.IMAGE) file.readBytes() else ByteArray(0),
+                    meta.mimeType, meta.name,
+                    stagedFile = file.takeUnless { kind == com.hermes.client.ui.chat.AttachmentKind.IMAGE },
+                )
+            }
+        }
+        val turn = com.hermes.client.ui.chat.FirstTurn(record.text, attachments, cwd = conversation.cwd,
+            model = conversation.model, provider = conversation.provider, reasoning = conversation.reasoning,
+            prepareCreation = {
+                if (!unsentStore.claimCreation(record)) throw com.hermes.client.data.error.SessionOwnerUnconfirmed()
+                com.hermes.client.ui.chat.FirstTurnCreation(record.messageId, bind = { id ->
+                    unsentStore.bindCreation(record.token, record.copy(
+                        token = com.hermes.client.data.repository.SessionReadStore.token(profile, id, conversation.deviceId),
+                        conversation = conversation.copy(sessionId = id, localCreation = false),
+                    ))
+                }, failBeforeCreate = { unsentStore.saveForDelivery(record) })
+            })
+        return createSession(conversation.cwd, profile, turn)
+    }
 
     /** True if [session] holds a message that was sent and refused. */
     fun hasUnsent(session: Session, tokens: Set<String>? = unsentTokens.value): Boolean =
@@ -516,8 +588,29 @@ class SessionsViewModel @Inject constructor(
         }
     }
 
-    /** Returning to the list ends any chat-specific Mac route and restores the selected Mac. */
+    /** A return to the list waits for an in-flight send before relinquishing its WebSocket route. */
     fun onVisible() {
+        val selected = accountSessions?.routingContext()
+        val transport = accountSessions?.transportRoutingContext()
+        if (selected != null && transport != null && selected.accountId == transport.accountId &&
+            selected.deviceId != transport.deviceId
+        ) {
+            val sending = runtimeStore.activeSendsOnDevice(transport.deviceId)
+            if (sending.isNotEmpty()) {
+                // The list's REST request already carries the selected Mac and can proceed.
+                refresh()
+                viewModelScope.launch {
+                    sending.forEach { it.join() }
+                    if (accountSessions.transportRoutingContext() == transport &&
+                        accountSessions.routingContext() == selected && runtimeStore.visibleSessions.value.isEmpty()
+                    ) {
+                        restoreSelectedRoute()
+                        refreshCronAlerts()
+                    }
+                }
+                return
+            }
+        }
         restoreSelectedRoute()
         refresh()
         // `refresh()` only re-reads the session list. The strip above it is built from the cron
@@ -692,13 +785,36 @@ class SessionsViewModel @Inject constructor(
      * opens but [CreateResult.fellBackToDefault] is set so the UI can say so (HR-SESS-006).
      * Throws on failure so the shared FAB can explain it instead of silently dismissing its spinner.
      */
+    internal fun launchSessionCreation(block: suspend kotlinx.coroutines.CoroutineScope.() -> Unit): Job =
+        runtimeStore.launchSessionCreation(viewModelScope.coroutineContext.minusKey(Job), block)
+
     suspend fun createSession(cwd: String? = null, profile: String = "default", firstTurn: com.hermes.client.ui.chat.FirstTurn? = null): CreateResult {
         restoreSelectedRoute()
         val route = accountSessions?.routingContext()
         val device = sessions.currentDeviceId()
-        val created = chat.createSession(profile, cwd)
+        val transport = accountSessions?.transportRoutingContext()
+        val creation = firstTurn?.prepareCreation?.invoke(firstTurn)
+        val created = try {
+            if (transport != null) kotlinx.coroutines.withContext(
+                com.hermes.client.data.network.SendTransportOwner(transport) { accountSessions?.transportRoutingContext() },
+            ) { chat.createSession(profile, cwd) } else chat.createSession(profile, cwd)
+        } catch (error: Exception) {
+            if (error is com.hermes.client.data.network.GatewayRequestNotSentException ||
+                error is com.hermes.client.data.network.GatewayReadinessTimeoutException
+            ) {
+                creation?.failBeforeCreate?.invoke()
+            } else if (creation != null && error !is kotlinx.coroutines.CancellationException) {
+                throw com.hermes.client.data.error.FirstTurnCreationUnconfirmed()
+            }
+            throw error
+        }
         if (accountSessions?.routingContext() != route) throw kotlinx.coroutines.CancellationException("Conversation route changed")
-        firstTurn?.let { pendingShares.putTurn(route?.accountId, device, profile, created.id, it) }
+        creation?.bind?.invoke(created.id)
+        firstTurn?.copy(recoveryMessageId = creation?.messageId)?.let {
+            if (it.startInCreatedSession?.invoke(it, created.id, profile, device) != true) {
+                pendingShares.putTurn(route?.accountId, device, profile, created.id, it)
+            }
+        }
         if (cwd.isNullOrBlank()) {
             created.cwd?.let { projectPrefs.setDefaultProjectPath(it) }
             sessions.bindConversation(profile, created.id, device)

@@ -40,6 +40,19 @@ data class UnsentComposer(
     val attachmentMeta: List<UnsentAttachment> = emptyList(),
 )
 
+@Serializable
+data class PendingSendConversation(
+    val accountId: String,
+    val deviceId: String,
+    val profile: String?,
+    val sessionId: String,
+    val cwd: String?,
+    val localCreation: Boolean = false,
+    val model: String? = null,
+    val provider: String? = null,
+    val reasoning: String? = null,
+)
+
 /**
  * One conversation's refused or delivery-unconfirmed message. [token] is a
  * [SessionReadStore.token].
@@ -74,6 +87,7 @@ data class UnsentRecord(
     val composer: UnsentComposer? = null,
     /** HG-237: outcome is unknown, never a refused/retryable send. */
     val deliveryUnconfirmed: Boolean = false,
+    val conversation: PendingSendConversation? = null,
 )
 
 const val UNSENT_RECORD_VERSION = 3
@@ -82,6 +96,8 @@ const val UNSENT_RECORD_VERSION = 3
 const val MAX_PERSISTED_UNSENT = 50
 const val MAX_UNSENT_CHARS = 8_000
 const val MAX_UNSENT_PAYLOAD_CHARS = 64_000
+// Match the Gateway's standard app WebSocket frame budget for the durable delivery journal.
+private const val DURABLE_SEND_BYTES = 12 * 1024 * 1024
 
 private val unsentJson = Json { ignoreUnknownKeys = true }
 
@@ -109,26 +125,42 @@ fun encodeUnsent(records: List<UnsentRecord>): String {
     val ordered = records
         .filter { it.token.isNotBlank() && it.messageId.isNotBlank() && (it.text.isNotBlank() || it.attachments > 0) }
         .sortedByDescending { it.updatedAt }
+        .sortedByDescending { it.conversation != null }
         .take(MAX_PERSISTED_UNSENT)
-        .map { it.copy(text = it.text.take(MAX_UNSENT_CHARS), composer = it.composer?.let { composer ->
-            composer.copy(text = composer.text.take(MAX_UNSENT_CHARS))
-        }) }
+        .map {
+            if (it.conversation != null) it else it.copy(text = it.text.take(MAX_UNSENT_CHARS), composer = it.composer?.let { composer ->
+                composer.copy(text = composer.text.take(MAX_UNSENT_CHARS))
+            })
+        }
     val kept = mutableListOf<UnsentRecord>()
     var budget = MAX_UNSENT_PAYLOAD_CHARS
+    var durableBudget = DURABLE_SEND_BYTES
     for (record in ordered) {
-        val size = runCatching { unsentJson.encodeToString(record).length }.getOrNull() ?: continue
-        if (size + 2 > budget) break
-        budget -= size + 2
+        val encoded = runCatching { unsentJson.encodeToString(record) }.getOrNull() ?: continue
+        if (record.conversation != null) {
+            val size = encoded.toByteArray(Charsets.UTF_8).size + 2
+            if (size > durableBudget) continue
+            durableBudget -= size
+        } else {
+            val size = encoded.length + 2
+            if (size > budget) break
+            budget -= size
+        }
         kept += record
     }
-    return runCatching { unsentJson.encodeToString(kept) }.getOrDefault("[]")
+    return runCatching { unsentJson.encodeToString(kept.sortedByDescending { it.updatedAt }) }.getOrDefault("[]")
 }
 
 /**
  * Replace only this message. Editing one failed turn must not erase another turn's recovery data.
  */
-fun putUnsent(records: List<UnsentRecord>, record: UnsentRecord): List<UnsentRecord> =
-    records.filterNot { it.token == record.token && it.messageId == record.messageId } + record
+fun putUnsent(records: List<UnsentRecord>, record: UnsentRecord): List<UnsentRecord> {
+    val previous = records.firstOrNull { it.token == record.token && it.messageId == record.messageId }
+    val replacement = if (record.conversation == null && previous?.conversation != null) {
+        record.copy(conversation = previous.conversation)
+    } else record
+    return records.filterNot { it.token == record.token && it.messageId == record.messageId } + replacement
+}
 
 fun removeUnsent(records: List<UnsentRecord>, token: String): List<UnsentRecord> =
     records.filterNot { it.token == token }
@@ -141,9 +173,21 @@ fun removeUnsent(records: List<UnsentRecord>, token: String): List<UnsentRecord>
 interface UnsentSnapshot {
     /** Which conversations currently hold a refused send. The session list's 未发送 line reads this. */
     val tokens: Flow<Set<String>>
+    val pendingConversations: Flow<List<UnsentRecord>> get() = kotlinx.coroutines.flow.flowOf(emptyList())
     suspend fun read(token: String): UnsentRecord?
     suspend fun readAll(token: String): List<UnsentRecord>
     suspend fun save(record: UnsentRecord)
+    /** Send admission requires a complete durable record; ordinary cache writes remain best-effort. */
+    suspend fun saveForDelivery(record: UnsentRecord) {
+        save(record)
+        check(readAll(record.token).any { it == record }) { "message recovery record was not saved" }
+    }
+    /** Confirmed creation adopts the original local record without an intermediate duplicate. */
+    suspend fun bindCreation(oldToken: String, record: UnsentRecord) {
+        saveForDelivery(record)
+        clearMessage(oldToken, record.messageId)
+    }
+    suspend fun claimCreation(record: UnsentRecord): Boolean = false
     suspend fun clear(token: String)
     suspend fun clearMessage(token: String, messageId: String)
     /** Explicit user removal: return only after durable commit; propagate storage failure. */
@@ -191,6 +235,8 @@ class UnsentStore internal constructor(
         .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
         .map { decodeUnsent(it[key]) }
 
+    override val pendingConversations = records.map { records -> records.filter { it.conversation != null } }
+
     override val tokens: Flow<Set<String>> = records.map { list ->
         list.filter { it.composer?.withdrawn != true && !it.deliveryUnconfirmed }.mapTo(mutableSetOf()) { it.token }
     }
@@ -209,6 +255,43 @@ class UnsentStore internal constructor(
                 prefs[key] = encodeUnsent(putUnsent(decodeUnsent(prefs[key]), record))
             }
         }
+    }
+
+    override suspend fun saveForDelivery(record: UnsentRecord) {
+        dataStore.edit { prefs ->
+            val next = putUnsent(decodeUnsent(prefs[key]), record)
+            val encoded = encodeUnsent(next)
+            val saved = decodeUnsent(encoded)
+            check(record in saved && next.filter { it.conversation != null }.all { it in saved }) {
+                "message exceeds recovery capacity"
+            }
+            prefs[key] = encoded
+        }
+    }
+
+    override suspend fun bindCreation(oldToken: String, record: UnsentRecord) {
+        dataStore.edit { prefs ->
+            val previous = decodeUnsent(prefs[key])
+            val withoutLocal = previous.filterNot { it.token == oldToken && it.messageId == record.messageId }
+            val encoded = encodeUnsent(putUnsent(withoutLocal, record))
+            check(decodeUnsent(encoded).any { it == record }) { "confirmed conversation could not adopt the message" }
+            prefs[key] = encoded
+        }
+    }
+
+    override suspend fun claimCreation(record: UnsentRecord): Boolean {
+        var claimed = false
+        dataStore.edit { prefs ->
+            val current = decodeUnsent(prefs[key])
+            if (record.conversation?.localCreation == true && !record.deliveryUnconfirmed && record in current) {
+                val awaiting = record.copy(
+                    code = "HR-SESS-022", retryable = false, deliveryUnconfirmed = true,
+                )
+                prefs[key] = encodeUnsent(putUnsent(current, awaiting))
+                claimed = true
+            }
+        }
+        return claimed
     }
 
     override suspend fun clear(token: String) {

@@ -136,6 +136,44 @@ class HermesGatewayClientTest {
         }
     }
 
+    @Test fun a_detached_send_cannot_write_to_another_account_or_mac() = runTest {
+        withContext(Dispatchers.IO) {
+            val writes = java.util.concurrent.atomic.AtomicInteger()
+            serverRule.server.enqueue(MockResponse.Builder().webSocketUpgrade(object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: Response) {
+                    webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{}}}""")
+                }
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    if (text.contains("prompt.submit")) writes.incrementAndGet()
+                }
+            }).build())
+            val http = OkHttpClient()
+            val client = HermesGatewayClient(http, json, testScope) {
+                GatewayWebSocketEndpoint(
+                    serverRule.server.url("/api/ws").toString().replace("http", "ws"),
+                    accountDeviceId = "mac-current",
+                    accountId = "account-current",
+                )
+            }
+            try {
+                client.connect()
+                client.archiveBackend()
+                for (route in listOf(
+                    com.hermes.client.data.auth.AccountRoutingContext("account-other", "mac-current"),
+                    com.hermes.client.data.auth.AccountRoutingContext("account-current", "mac-other"),
+                )) {
+                    try {
+                        withContext(SendTransportOwner(route) { route }) {
+                            client.call("prompt.submit", kotlinx.serialization.json.buildJsonObject {})
+                        }
+                        org.junit.Assert.fail("wrong route must not receive the prompt")
+                    } catch (_: GatewayRequestNotSentException) { }
+                }
+                assertEquals(0, writes.get())
+            } finally { tearDownClient(client, http) }
+        }
+    }
+
     @Test fun archive_mode_is_bound_to_the_handshake_and_old_generations_cannot_write() = runTest {
         withContext(Dispatchers.IO) {
             val mutations = java.util.concurrent.atomic.AtomicInteger()

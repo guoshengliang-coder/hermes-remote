@@ -1,3 +1,5 @@
+import { clearSendJournal } from "./chat/sendJournal";
+import { discardChatSends } from "./chat/detachedSends";
 import { clearVoiceRecordings } from "./chat/voiceRecordings";
 import { AccountProfileSyncClient, clearAccountProfileSync, PROFILE_SYNC_LOGOUT, type ProfileSyncStatus } from "./account/profileSync";
 import { AccountModelPreferences, clearModelPreferences, type ModelSyncView } from "./account/modelPreferences";
@@ -125,6 +127,7 @@ export function App() {
   const [pickerError, setPickerError] = useState<AppError | null>(null);
   const [devices, setDevices] = useState<AccountDevice[]>([]);
   const [device, setDevice] = useState<AccountDevice | null>(null);
+  useEffect(() => { discardChatSends(account?.id, device?.deviceId); }, [account?.id, device?.deviceId]);
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
   const sessionListScope = useMemo(() => ({}), [account?.id, device?.deviceId]);
   const currentSessionListScope = useRef(sessionListScope);
@@ -289,6 +292,8 @@ export function App() {
       modelSync.current?.stop();modelSync.current=null;setModelSyncView(undefined);
       void clearModelPreferences(false).catch(()=>undefined);
       void clearVoiceRecordings().catch(() => undefined);
+      discardChatSends();
+      void clearSendJournal().catch(() => {});
       clearConversationMemory();
       if (signingOut.current) return;
       setPushEnabled(false);
@@ -317,6 +322,8 @@ export function App() {
       clearAllPins();
       clearAllDrafts();
       void clearVoiceRecordings().catch(() => undefined);
+      discardChatSends();
+      void clearSendJournal().catch(() => {});
       clearConversationMemory();
       clearPageSnapshots();
       clearPrompts();
@@ -483,6 +490,7 @@ export function App() {
 
   const signOut = useCallback(async () => {
     signingOut.current = true;
+    discardChatSends();
     profileSync.current?.stop();
     profileSync.current = null;
     await clearAccountProfileSync().catch(() => undefined);
@@ -503,6 +511,8 @@ export function App() {
       clearAllPins();
       clearAllDrafts();
       void clearVoiceRecordings().catch(() => undefined);
+      discardChatSends();
+      void clearSendJournal().catch(() => {});
       clearConversationMemory();
       clearPageSnapshots();
       clearPrompts();
@@ -550,6 +560,7 @@ export function App() {
       setDevices(items);
       setPickerError(null);
       if (device && !items.some((item) => item.deviceId === device.deviceId)) {
+        discardChatSends();
         setDevice(null);
         writeStoredDevice(null);
         setPickingDevice(false);
@@ -562,6 +573,7 @@ export function App() {
     pickerRequest.current++;
     setPickingDevice(false);
     if (device?.deviceId === chosen.deviceId) return;
+    discardChatSends(account?.id, chosen.deviceId);
     setPushRoute(null);
     writeStoredDevice(chosen.deviceId);
     setDevice(chosen);
@@ -740,7 +752,7 @@ export function App() {
               <AccountPage />
             ) : (
               <ConversationWorkspace key={`${account?.id}:${device?.deviceId}`} route={route}>
-                {route.name === "chat" || route.name === "new" ? <ChatPage key={device?.deviceId} sessionId={route.name === "chat" ? route.sessionId : null} profileHint={route.name === "chat" && route.profile ? route.profile : pushRoute && pushRoute.deviceId === device?.deviceId && route.name === "chat" && pushRoute.sessionId === route.sessionId ? pushRoute.profile : undefined} /> : null}
+                {route.name === "chat" || route.name === "new" ? <ChatPage key={device?.deviceId} sessionId={route.name === "chat" ? route.sessionId : null} profileHint={route.profile ? route.profile : pushRoute && pushRoute.deviceId === device?.deviceId && route.name === "chat" && pushRoute.sessionId === route.sessionId ? pushRoute.profile : undefined} /> : null}
               </ConversationWorkspace>
             )}
             </div>

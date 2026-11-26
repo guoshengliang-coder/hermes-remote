@@ -629,9 +629,10 @@ export class GatewayClient {
   }
 
   /** Raw-body upload into the Mac's files root (Connector-served). Answers `{path, name, size}`. */
-  uploadFile(deviceId: string, name: string, body: Blob, contentType: string): Promise<UploadedFile> {
+  uploadFile(deviceId: string, name: string, body: Blob, contentType: string, signal?: AbortSignal): Promise<UploadedFile> {
     return this.deviceApi(deviceId, "POST", `files/upload?name=${encodeURIComponent(name)}`, {
       body,
+      signal,
       headers: { "content-type": contentType || "application/octet-stream" },
     });
   }

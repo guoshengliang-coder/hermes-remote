@@ -142,7 +142,7 @@ class HermesRestApi(
     private suspend fun accountConnection(deviceId: String? = null): AccountConnection? =
         if (accountSessionManager != null) accountSessionManager.connection(deviceId) else connectionProvider()
 
-    private suspend fun builder(path: String, deviceIdOverride: String? = null): Request.Builder {
+    private suspend fun builder(path: String, deviceIdOverride: String? = null, sendOwner: SendTransportOwner? = null): Request.Builder {
         if (path.startsWith("/api/mobile/events")) {
             val control = accountSessionManager?.accountControlConnection()
             val direct = if (accountSessionManager == null) connectionProvider() else null
@@ -153,6 +153,9 @@ class HermesRestApi(
                 .tag(RestRequestContext::class.java, RestRequestContext(null, path, false))
         } else {
             accountConnection(deviceIdOverride)?.let { account ->
+                if (sendOwner != null && (!sendOwner.isCurrent() || account.accountId != sendOwner.route.accountId ||
+                    account.deviceId != sendOwner.route.deviceId)
+                ) throw GatewayRequestNotSentException("send route changed")
                 com.hermes.client.data.diagnostics.DebugLog.setTokenToRedact(account.bearer)
                 val routedPath = if (path.startsWith("/api/") && account.deviceRouteMode == AccountDeviceRouteMode.EXPLICIT_DEVICE) {
                     val device = java.net.URLEncoder.encode(account.deviceId, Charsets.UTF_8.name()).replace("+", "%20")
@@ -714,7 +717,9 @@ class HermesRestApi(
         withContext(Dispatchers.IO) {
             val encodedName = java.net.URLEncoder.encode(name, "UTF-8")
             val target = "/api/files/upload?name=$encodedName"
-            val request = builder(target)
+            val owner = kotlinx.coroutines.currentCoroutineContext()[SendTransportOwner]
+            if (owner?.isCurrent() == false) throw GatewayRequestNotSentException("send route changed")
+            val request = builder(target, owner?.route?.deviceId, owner)
                 .post(body)
                 .build()
             val call = clientFor(request).newBuilder()
@@ -727,6 +732,7 @@ class HermesRestApi(
                 .build()
                 .newCall(request)
                 .apply { timeout().timeout(UPLOAD_CALL_TIMEOUT_MINUTES, TimeUnit.MINUTES) }
+            if (owner?.isCurrent() == false) throw GatewayRequestNotSentException("send route changed")
             val startedAt = System.currentTimeMillis()
             val response = try {
                 call.execute()

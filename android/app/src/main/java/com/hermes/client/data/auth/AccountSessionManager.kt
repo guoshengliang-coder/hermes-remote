@@ -19,6 +19,7 @@ data class AccountConnection(
     val bearer: String,
     val deviceId: String,
     val deviceRouteMode: AccountDeviceRouteMode,
+    val accountId: String? = null,
 )
 
 data class AccountControlConnection(
@@ -284,12 +285,14 @@ class AccountSessionManager(
 
     suspend fun connection(deviceIdOverride: String? = null): AccountConnection? {
         if (transportMode() != AccountTransportMode.ACCOUNT) return null
-        val selected = deviceIdOverride?.takeIf { it.isNotBlank() }
-            ?: _session.value?.selectedDeviceId
-            ?: return null
+        val before = _session.value ?: return null
+        val selected = deviceIdOverride?.takeIf { it.isNotBlank() } ?: before.selectedDeviceId ?: return null
         val bearer = accessToken() ?: return null
         val current = _session.value ?: return null
-        return AccountConnection(current.baseUrl, bearer, selected, current.deviceRouteMode)
+        if (current.accountId != before.accountId || current.installationId != before.installationId ||
+            current.baseUrl != before.baseUrl || transportMode() != AccountTransportMode.ACCOUNT
+        ) return null
+        return AccountConnection(current.baseUrl, bearer, selected, current.deviceRouteMode, current.accountId)
     }
 
     /** Account-owned endpoints such as the phone lifecycle inbox do not belong to one Mac. */

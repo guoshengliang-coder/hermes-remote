@@ -26,8 +26,12 @@ private const val UNSTABLE_CONNECTION_THRESHOLD = 3
  * themselves, which is what lets this distinguish "retry now" from "this will keep happening".
  */
 class SessionOwnerUnconfirmed : IllegalStateException("Session owner unconfirmed")
+class MessageJournalWriteFailed : IllegalStateException("Message recovery storage failed")
+class FirstTurnCreationUnconfirmed : IllegalStateException("Conversation creation unconfirmed")
 
 fun newChatFailure(error: Throwable, droppedConnections: Int): AppError = when {
+    error is MessageJournalWriteFailed -> AppError(AppErrorCode.MESSAGE_JOURNAL_FAILED, true)
+    error is FirstTurnCreationUnconfirmed -> AppError(AppErrorCode.MESSAGE_OUTCOME_UNKNOWN, false)
     error is SessionOwnerUnconfirmed -> AppError(AppErrorCode.SESSION_PROFILE_UNCONFIRMED, false, stage = "session.owner")
     error is GatewayResponseTimeoutException -> AppError(
         code = AppErrorCode.SESSION_CREATE_UNCONFIRMED,

@@ -64,6 +64,7 @@ internal fun accountWebSocketEndpoint(account: AccountConnection): GatewayWebSoc
         url = "${account.baseUrl.trimEnd('/')}$path",
         bearerToken = account.bearer,
         accountDeviceId = account.deviceId,
+        accountId = account.accountId,
     )
 }
 

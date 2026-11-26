@@ -365,13 +365,13 @@ export function UserMenuSheet({ item, onEdit, onViewSource, onClose }: { item: C
           void copyWithFeedback(item.text, flash, t("已复制", "Copied"));
         }}
       />
-      <SheetAction
+      {item.error?.code !== "HR-SESS-022" ? <SheetAction
         label={t("编辑并重新发送", "Edit & resend")}
         onClick={() => {
           onClose();
           onEdit();
         }}
-      />
+      /> : null}
       {item.send === "failed" && item.error ? (
         <SheetAction
           label={t("复制诊断信息", "Copy diagnostics")}
