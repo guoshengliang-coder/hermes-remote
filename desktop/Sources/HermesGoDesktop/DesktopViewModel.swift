@@ -1350,9 +1350,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             URL(string: "/health", relativeTo: accountGatewayURL)!.absoluteURL
         )
         let relayCheckedAt = Date()
-        let hermesResult = await HTTPHealthProber.loopbackDirect().probeHermes(
-            DesktopBootstrapPlanner.hermesStatusURL
-        )
+        let hermesResult = await HTTPHealthProber.loopbackDirect().probeHermesLiveness()
 
         let relayDetail = relayResult.latencyMilliseconds.map {
             "\(relayResult.detail) · \($0) ms"
@@ -1375,7 +1373,9 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
                     component: .hermes,
                     level: hermesResult.level,
                     detail: hermesDetail,
-                    checkedAt: checkedAt
+                    checkedAt: checkedAt,
+                    issue: hermesResult.issue,
+                    latencyMilliseconds: hermesResult.latencyMilliseconds
                 ),
             ],
             checkedAt: checkedAt

@@ -1,5 +1,12 @@
 # Hermes Go Desktop test plan
 
+## HG-269：本机日常探测
+
+使用 `HTTPHealthProberTests` 验证新版仅请求 `/api/health`、404/405 才回退、
+回退使用原探测剩余时间、异常成功响应及真实超时均失败、认证失败独立显示。
+在运行 Hermes 的测试 Mac 上交错运行原 `/api/status` 与新版例行探测，分别记录耗时和超时次数。
+旧版兼容使用固定 HTTP 夹具覆盖。安装就绪继续由原有就绪测试验证。
+
 ## Parallel ordinary CI gates (2026-11-05)
 
 The subsequent fresh-runner cache trial retained all 740 tests and app identity/signature checks but

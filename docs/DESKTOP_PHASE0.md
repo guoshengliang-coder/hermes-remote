@@ -225,6 +225,11 @@ status and private-token JSON API (`profiles/active`, missing-route fallback to 
 Loopback probes bypass system proxies and refuse redirects. Binding/install completion keeps its
 existing fresh Cloud health gate.
 
+HG-269 moves routine Desktop refresh to the fixed loopback `GET /api/health`. A successful health
+reply carries `ok: true`. Only HTTP 404 or 405 selects `/api/status`. Desktop deducts the first
+request's duration from the fallback request timeout. The managed authenticated check and
+installation readiness use their own proofs.
+
 Diagnostics' explicit refresh reads both local and account evidence. Local authenticated health is
 displayed separately; Connector-reported Hermes/end-to-end timestamps are not replaced by local
 refresh times. The selected exact owned active local binding offers a confirmed Connector-only
