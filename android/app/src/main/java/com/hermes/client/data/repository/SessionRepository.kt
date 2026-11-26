@@ -9,6 +9,7 @@ import com.hermes.client.data.network.MessageDto
 import com.hermes.client.data.network.MessageOrder
 import com.hermes.client.data.network.SearchResultDto
 import com.hermes.client.data.network.SessionStatsDto
+import com.hermes.client.domain.CompactionCarrier
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.HistoryLocator
 import com.hermes.client.domain.Session
@@ -539,12 +540,13 @@ class SessionRepository(
         val toolResults = rows
             .filter { it.role.lowercase() in INTERNAL_TOOL_ROLES && !it.toolCallId.isNullOrBlank() }
             .associateBy { it.toolCallId!! }
-        return rows
+        val mapped = rows
             .filterNot { it.role.lowercase() in INTERNAL_TOOL_ROLES }
             .mapIndexed { i, dto ->
                 val m = dto.toDomain(toolResults)
-                m.copy(id = "h-$i-${m.id}")
+                dto to m.copy(id = "h-$i-${m.id}")
             }
+        return CompactionCarrier.withoutReplayCopies(mapped)
             // A compaction handoff projected down to nothing is machine scaffolding, not a
             // turn anyone took. Indices are assigned first so ids stay stable across the drop.
             .filter { it.isRenderable() }

@@ -901,6 +901,12 @@ it. Matching is anchored at content start, as upstream's own detector is.
 **If these strings change upstream, the scaffolding reappears verbatim in the chat and the bot
 transcript.** There is no version negotiation and no error; `HermesContractTest` pins them.
 
+A compaction carrier can also end with the compressor's `_INFLIGHT_TASK_REPLAY_HEADER` followed by an
+optional model-switch preamble and the original prompt. Both raw history and `display_content` can
+expose this suffix. History projection strips the preambles and collapses replays against matching
+earlier prompts, using `message_uid` and `absorbed_message_uids` when both sides have identity metadata.
+The absorbed IDs may arrive as a JSON array or an encoded JSON string.
+
 **Do not align it with `gateway/run.py`'s `_TOOL_MEDIA_RE`.** That regex only auto-tags output from
 `text_to_speech` / `image_generate` (`_AUTO_APPEND_MEDIA_TOOL_NAMES`), carries a much shorter list,
 and aligning to it would silently drop `html` and `md` attachments.
