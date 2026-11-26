@@ -369,7 +369,10 @@ health is public; the profile read returns only the active/current names via fil
 does not enumerate MCP/platform status. Only 404/405 selects the older-Hermes fallbacks
 `/api/status` and `/api/sessions?limit=1`. Both reads share the probe's 10-second deadline and
 64 KiB body ceiling. These optional routes add no required OpenAPI surface; profile/session body
-contents are not forwarded. Clients keep their existing `/api/status` behavior.
+contents are not forwarded. HG-269 also uses the optional public health route and its 404/405
+fallback for routine Desktop loopback reachability. Desktop requires `ok: true` on the new route
+and deducts the first request's duration from the fallback's five-second request timeout.
+Installation readiness and managed authentication have separate checks.
 
 Hermes GO no longer decides which Hermes runs (`docs/MANAGED_HERMES_STRATEGY.md`, principle 2), so
 the Connector checks this table against the running Hermes instead of trusting a pin:

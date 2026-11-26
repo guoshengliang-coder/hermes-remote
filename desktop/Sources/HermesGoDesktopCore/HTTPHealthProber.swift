@@ -21,6 +21,7 @@ public struct ProbeResult: Equatable, Sendable {
 }
 
 public struct HTTPHealthProber {
+    private static let probeTimeout: TimeInterval = 5
     private let session: URLSession
 
     public init(session: URLSession = .shared) {
@@ -53,6 +54,54 @@ public struct HTTPHealthProber {
 
     public func probeHermes(_ url: URL) async -> ProbeResult {
         await probe(url, kind: .hermes)
+    }
+
+    /// Routine reachability is independent of installation readiness and authenticated access.
+    public func probeHermesLiveness() async -> ProbeResult {
+        let url = URL(string: "/api/health", relativeTo: DesktopHermesRuntimeContract.serveV1.baseURL)!.absoluteURL
+        let startedAt = ContinuousClock.now
+        do {
+            let (data, response) = try await get(url, timeout: Self.probeTimeout)
+            guard let http = response as? HTTPURLResponse else { return livenessFailure("non-http") }
+            if [404, 405].contains(http.statusCode) {
+                // Retain URLSession's request timeout semantics and deduct the first request's time.
+                let elapsed = startedAt.duration(to: .now).components
+                let remaining = Self.probeTimeout - Double(elapsed.seconds)
+                    - Double(elapsed.attoseconds) / 1e18
+                guard remaining > 0 else { return livenessFailure("timeout") }
+                let (_, fallback) = try await get(DesktopBootstrapPlanner.hermesStatusURL, timeout: remaining)
+                guard let legacy = fallback as? HTTPURLResponse else { return livenessFailure("non-http") }
+                return livenessResult(status: legacy.statusCode, startedAt: startedAt)
+            }
+
+            if (200..<300).contains(http.statusCode),
+               !(data.count <= 64 * 1024 && (try? JSONDecoder().decode(HermesLiveness.self, from: data))?.ok == true) {
+                return livenessFailure("invalid-health-response", latency: latency(since: startedAt))
+            }
+            return livenessResult(status: http.statusCode, startedAt: startedAt)
+        } catch {
+            return livenessFailure((error as? URLError)?.code == .timedOut ? "timeout" : "transport")
+        }
+    }
+
+    private struct HermesLiveness: Decodable {
+        let ok: Bool
+    }
+
+    private func livenessResult(status: Int, startedAt: ContinuousClock.Instant) -> ProbeResult {
+        let latency = latency(since: startedAt)
+        if (200..<300).contains(status) {
+            return ProbeResult(level: .healthy, detail: "响应正常", latencyMilliseconds: latency)
+        }
+        if status == 401 || status == 403 {
+            return ProbeResult(level: .degraded, detail: "服务可达，需要认证", latencyMilliseconds: latency)
+        }
+        return livenessFailure("http-\(status)", latency: latency)
+    }
+
+    private func livenessFailure(_ reason: String, latency: Int? = nil) -> ProbeResult {
+        let issue = DesktopIssue(code: .hermesUnavailable, technicalCause: "stage=local-hermes-liveness result=\(reason)")
+        return ProbeResult(level: .failed, detail: issue.displayChinese, latencyMilliseconds: latency, issue: issue)
     }
 
     /// The public status endpoint alone cannot prove Connector's local authentication works.
@@ -101,18 +150,24 @@ public struct HTTPHealthProber {
         case hermes
     }
 
-    private func probe(_ url: URL, kind: Kind) async -> ProbeResult {
+    private func get(_ url: URL, timeout: TimeInterval) async throws -> (Data, URLResponse) {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.timeoutInterval = 5
+        request.timeoutInterval = timeout
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        let startedAt = ContinuousClock.now
+        return try await session.data(for: request)
+    }
 
+    private func latency(since startedAt: ContinuousClock.Instant) -> Int {
+        let elapsed = startedAt.duration(to: .now).components
+        return Int(elapsed.seconds * 1_000) + Int(elapsed.attoseconds / 1_000_000_000_000_000)
+    }
+
+    private func probe(_ url: URL, kind: Kind) async -> ProbeResult {
+        let startedAt = ContinuousClock.now
         do {
-            let (_, response) = try await session.data(for: request)
-            let elapsed = startedAt.duration(to: .now)
-            let latency = Int(elapsed.components.seconds * 1_000)
-                + Int(elapsed.components.attoseconds / 1_000_000_000_000_000)
+            let (_, response) = try await get(url, timeout: Self.probeTimeout)
+            let latency = latency(since: startedAt)
             guard let http = response as? HTTPURLResponse else {
                 return ProbeResult(level: .failed, detail: "响应格式无效")
             }
