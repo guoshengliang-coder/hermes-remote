@@ -115,7 +115,7 @@ CSP change. No shared wire protocol, upstream RPC, Connector or Desktop contract
 ## MissionGo 发布批次
 
 Hermes GO 的发布前置走本仓库的 `node scripts/release-readiness.mjs --candidates <完整分页JSON> --batch <原批次JSON>`。
-使用包含最新 `origin/main` 的独立工作树。输入保持完整，包括无需发布记录。该入口只读，绑定当前 GitHub
+使用包含最新 `origin/main` 的独立工作树。输入保持完整，包括无需发布记录。合并后传入原批次完整工具响应，预检用其中的 `recovery` 核对候选身份转换。该入口只读，绑定当前 GitHub
 主线、实际 PR head、冻结范围及本仓库发布工具的 Git 对象。它不要求覆盖其他产品的全机发布工具安装。
 
 对本仓库的 Android 和 Web 批次，`node scripts/hermes-release-publish.mjs` 校验精确 `--head`、全量

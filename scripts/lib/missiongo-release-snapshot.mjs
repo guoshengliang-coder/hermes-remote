@@ -107,7 +107,7 @@ export function bindBatchObservation(batch, { productId, repository }) {
   };
 }
 
-export function comparePublicationScope(batch, snapshot) {
+export function comparePublicationScope(batch, snapshot, recovery) {
   const scope = batch.publicationScope;
   if (!scope || !Array.isArray(scope.candidates) || !Array.isArray(scope.exclusions) || !Array.isArray(scope.blockers)) {
     throw new Error('Frozen publication scope is incomplete');
@@ -116,14 +116,41 @@ export function comparePublicationScope(batch, snapshot) {
   const selected = new Set(batch.deliveries);
   const frozen = new Map(scope.candidates.map(row => [row.identity, row]));
   if (frozen.size !== scope.candidates.length) throw new Error('Frozen scope repeats a candidate');
+  const transitions = recovery?.batchId === batch.id && recovery?.publicationIdentity?.unchanged === true
+    ? recovery.publicationIdentity.transitions ?? [] : [];
   const current = new Set();
   const differences = [];
   for (const candidate of snapshot.candidates) {
     const identity = candidateIdentity(candidate);
     current.add(identity);
     const row = frozen.get(identity);
-    if (!row || row.expectedRevision !== candidate.expectedRevision ||
-        digest(row.requiredArtifacts ?? null) !== digest(candidate.requiredArtifacts ?? null)) differences.push(identity);
+    const successors = transitions.filter(transition => transition.toIdentity === identity);
+    const transition = successors.length === 1 ? successors[0] : undefined;
+    const prior = frozen.get(transition?.fromIdentity);
+    const result = batch.results?.[transition?.deliveryId];
+    const entry = batch.entries.find(value => value.id === transition?.deliveryId);
+    const item = recovery?.entries?.find(value => value.deliveryId === transition?.deliveryId)
+      ?.items?.find(value => value.itemKey === candidate.itemKey);
+    const successor = !row && [undefined, 'item'].includes(candidate.kind) &&
+      [transition?.developmentEventId, transition?.roundKey, transition?.itemScope]
+        .every(value => typeof value === 'string' && value.trim().length > 0) &&
+      prior?.selected && selected.has(prior.deliveryId) &&
+      prior.identity === `selection:${prior.deliveryId}` && prior.deliveryId === transition?.deliveryId &&
+      prior.expectedRevision === transition.revision && result?.status === 'merged' &&
+      result.head === transition.head && result.commit === transition.commit && entry?.executionHead === result.head &&
+      transition.itemKey === candidate.itemKey && transition.developmentEventId === candidate.developmentEventId &&
+      transition.roundKey === candidate.roundKey && entry.itemScopes?.[candidate.itemKey] === transition.itemScope &&
+      item?.developmentEventId === transition.developmentEventId && item.roundKey === transition.roundKey &&
+      item.revision === candidate.expectedRevision &&
+      prior.completion?.kind === 'github' && candidate.completion?.kind === 'github' &&
+      prior.completion.url === candidate.completion.url && candidate.pullRequestUrl === prior.completion.url;
+    if ((!successor && (!row || row.expectedRevision !== candidate.expectedRevision)) ||
+        digest((successor ? prior : row)?.requiredArtifacts ?? null) !== digest(candidate.requiredArtifacts ?? null)) {
+      differences.push(identity);
+    }
+  }
+  for (const transition of transitions) {
+    if (!current.has(transition.toIdentity)) differences.push(transition.toIdentity);
   }
   for (const row of frozen.values()) {
     const inBatch = row.selected && selected.has(row.deliveryId);

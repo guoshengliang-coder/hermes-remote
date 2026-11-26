@@ -53,7 +53,7 @@ try {
     }
   }
   const base = observe('main', inspectMain);
-  const scopeCheck = batch.publish && observe('scope', () => comparePublicationScope(batch, snapshot));
+  const scopeCheck = batch.publish && observe('scope', () => comparePublicationScope(batch, snapshot, raw.recovery));
   const planned = observation.heads.map(({ deliveryId, head }) => {
     const entry = batch.entries.find(value => value.id === deliveryId);
     const reference = batch.references?.[deliveryId];
