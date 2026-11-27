@@ -1,5 +1,17 @@
 # MVP deployment
 
+## HG-270 Gateway 0.4.43 release preparation
+
+Gateway 0.4.43 records whether the local WebSocket send callback completed for a session creation
+reply. It logs the tunnel and RPC identifiers and a success flag. Pair these events with Android
+0.1.208 diagnostics to locate a reply that the phone did not confirm. The callback alone does
+not prove delivery to the phone.
+
+Use the exact successful main OCI Gateway and operator bundles with the R5-F1 production
+candidate, smoke, switch and observation gates. Preserve schema 20, protocol versions, minimum
+clients, production flags and the previous slot. Android uses its independent release gate.
+Connector, Desktop and Web require no release for this change.
+
 ## HG-257 release preparation — 2026-11-16 (authorized)
 
 The owner requested merge/publication of the full HG-257 delivery. Allocate Gateway 0.4.42 and
