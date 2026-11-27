@@ -1205,3 +1205,9 @@ L2 physical interaction and L3 emulator verification were unavailable on the imp
 
 HG-268 列表补修：快速返回时检查看得到首条发送行，已有会话仍使用原行。
 延迟服务端列表至接收确认之后，检查发送提示结束而行仍保留，随后交接到正式标题。
+
+## HG-270 · 创建回包没有到达 Android
+
+在隔离测试会话丢弃创建回包，确认列表可打开并手动重试。覆盖快速返回、冷启后旧草稿、
+重复点击、缺附件、账号或 Mac 切换，以及正文提交回包丢失。使用原 HONOR 和蜂窝网络检查
+Gateway 发送结果与 Android 回包诊断的连接 ID、RPC ID 是否一致，诊断不得记录正文。

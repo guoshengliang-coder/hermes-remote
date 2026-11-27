@@ -1036,8 +1036,7 @@ class ChatViewModel @Inject constructor(
             ))
             runtimeStore.updateSendListFeedback(id) { it.copy(owner = conversation.copy(sessionId = storedId, localCreation = false)) }
         }, failBeforeCreate = {
-            unsentStore.saveForDelivery(unsent)
-            runtimeStore.updateSendListFeedback(id) { null }
+            unsentStore.restoreCreation(unsent)
         }, finishCreationFailure = { runtimeStore.updateSendListFeedback(id) { null } })
     }
 
@@ -1831,13 +1830,16 @@ class ChatViewModel @Inject constructor(
             com.hermes.client.data.network.SendTransportOwner(route) { accountSessions?.transportRoutingContext() },
             ) { chat.createSession(profile, turn?.cwd).id } else chat.createSession(profile, turn?.cwd).id
         } catch (error: Exception) {
-            creation?.finishCreationFailure?.invoke()
-            if (error is com.hermes.client.data.network.GatewayRequestNotSentException ||
-                error is com.hermes.client.data.network.GatewayReadinessTimeoutException
-            ) {
-                creation?.failBeforeCreate?.invoke()
-            } else if (creation != null && error !is CancellationException) {
-                throw com.hermes.client.data.error.FirstTurnCreationUnconfirmed()
+            try {
+                if (error is com.hermes.client.data.network.GatewayRequestNotSentException ||
+                    error is com.hermes.client.data.network.GatewayReadinessTimeoutException
+                ) {
+                    creation?.failBeforeCreate?.invoke()
+                } else if (creation != null && error !is CancellationException) {
+                    throw com.hermes.client.data.error.FirstTurnCreationUnconfirmed()
+                }
+            } finally {
+                creation?.finishCreationFailure?.invoke()
             }
             throw error
         }

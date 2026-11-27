@@ -426,3 +426,12 @@ sqlite3 -header "file:$HOME/.hermes/state.db?mode=ro" \
 With both transport-isolation flags enabled, correlate `relay.link_state` / `connector.link_state` by lane and the existing business connection ID. A control reconnect is not a business disconnect. At 15 seconds without a matching round trip the lane is suspect; at 45 seconds only that lane is rebuilt. Missing local reports become unknown after 60 seconds, distinct from a protected local read returning an authentication failure. Do not infer Hermes failure from a Gateway database-write error. Bulk work waits at its producer; own rate reduction cannot reclaim bandwidth consumed by Baidu Netdisk. See `HG_244_CONGESTION.md` for the verification matrix and remaining real-network checks.
 
 Lane transitions include `cause` (`write_queue`, `round_trip_missing`, `round_trip_slow`, `round_trip_deadline`, `round_trip_valid`), `rttMs`, `pendingAgeMs`, and `lastRoundTripAgeMs`. Local-health transitions include `localState`, `localReason`, `healthAgeMs`, and `healthSequence` when an observation is present. These are transport/service measurements, not a diagnosis that a particular third-party process caused the delay. Credentials and chat contents are excluded.
+
+
+## HG-270 创建回包排查
+
+用 Android 的连接 ID 对应 Gateway 的 `app.tunnel.open`，再用 tunnel 和 RPC ID
+对照 `app.rpc.received`、`app.rpc.send_started` 和 `app.rpc.send_completed`。
+发送回调成功仅表示 Gateway 本机写入完成。Android 的 `create-reply` 记录区分
+匹配、迟到和旧连接。等待期间的不可解析文本帧和二进制帧只记录帧类别，不能据此
+把这些帧认定为该回包。用隔离测试会话在实际问题网络上比对，不采集消息正文。

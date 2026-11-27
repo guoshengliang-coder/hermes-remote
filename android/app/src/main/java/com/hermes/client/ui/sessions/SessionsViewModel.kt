@@ -239,15 +239,17 @@ class SessionsViewModel @Inject constructor(
         }
 
     suspend fun retryPendingCreation(session: Session): CreateResult {
-        val record = pendingCreation(session)?.takeUnless { it.deliveryUnconfirmed }
+        val record = pendingCreation(session)
             ?: throw com.hermes.client.data.error.SessionOwnerUnconfirmed()
         val conversation = checkNotNull(record.conversation)
         val profile = conversation.profile ?: "default"
         val attachments = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            check(record.attachmentMeta.size == record.attachments)
+            if (record.attachmentMeta.size != record.attachments) throw com.hermes.client.data.error.FirstTurnAttachmentsMissing()
             record.attachmentMeta.map { meta ->
                 val file = java.io.File(meta.path)
-                check(file.isFile && file.length() > 0)
+                if (!file.isFile || file.length() <= 0 || (meta.sizeBytes > 0 && meta.sizeBytes != file.length())) {
+                    throw com.hermes.client.data.error.FirstTurnAttachmentsMissing()
+                }
                 val kind = com.hermes.client.ui.chat.attachmentKind(meta.mimeType, meta.name)
                 com.hermes.client.ui.chat.PendingAttachment(
                     meta.id,
@@ -260,13 +262,31 @@ class SessionsViewModel @Inject constructor(
         val turn = com.hermes.client.ui.chat.FirstTurn(record.text, attachments, cwd = conversation.cwd,
             model = conversation.model, provider = conversation.provider, reasoning = conversation.reasoning,
             prepareCreation = {
-                if (!unsentStore.claimCreation(record)) throw com.hermes.client.data.error.SessionOwnerUnconfirmed()
+                val route = accountSessions?.routingContext()
+                if (route == null || route.accountId != conversation.accountId || route.deviceId != conversation.deviceId
+                ) throw com.hermes.client.data.error.SessionOwnerUnconfirmed()
+                val feedback = com.hermes.client.data.progress.SendListFeedback(
+                    record.messageId, conversation, session.title, System.currentTimeMillis(),
+                )
+                if (!runtimeStore.reserveSendListFeedback(feedback)) throw com.hermes.client.data.error.SessionOwnerUnconfirmed()
+                try {
+                    if (!unsentStore.claimCreation(record)) throw com.hermes.client.data.error.SessionOwnerUnconfirmed()
+                } catch (error: Exception) {
+                    runtimeStore.updateSendListFeedback(record.messageId) { null }
+                    throw error
+                }
                 com.hermes.client.ui.chat.FirstTurnCreation(record.messageId, bind = { id ->
                     unsentStore.bindCreation(record.token, record.copy(
                         token = com.hermes.client.data.repository.SessionReadStore.token(profile, id, conversation.deviceId),
                         conversation = conversation.copy(sessionId = id, localCreation = false),
+                        deliveryUnconfirmed = false,
+                        retryable = true,
+                        code = AppErrorCode.MESSAGE_SEND_FAILED.value,
                     ))
-                }, failBeforeCreate = { unsentStore.saveForDelivery(record) })
+                    // Until a chat opens, the bound journal owns this unsent turn.
+                    runtimeStore.updateSendListFeedback(record.messageId) { null }
+                }, failBeforeCreate = { unsentStore.restoreCreation(record) },
+                    finishCreationFailure = { runtimeStore.updateSendListFeedback(record.messageId) { null } })
             })
         return createSession(conversation.cwd, profile, turn)
     }
@@ -814,19 +834,23 @@ class SessionsViewModel @Inject constructor(
                 com.hermes.client.data.network.SendTransportOwner(transport) { accountSessions?.transportRoutingContext() },
             ) { chat.createSession(profile, cwd) } else chat.createSession(profile, cwd)
         } catch (error: Exception) {
-            creation?.finishCreationFailure?.invoke()
-            if (error is com.hermes.client.data.network.GatewayRequestNotSentException ||
-                error is com.hermes.client.data.network.GatewayReadinessTimeoutException
-            ) {
-                creation?.failBeforeCreate?.invoke()
-            } else if (creation != null && error !is kotlinx.coroutines.CancellationException) {
-                throw com.hermes.client.data.error.FirstTurnCreationUnconfirmed()
+            try {
+                if (error is com.hermes.client.data.network.GatewayRequestNotSentException ||
+                    error is com.hermes.client.data.network.GatewayReadinessTimeoutException
+                ) {
+                    creation?.failBeforeCreate?.invoke()
+                } else if (creation != null && error !is kotlinx.coroutines.CancellationException) {
+                    throw com.hermes.client.data.error.FirstTurnCreationUnconfirmed()
+                }
+            } finally {
+                creation?.finishCreationFailure?.invoke()
             }
             throw error
         }
         try {
             if (accountSessions?.routingContext() != route) throw kotlinx.coroutines.CancellationException("Conversation route changed")
             creation?.bind?.invoke(created.id)
+            if (accountSessions?.routingContext() != route) throw kotlinx.coroutines.CancellationException("Conversation route changed")
         } catch (error: Exception) {
             creation?.finishCreationFailure?.invoke()
             throw error

@@ -42,6 +42,32 @@ class UnknownNoticeStoreTest {
         } finally { nextJob.cancelAndJoin() }
     }
 
+    @Test fun legacy_creation_can_be_claimed_once_and_bound_without_replaying_a_prompt() = runTest {
+        val job = SupervisorJob()
+        val store = UnsentStore(PreferenceDataStoreFactory.create(
+            scope = CoroutineScope(job + Dispatchers.IO),
+            produceFile = { File(tmp.root, "creation.preferences_pb") },
+        ))
+        try {
+            val owner = PendingSendConversation("account", "mac", "default", "draft", null, localCreation = true)
+            val draft = UnsentRecord(token = "draft", messageId = "turn", text = "keep", conversation = owner,
+                code = "HR-SESS-022", retryable = false, deliveryUnconfirmed = true)
+            store.saveForDelivery(draft)
+            assertTrue(store.claimCreation(draft))
+            assertFalse(store.claimCreation(draft))
+            val formal = draft.copy(token = "formal", deliveryUnconfirmed = false,
+                conversation = owner.copy(sessionId = "formal", localCreation = false))
+            store.bindCreation(draft.token, formal)
+            assertNull(store.read(draft.token))
+            assertEquals(formal, store.read(formal.token))
+            assertFalse(store.claimCreation(store.read(formal.token)!!))
+            assertTrue(runCatching { store.bindCreation(draft.token, formal) }.isFailure)
+            store.restoreCreation(draft)
+            assertNull(store.read(draft.token))
+            assertEquals(formal, store.read(formal.token))
+        } finally { job.cancelAndJoin() }
+    }
+
     @Test fun explicit_removal_propagates_a_failed_commit_instead_of_false_success() = runTest {
         val broken = object : DataStore<Preferences> {
             override val data = flowOf(emptyPreferences())

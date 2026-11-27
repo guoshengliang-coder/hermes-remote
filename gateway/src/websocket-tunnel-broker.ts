@@ -385,9 +385,19 @@ export class WebSocketTunnelBroker<TConnector extends WebSocketConnector> {
           });
           tunnel.socket.close(1013, "backpressure limit reached");
         } else {
-          tunnel.socket.send(message.binary ? data : data.toString("utf8"), {
-            binary: message.binary,
-          });
+          const payload = message.binary ? data : data.toString("utf8");
+          if (answered && pending?.method === "session.create") {
+            this.log.info("app.rpc.send_started", {
+              tunnel: message.id, rpcId: answered.id, method: pending.method,
+            });
+            tunnel.socket.send(payload, { binary: message.binary }, (error) => {
+              this.log.info("app.rpc.send_completed", {
+                tunnel: message.id, rpcId: answered.id, method: pending.method, ok: !error,
+              });
+            });
+          } else {
+            tunnel.socket.send(payload, { binary: message.binary });
+          }
           if (answered && pending) {
             tunnel.pendingForegroundRpcs.delete(answered.id);
             this.log.info("app.rpc.returned", {

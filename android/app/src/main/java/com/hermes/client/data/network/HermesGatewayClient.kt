@@ -204,6 +204,7 @@ open class HermesGatewayClient(
     // ignored once a newer socket has been opened, so an in-flight backoff reopen can never
     // race a manual reconnectNow() into two live sockets.
     private val generation = AtomicInteger(0)
+    private val recentCreateCalls = LinkedHashMap<Long, Pair<Int, String>>()
     /** Only the first unanswered RPC on a socket may replace that socket. */
     private val recoveredTimeoutGeneration = AtomicInteger(-1)
 
@@ -621,12 +622,48 @@ open class HermesGatewayClient(
             upgradedGeneration = gen
         }
 
+        private fun traceCreateReply(id: Long, call: PendingCall?, kind: String) {
+            val tracked = synchronized(recentCreateCalls) { recentCreateCalls[id] } ?: return
+            if (tracked.first != gen) return
+            val outcome = if (call?.method == "session.create") "matched" else "late"
+            DebugLog.log("ws", "create-reply rpcId=$id conn=${tracked.second} frame=text result=$kind match=$outcome")
+        }
+
+        private var uncorrelatedCreateFrames = 0
+
+        private fun traceUncorrelatedCreateFrame(kind: String) {
+            if (uncorrelatedCreateFrames >= 8) return
+            val tracked = synchronized(recentCreateCalls) {
+                recentCreateCalls.entries.firstOrNull { (id, owner) ->
+                    owner.first == gen && pending[id]?.method == "session.create"
+                }?.let { it.key to it.value.second }
+            } ?: return
+            uncorrelatedCreateFrames++
+            DebugLog.log("ws", "create-reply frame=$kind awaitingRpcId=${tracked.first} conn=${tracked.second}")
+        }
+
+        override fun onMessage(webSocket: WebSocket, bytes: okio.ByteString) {
+            traceUncorrelatedCreateFrame("binary")
+        }
+
         override fun onMessage(webSocket: WebSocket, text: String) {
-            if (gen != generation.get()) return // superseded socket — drop late frames
+            if (gen != generation.get()) {
+                val id = (runCatching { parseInbound(json, text) }.getOrNull()).let {
+                    when (it) {
+                        is RpcResult -> it.id
+                        is RpcErrorReply -> it.id
+                        else -> null
+                    }
+                }
+                val tracked = synchronized(recentCreateCalls) { id?.let(recentCreateCalls::get) }
+                if (tracked?.first == gen) DebugLog.log("ws", "create-reply rpcId=$id conn=${tracked.second} match=old-connection")
+                return
+            }
             text.lineSequence().filter { it.isNotBlank() }.forEach { line ->
                 when (val msg = parseInbound(json, line)) {
                     is RpcResult -> {
                         val call = pending.remove(msg.id)
+                        traceCreateReply(msg.id, call, "success")
                         // The capability handshake is answered by every Hermes the moment a socket
                         // opens, so it proves nothing about the socket staying useful. Counting it
                         // would reset the backoff on exactly the sockets HG-65 was about.
@@ -641,10 +678,13 @@ open class HermesGatewayClient(
                     }
                     is RpcErrorReply -> {
                         val call = pending.remove(msg.id)
+                        traceCreateReply(msg.id, call, "error")
                         // An error reply is still an answer: the far end is listening.
                         if (call?.method != ServerRequests.CAPABILITIES_METHOD) currentSocketAnsweredAnRpc = true
-                        DebugLog.log("ws", "rpc#${msg.id} ${call?.method ?: "?"} ← error " +
-                            "${msg.error.code}: ${msg.error.message}")
+                        if (synchronized(recentCreateCalls) { msg.id !in recentCreateCalls }) {
+                            DebugLog.log("ws", "rpc#${msg.id} ${call?.method ?: "?"} ← error " +
+                                "${msg.error.code}: ${msg.error.message}")
+                        }
                         call?.deferred
                             ?.completeExceptionally(GatewayRpcException(msg.error.code, msg.error.message))
                     }
@@ -685,7 +725,10 @@ open class HermesGatewayClient(
                         }
                     }
                     is RpcServerRequest -> onServerRequest(webSocket, msg)
-                    is RpcUnreadable -> DebugLog.log("ws", "dropped unreadable frame: ${msg.reason}")
+                    is RpcUnreadable -> {
+                        traceUncorrelatedCreateFrame("unreadable-text")
+                        DebugLog.log("ws", "dropped unreadable frame: ${msg.reason}")
+                    }
                 }
             }
         }
@@ -987,6 +1030,10 @@ open class HermesGatewayClient(
         val startedAt = System.currentTimeMillis()
         val sentGeneration = generation.get()
         val sentConnectionId = connectionId
+        if (method == "session.create") synchronized(recentCreateCalls) {
+            recentCreateCalls[id] = sentGeneration to sentConnectionId
+            if (recentCreateCalls.size > 32) recentCreateCalls.remove(recentCreateCalls.keys.first())
+        }
         if (!quiet) DebugLog.log("ws") { "rpc#$id conn=$sentConnectionId → $method" }
         val sent = synchronized(lifecycleLock) {
             val target = if (sendOwner != null) {

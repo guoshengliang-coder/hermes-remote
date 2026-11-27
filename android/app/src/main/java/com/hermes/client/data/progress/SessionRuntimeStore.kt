@@ -243,6 +243,14 @@ class SessionRuntimeStore(
         }
     }
 
+    internal fun reserveSendListFeedback(entry: SendListFeedback): Boolean {
+        while (true) {
+            val current = sendListFeedback.value
+            if (entry.id in current) return false
+            if (sendListFeedback.compareAndSet(current, current + (entry.id to entry))) return true
+        }
+    }
+
     internal fun updateSendListFeedback(id: String, change: (SendListFeedback) -> SendListFeedback?) {
         sendListFeedback.update { entries ->
             val entry = entries[id] ?: return@update entries

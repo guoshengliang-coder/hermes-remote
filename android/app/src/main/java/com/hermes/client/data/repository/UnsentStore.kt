@@ -188,6 +188,7 @@ interface UnsentSnapshot {
         clearMessage(oldToken, record.messageId)
     }
     suspend fun claimCreation(record: UnsentRecord): Boolean = false
+    suspend fun restoreCreation(record: UnsentRecord) = saveForDelivery(record)
     suspend fun clear(token: String)
     suspend fun clearMessage(token: String, messageId: String)
     /** Explicit user removal: return only after durable commit; propagate storage failure. */
@@ -272,6 +273,9 @@ class UnsentStore internal constructor(
     override suspend fun bindCreation(oldToken: String, record: UnsentRecord) {
         dataStore.edit { prefs ->
             val previous = decodeUnsent(prefs[key])
+            check(previous.any { it.token == oldToken && it.messageId == record.messageId && it.conversation?.localCreation == true }) {
+                "local creation record is unavailable"
+            }
             val withoutLocal = previous.filterNot { it.token == oldToken && it.messageId == record.messageId }
             val encoded = encodeUnsent(putUnsent(withoutLocal, record))
             check(decodeUnsent(encoded).any { it == record }) { "confirmed conversation could not adopt the message" }
@@ -283,15 +287,26 @@ class UnsentStore internal constructor(
         var claimed = false
         dataStore.edit { prefs ->
             val current = decodeUnsent(prefs[key])
-            if (record.conversation?.localCreation == true && !record.deliveryUnconfirmed && record in current) {
+            if (record.conversation?.localCreation == true && record in current) {
                 val awaiting = record.copy(
-                    code = "HR-SESS-022", retryable = false, deliveryUnconfirmed = true,
+                    code = "HR-SESS-018", retryable = true, deliveryUnconfirmed = true,
+                    updatedAt = maxOf(System.currentTimeMillis(), record.updatedAt + 1),
                 )
                 prefs[key] = encodeUnsent(putUnsent(current, awaiting))
                 claimed = true
             }
         }
         return claimed
+    }
+
+    override suspend fun restoreCreation(record: UnsentRecord) {
+        dataStore.edit { prefs ->
+            val current = decodeUnsent(prefs[key])
+            if (current.any { it.token == record.token && it.messageId == record.messageId &&
+                    it.conversation == record.conversation && it.conversation?.localCreation == true }) {
+                prefs[key] = encodeUnsent(putUnsent(current, record))
+            }
+        }
     }
 
     override suspend fun clear(token: String) {
