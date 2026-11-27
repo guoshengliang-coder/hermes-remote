@@ -1564,7 +1564,6 @@ fun ChatScreen(
                         },
                     )
                 }
-                if (draftBusy) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
                 ComposerSurface(
                     expanded = sessionWritable && composerFocused,
                     modifier = Modifier.fillMaxWidth().heightIn(
