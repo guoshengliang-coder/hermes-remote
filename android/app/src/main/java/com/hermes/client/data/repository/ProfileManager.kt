@@ -10,6 +10,8 @@ import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import javax.inject.Singleton
 
+internal const val DEFAULT_NEW_CHAT_PROFILE = "default"
+
 /**
  * App-wide source of truth for the active profile and the profile list.
  *

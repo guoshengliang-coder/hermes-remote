@@ -1,3 +1,5 @@
+Android new-chat default models are prefetched for the selected Mac and role. First-turn acknowledgements settle local recovery before navigation restores messages, and model switching can recover a stale session handle after an explicit refusal. See the HG-273 to HG-275 device cases in `../docs/ANDROID_SMOKE.md`.
+
 HG-261/HG-262 keep the read-only role beneath the chat title, including conversations without a directory, and separate role metadata with the existing middle dot. Shared session/search/archive/project rows retain pins, drafts and model/project rules. No version is allocated or APK distributed. Evidence and remaining device limits: `../docs/HG_261_262_PROFILE_LAYOUT.md`.
 
 HG-260 restores the original complete new-chat input by mounting the shared ChatScreen in a

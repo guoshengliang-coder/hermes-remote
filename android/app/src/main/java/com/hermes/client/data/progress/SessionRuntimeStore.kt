@@ -280,6 +280,17 @@ class SessionRuntimeStore(
         }
     }
 
+    private val deliveryReceipts = LinkedHashSet<Pair<String, String>>()
+
+    internal fun recordDeliveryReceipt(token: String, messageId: String) = synchronized(deliveryReceipts) {
+        deliveryReceipts.add(token to messageId)
+        if (deliveryReceipts.size > 256) deliveryReceipts.remove(deliveryReceipts.first())
+        Unit
+    }
+
+    internal fun hasDeliveryReceipt(token: String, messageId: String): Boolean =
+        synchronized(deliveryReceipts) { token to messageId in deliveryReceipts }
+
     private val activeSendJobs = java.util.concurrent.ConcurrentHashMap<SessionRuntimeKey, kotlinx.coroutines.Job>()
 
     internal fun activeSend(key: SessionRuntimeKey): kotlinx.coroutines.Job? = activeSendJobs[key]

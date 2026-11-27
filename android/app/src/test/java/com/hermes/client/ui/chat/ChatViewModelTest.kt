@@ -2671,6 +2671,57 @@ class ChatViewModelTest {
         assertEquals(1L, messages.single { it.id == "h1" }.serverId)
     }
 
+    @Test fun an_acknowledged_first_turn_waits_for_journal_cleanup_before_handoff() = runUnsentComposerTest {
+        val manager = mockk<com.hermes.client.data.auth.AccountSessionManager>(relaxed = true)
+        val route = com.hermes.client.data.auth.AccountRoutingContext("account", "mac")
+        every { manager.session } returns MutableStateFlow(null)
+        every { manager.transportRoutingContext() } returns route
+        coEvery { chatRepo.resume("confirmed", "work") } returns "live"
+        val runtime = newRuntimeStore()
+        val draft = buildVm(accountSessions = manager, runtimeStore = runtime)
+        draft.openLocalDraft("draft-first", "work", null)
+        val turn = draft.firstTurn("first message")
+        val creation = turn.prepareCreation!!.invoke(turn)
+        creation.bind("confirmed")
+        val clear = kotlinx.coroutines.CompletableDeferred<Unit>()
+        unsent.acknowledgeGate = clear
+        val confirmed = turn.copy(recoveryMessageId = creation.messageId)
+        assertTrue(confirmed.startInCreatedSession!!.invoke(confirmed, "confirmed", "work", "mac"))
+        runCurrent()
+        val key = runtime.runtimes.value.keys.single()
+        val token = com.hermes.client.data.repository.SessionReadStore.token("work", "confirmed", "mac")
+        try {
+            assertTrue(unsent.peek(token)?.deliveryUnconfirmed == true)
+            assertTrue(runtime.activeSend(key)?.isActive == true)
+        } finally {
+            clear.complete(Unit)
+            runCurrent()
+        }
+        assertNull(unsent.peek(token))
+        assertNull(runtime.activeSend(key))
+        coVerify(exactly = 1) { chatRepo.submit("live", "first message") }
+    }
+
+    @Test fun model_switch_recovers_the_same_session_once_after_explicit_stale_refusal() = runUnsentComposerTest {
+        val manager = mockk<com.hermes.client.data.auth.AccountSessionManager>(relaxed = true)
+        val route = com.hermes.client.data.auth.AccountRoutingContext("account", "mac")
+        every { manager.session } returns MutableStateFlow(null)
+        every { manager.transportRouteEpoch } returns MutableStateFlow(0L)
+        every { manager.transportRoutingContext() } returns route
+        coEvery { chatRepo.resume("s1", null) } returnsMany listOf("old-live", "current-live")
+        coEvery { chatRepo.switchSessionModel("old-live", "provider", "next", false) } throws
+            com.hermes.client.data.network.GatewayRpcException(4001, "session not found")
+        val vm = buildVm(accountSessions = manager)
+        vm.open("s1", requestedDeviceId = "mac")
+        runCurrent()
+        vm.onSelectFromSheet("provider", "next") {}
+        runCurrent()
+        coVerify(exactly = 1) { chatRepo.switchSessionModel("old-live", "provider", "next", false) }
+        coVerify(exactly = 1) { chatRepo.switchSessionModel("current-live", "provider", "next", false) }
+        coVerify(exactly = 0) { modelRepo.set(any(), any(), any()) }
+        assertEquals("next", vm.currentModel.value)
+    }
+
     // The sheet switches this session through config.set; it never changes the profile default.
     @Test fun onSelectFromSheet_switches_this_session_directly() = runUnsentComposerTest {
         val vm = buildVm()

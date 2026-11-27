@@ -26,6 +26,7 @@ class HermesApp : Application() {
     @Inject lateinit var settingsStore: SettingsStore
     @Inject lateinit var feedbackReporter: FeedbackReporter
     @Inject lateinit var lifecycleMonitoring: com.hermes.client.notifications.LifecycleMonitoringCoordinator
+    @Inject lateinit var draftDefaults: com.hermes.client.data.repository.DraftDefaultModelStore
     @Inject lateinit var modelCatalog: com.hermes.client.data.repository.ModelCatalogStore
     @Inject lateinit var notifier: com.hermes.client.notifications.HermesNotifier
     @Inject lateinit var sessionNotifications: com.hermes.client.notifications.SessionNotificationCoordinator
@@ -82,6 +83,7 @@ class HermesApp : Application() {
         // Keep the model catalog warm: refresh in the background on every start/foreground so
         // the model picker opens instantly from cache instead of showing a loading state.
         modelCatalog.start()
+        draftDefaults.start()
         // Opportunistic local cache maintenance, never a timed wake-up or a startup UI blocker.
         appScope.launch(Dispatchers.IO) {
             try { videoCache.get().maintainCache() }

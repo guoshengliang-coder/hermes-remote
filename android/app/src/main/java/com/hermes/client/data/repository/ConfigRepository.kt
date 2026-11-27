@@ -9,6 +9,9 @@ import kotlinx.serialization.json.jsonObject
 class ConfigRepository(private val rest: HermesRestApi) {
     suspend fun get(profile: String? = null): JsonObject = rest.getConfig(profile)
 
+    internal suspend fun getDraftConfig(profile: String, owner: com.hermes.client.data.network.SendTransportOwner) =
+        rest.getDraftConfig(profile, owner)
+
     /**
      * Read the whole config, apply [mutate] to a mutable copy of its top-level map, and write the
      * WHOLE object back. Reading-then-writing the entire object guarantees no fields (including
