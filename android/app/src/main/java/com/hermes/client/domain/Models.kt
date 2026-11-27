@@ -37,6 +37,8 @@ data class Session(
     val runtimeRevision: Int? = null,
     val pendingLocalCreation: Boolean = false,
     val pendingCreationUnconfirmed: Boolean = false,
+    val localSendInProgress: Boolean = false,
+    val localListKey: String? = null,
 )
 
 data class ToolCall(

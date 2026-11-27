@@ -1,3 +1,4 @@
+import { changeSendFeedback, mergeSendFeedback, observeSendFeedback, readSendFeedback } from "../chat/sendListFeedback";
 import { listSendRows, observeSendJournal, type SendListRow } from "../chat/sendJournal";
 import { RoleSheet } from "./RoleSheet";
 import { roleIncluded, toggleRole } from "../app/roleFilter";
@@ -251,7 +252,20 @@ export function SessionList() {
     .map(project => ({ ...project, profile }))), [listable, names.join("\0")]);
   const projectLabels = useMemo(() => disambiguatedLabels(projects), [projects]);
   const shown = useMemo(() => (filter ? rows.filter((r) => app.needsYou.has(inboxKey(r.id, explicitProfile(r))) || (inProject(r, filter.path) && (!filter.profile || explicitProfile(r) === filter.profile))) : rows), [rows, filter, app.needsYou]);
-  const groups = useMemo(() => groupSessions(shown, app.needsYou, now, app.isPinned), [shown, app.needsYou, now, app.isPinned]);
+  const [feedbackRevision, refreshFeedback] = useState(0);
+  useLayoutEffect(() => observeSendFeedback(() => refreshFeedback(value => value + 1)), []);
+  const feedback = useMemo(() => readSendFeedback(app.account?.id, deviceId ?? undefined), [app.account?.id, deviceId, feedbackRevision]);
+  const projection = useMemo(() => mergeSendFeedback(shown, feedback.filter(entry =>
+    !prefs.hidden(entry.profile) && (profileFilter === null || roleIncluded(profileFilter, names, entry.profile)) &&
+    (!filter || (filter.profile === entry.profile && (filter.path === entry.cwd ||
+      shown.some(row => row.id === entry.sessionId && explicitProfile(row) === entry.profile)))),
+  )), [shown, feedback, profileFilter, names.join("\0"), filter, prefs.hidden]);
+  useEffect(() => {
+    for (const id of projection.caughtUp) {
+      changeSendFeedback(id, { synchronized: true });
+    }
+  }, [projection]);
+  const groups = useMemo(() => groupSessions(projection.sessions, app.needsYou, now, app.isPinned), [projection, app.needsYou, now, app.isPinned]);
   const drafts = useMemo(() => new Set(visibleSessions.filter(row => {
     if (!deviceId) return false;
     const owner = explicitProfile(row);
@@ -364,6 +378,7 @@ export function SessionList() {
           {!searching && segment === "chats" ? sendRows.filter((row, index) =>
             !prefs.hidden(row.profile) && (profileFilter === null || roleIncluded(profileFilter, names, row.profile)) &&
             (!filter || (filter.profile === row.profile && filter.path === row.cwd)) &&
+            !feedback.some(entry => entry.id === row.id) &&
             !visibleSessions.some(session => session.id === row.sessionId && explicitProfile(session) === row.profile && isListable(session)) &&
             sendRows.findIndex(other => other.profile === row.profile && other.sessionId === row.sessionId) === index,
           ).map(row => (
@@ -439,20 +454,31 @@ export function SessionList() {
                     <GroupHeader id={group.id} label={language === "en" ? GROUP_LABEL[group.id][1] : GROUP_LABEL[group.id][0]} count={group.sessions.length} folded={folded} onToggle={() => app.toggleGroup(group.id)} />
                     {folded
                       ? null
-                      : group.sessions.map((session) => (
+                      : group.sessions.map((session) => {
+                        const sending = projection.byRow.get(session);
+                        const runtime = rowView(inboxKey(session.id, explicitProfile(session)), app.inbox, app.needsYou);
+                        return (
                           <SessionRow
-                            key={pinToken(session)}
+                            key={feedback.find(entry => entry.newRow && entry.profile === explicitProfile(session) &&
+                              (entry.sessionId ?? entry.id) === session.id)?.id ?? pinToken(session)}
                             session={session}
                             now={now}
-                            view={rowView(inboxKey(session.id, explicitProfile(session)), app.inbox, app.needsYou)}
+                            view={sending && !sending.accepted && runtime.trailing !== "spinner" && runtime.trailing !== "waiting"
+                              ? { ...runtime, status: { zh: "正在发送…", en: "Sending…", paint: "running" }, trailing: "spinner" }
+                              : runtime}
                             pinned={app.isPinned(session)}
                             draft={drafts.has(inboxKey(session.id, explicitProfile(session)))}
                             inProject={Boolean(filter)}
                             defaultProject={defaultProject}
-                            onOpen={() => open(session.id, null, explicitProfile(session))}
-                            onLongPress={app.needsYou.has(inboxKey(session.id, explicitProfile(session))) && !app.sessions.some((s) => s.id === session.id) ? undefined : () => setActionFor(session)}
+                            onOpen={() => {
+                              if (sending && !sending.sessionId) {
+                                app.setProjectFilter(sending.cwd === null ? null : { path: sending.cwd, profile: sending.profile, label: basename(sending.cwd) });
+                                navigate({ name: "new", profile: sending.profile });
+                              } else open(session.id, null, explicitProfile(session));
+                            }}
+                            onLongPress={sending && !app.sessions.some(row => row.id === session.id) ? undefined : app.needsYou.has(inboxKey(session.id, explicitProfile(session))) && !app.sessions.some((s) => s.id === session.id) ? undefined : () => setActionFor(session)}
                           />
-                        ))}
+                        ); })}
                   </section>
                 );
               })}

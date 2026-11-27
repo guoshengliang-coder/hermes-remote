@@ -154,10 +154,16 @@ fun SessionsScreen(
     }
     pendingCreation?.let { local ->
         var record by remember(local.id) { mutableStateOf<com.hermes.client.data.repository.UnsentRecord?>(null) }
-        LaunchedEffect(local.id) { record = vm.pendingCreation(local) }
+        LaunchedEffect(local.id) { record = vm.awaitPendingCreation(local) }
         val pending = record
         var retrying by remember(local.id) { mutableStateOf(false) }
-        if (pending != null) {
+        if (pending == null) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { pendingCreation = null },
+                title = { Text(localized(language, "新会话", "New chat")) },
+                confirmButton = { TextButton(onClick = { pendingCreation = null }) { Text(localized(language, "关闭", "Close")) } },
+            )
+        } else {
             val localizedError = AppError(
                 if (pending.deliveryUnconfirmed) AppErrorCode.MESSAGE_OUTCOME_UNKNOWN else AppErrorCode.MESSAGE_SEND_FAILED,
                 retryable = !pending.deliveryUnconfirmed,
@@ -617,8 +623,15 @@ internal fun SessionRow(
     var confirmingArchive by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
     val language = LocalAppLanguage.current
-    val trailing: (@Composable () -> Unit)? = when (sessionRowTrailing(runtime, unread)) {
-        SessionRowTrailing.RUNTIME -> ({ RuntimeIndicator(runtime!!) })
+    val rowRuntime = runtime?.takeUnless { item ->
+        item.phase == SessionRunPhase.SUBMITTING &&
+            item.chat.messages.lastOrNull { it.role == com.hermes.client.domain.Role.USER }?.delivery ==
+            com.hermes.client.domain.DeliveryState.SENT
+    }
+    val trailing: (@Composable () -> Unit)? = if (session.localSendInProgress && rowRuntime?.phase?.isActive != true) {
+        { com.hermes.client.ui.components.RunSpinner(size = 18.dp) }
+    } else when (sessionRowTrailing(rowRuntime, unread)) {
+        SessionRowTrailing.RUNTIME -> ({ RuntimeIndicator(rowRuntime!!) })
         SessionRowTrailing.UNREAD -> ({ UnreadIndicator() })
         SessionRowTrailing.NONE -> null
     }
@@ -695,11 +708,12 @@ internal fun SessionRow(
             // The bot line answers a different question — when, and how much — so it takes the
             // prose face and a neutral colour rather than borrowing a runtime phase's hue, which
             // would claim a run state that no one here is in.
-            val unsentLine = !isBot && sessionStatusIsUnsent(runtime, hasUnsent)
+            val unsentLine = !isBot && sessionStatusIsUnsent(rowRuntime, hasUnsent)
             val statusText = when {
+                session.localSendInProgress && rowRuntime?.phase?.isActive != true -> localized(language, "正在发送…", "Sending…")
                 session.pendingCreationUnconfirmed -> localized(language, "待确认发送状态", "Send status pending")
                 isBot -> botStatusLine(session, nowMs, language)
-                else -> sessionStatusLine(runtime, language, hasUnsent)
+                else -> sessionStatusLine(rowRuntime, language, hasUnsent)
             }
             statusText?.let { label ->
                 androidx.compose.foundation.layout.Spacer(Modifier.size(com.hermes.client.ui.tuning.tunedStatusGap())) // TUNING-TEMP
@@ -707,14 +721,15 @@ internal fun SessionRow(
                     label,
                     // Only the running line is monospaced in the mock; the verdicts
                     // (已完成 / 运行失败 / 已中断 / 未发送) stay on the prose face.
-                    style = com.hermes.client.ui.tuning.tunedStatus(!isBot && !unsentLine && runtime?.phase?.isActive == true), // TUNING-TEMP
+                    style = com.hermes.client.ui.tuning.tunedStatus(!isBot && !unsentLine && rowRuntime?.phase?.isActive == true), // TUNING-TEMP
                     // 未发送 borrows the same red as 运行失败 rather than inventing a tone: both are
                     // "this did not work", and a second red would have to justify itself in
                     // design-conformance.json (docs/DESIGN.md §7).
                     color = when {
+                        session.localSendInProgress -> statusColor(StatusTone.RUNNING)
                         isBot || session.pendingCreationUnconfirmed -> MaterialTheme.colorScheme.outline
                         unsentLine -> statusColor(StatusTone.BAD)
-                        else -> runtimeColor(runtime!!.phase)
+                        else -> runtimeColor(rowRuntime!!.phase)
                     },
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,

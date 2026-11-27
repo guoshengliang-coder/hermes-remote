@@ -31,6 +31,7 @@ data class FirstTurnCreation(
     val messageId: String,
     val bind: suspend (String) -> Unit,
     val failBeforeCreate: suspend () -> Unit,
+    val finishCreationFailure: () -> Unit = {},
 )
 
 @Composable

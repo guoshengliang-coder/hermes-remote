@@ -985,19 +985,33 @@ class ChatViewModel @Inject constructor(
         route: com.hermes.client.data.auth.AccountRoutingContext,
     ): FirstTurnCreation {
         if (accountSessions?.transportRoutingContext() != route) throw CancellationException("Conversation route changed")
-        val attachments = stageUnsentAttachments(turn.files)
-        if (attachments.size != turn.files.size) throw com.hermes.client.data.error.MessageJournalWriteFailed()
-        if (accountSessions?.transportRoutingContext() != route) throw CancellationException("Conversation route changed")
-        val token = SessionReadStore.token(profile, localId, route.deviceId)
-        val previous = unsentStore.readAll(token).firstOrNull {
-            it.conversation?.accountId == route.accountId && it.conversation.localCreation
-        }
-        if (previous?.deliveryUnconfirmed == true) throw com.hermes.client.data.error.FirstTurnCreationUnconfirmed()
-        val id = previous?.messageId ?: "u-${java.util.UUID.randomUUID()}"
+        var id = "u-${java.util.UUID.randomUUID()}"
         val conversation = com.hermes.client.data.repository.PendingSendConversation(
             route.accountId, route.deviceId, profile, localId, turn.cwd, localCreation = true,
             model = turn.model, provider = turn.provider, reasoning = turn.reasoning,
         )
+        val started = System.currentTimeMillis()
+        runtimeStore.publishSendListFeedback(com.hermes.client.data.progress.SendListFeedback(
+            id, conversation, turn.text.lineSequence().firstOrNull().orEmpty().ifBlank { turn.files.firstOrNull()?.name.orEmpty() }.take(80), started,
+        ))
+        val token = SessionReadStore.token(profile, localId, route.deviceId)
+        val attachments = try {
+            val saved = stageUnsentAttachments(turn.files)
+            if (saved.size != turn.files.size) throw com.hermes.client.data.error.MessageJournalWriteFailed()
+            if (accountSessions?.transportRoutingContext() != route) throw CancellationException("Conversation route changed")
+            val previous = unsentStore.readAll(token).firstOrNull {
+                it.conversation?.accountId == route.accountId && it.conversation.localCreation
+            }
+            if (previous?.deliveryUnconfirmed == true) throw com.hermes.client.data.error.FirstTurnCreationUnconfirmed()
+            if (previous != null && previous.messageId != id) {
+                runtimeStore.rekeySendListFeedback(id, previous.messageId)
+                id = previous.messageId
+            }
+            saved
+        } catch (error: Exception) {
+            runtimeStore.updateSendListFeedback(id) { null }
+            throw error
+        }
         val awaiting = com.hermes.client.data.repository.UnsentRecord(
             token = token, messageId = id, text = turn.text,
             code = com.hermes.client.data.error.AppErrorCode.MESSAGE_OUTCOME_UNKNOWN.value,
@@ -1006,9 +1020,9 @@ class ChatViewModel @Inject constructor(
         )
         try {
             unsentStore.saveForDelivery(awaiting)
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            runtimeStore.updateSendListFeedback(id) { null }
+            if (error is CancellationException) throw error
             throw com.hermes.client.data.error.MessageJournalWriteFailed()
         }
         val unsent = awaiting.copy(
@@ -1020,9 +1034,11 @@ class ChatViewModel @Inject constructor(
                 token = SessionReadStore.token(profile, storedId, route.deviceId),
                 conversation = conversation.copy(sessionId = storedId, localCreation = false),
             ))
+            runtimeStore.updateSendListFeedback(id) { it.copy(owner = conversation.copy(sessionId = storedId, localCreation = false)) }
         }, failBeforeCreate = {
             unsentStore.saveForDelivery(unsent)
-        })
+            runtimeStore.updateSendListFeedback(id) { null }
+        }, finishCreationFailure = { runtimeStore.updateSendListFeedback(id) { null } })
     }
 
     private fun startCreatedTurn(turn: FirstTurn, id: String, profile: String, device: String?): Boolean {
@@ -1815,6 +1831,7 @@ class ChatViewModel @Inject constructor(
             com.hermes.client.data.network.SendTransportOwner(route) { accountSessions?.transportRoutingContext() },
             ) { chat.createSession(profile, turn?.cwd).id } else chat.createSession(profile, turn?.cwd).id
         } catch (error: Exception) {
+            creation?.finishCreationFailure?.invoke()
             if (error is com.hermes.client.data.network.GatewayRequestNotSentException ||
                 error is com.hermes.client.data.network.GatewayReadinessTimeoutException
             ) {
@@ -1824,8 +1841,13 @@ class ChatViewModel @Inject constructor(
             }
             throw error
         }
-        if (accountSessions?.transportRoutingContext() != route || currentDeviceId != device) throw CancellationException("Conversation route changed")
-        creation?.bind?.invoke(id)
+        try {
+            if (accountSessions?.transportRoutingContext() != route || currentDeviceId != device) throw CancellationException("Conversation route changed")
+            creation?.bind?.invoke(id)
+        } catch (error: Exception) {
+            creation?.finishCreationFailure?.invoke()
+            throw error
+        }
         turn?.copy(recoveryMessageId = creation?.messageId)?.let {
             if (it.startInCreatedSession?.invoke(it, id, profile, device) != true) {
                 pendingShareStore.putTurn(route?.accountId, device, profile, id, it)
@@ -2396,6 +2418,15 @@ class ChatViewModel @Inject constructor(
             else if (recoveryMessageId == null) rememberUnsent(messageId, FailedSend(text, atts, failure))
             return
         }
+        if (route != null && recoveryMessageId == null) {
+            runtimeStore.publishSendListFeedback(com.hermes.client.data.progress.SendListFeedback(
+                messageId, com.hermes.client.data.repository.PendingSendConversation(
+                    route.accountId, route.deviceId, currentProfile, storedSessionId, _workspace.value?.cwd,
+                ), text.lineSequence().firstOrNull().orEmpty().ifBlank { atts.firstOrNull()?.name.orEmpty() }.take(80),
+                System.currentTimeMillis(),
+                baselineCount = sessions.cachedSession(storedSessionId, currentProfile, route.deviceId)?.messageCount,
+            ))
+        }
         val pending = PendingSend()
         pendingSends[messageId] = pending
         val expectedStoredId = storedSessionId
@@ -2585,6 +2616,7 @@ class ChatViewModel @Inject constructor(
                 )
                 atts.forEach { it.stagedFile?.delete() }
                 // The gateway acknowledged the turn: the bubble goes from "sending" to solid.
+                runtimeStore.updateSendListFeedback(messageId) { it.copy(accepted = true) }
                 updateDelivery(messageId, com.hermes.client.domain.DeliveryState.SENT)
                 if (onDelivered != null) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { onDelivered() } }
                 // Clear only this turn's record; an earlier unsent message remains outstanding.
@@ -2730,6 +2762,7 @@ class ChatViewModel @Inject constructor(
                 runtimeKey?.let(runtimeStore::finishLocal) ?: mutateState { it.copy(isGenerating = false) }
             } finally {
                 pendingSends.remove(messageId)
+                runtimeStore.updateSendListFeedback(messageId) { it.takeIf { feedback -> feedback.accepted } }
                 // The bubble has reached its final state (sent, failed or undeliverable), so it is
                 // safe to hand the screen the new id and let it re-navigate.
                 pendingRecreatedId?.let { recreated ->

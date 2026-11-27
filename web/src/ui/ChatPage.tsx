@@ -1,3 +1,4 @@
+import { changeSendFeedback, publishSendFeedback } from "../chat/sendListFeedback";
 import { finishSend, listSends, restoreSendAttachments, stageSend, updateSend, type SendPhase } from "../chat/sendJournal";
 import { closeChatPage, detachChatPage, trackChatPage, waitForDetachedSend } from "../chat/detachedSends";
 import { RoleSheet } from "./RoleSheet";
@@ -528,11 +529,22 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
     return {
       prepare,
       beforeCreate: () => requireTransition(id, ["active"], "creating"),
-      created: (storedId: string) => requireTransition(id, ["creating"], "active", storedId),
+      created: async (storedId: string) => {
+        await requireTransition(id, ["creating"], "active", storedId);
+        changeSendFeedback(id, { sessionId: storedId });
+      },
       beforeSubmit: () => requireTransition(id, ["active"], "submitting"),
       settled: async (outcome: "sent" | "failed" | "unknown") => {
-        if (outcome === "sent") await finishSend(id);
-        else await updateSend(id, ["active", "creating", "submitting"], { phase: outcome });
+        if (outcome === "sent") {
+          changeSendFeedback(id, { accepted: true });
+          await finishSend(id);
+        } else {
+          try {
+            await updateSend(id, ["active", "creating", "submitting"], { phase: outcome });
+          } finally {
+            changeSendFeedback(id, null);
+          }
+        }
       },
     };
   }
@@ -572,12 +584,18 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
       id: key, account: app.account.id, device: device.deviceId, profile, sessionId: session.storedSessionId,
       cwd: newChatProject.current?.path ?? null, text, createdAt: stamp,
     };
+    const original = ownedRow(record.sessionId);
+    publishSendFeedback({ ...record, newRow: record.sessionId === null,
+      baselineCount: original?.message_count,
+      text: text.trim().split("\n")[0]?.slice(0, 80) || attachments[0]?.name || t("新会话", "New chat"),
+    });
     return new Promise<boolean>(resolve => {
       const progress = sendProgress(key, async () => {
         try {
           await stageSend(record, attachments);
           await requireTransition(key, ["prepared"], "active");
         } catch {
+          changeSendFeedback(key, null);
           if (sessionRef.current === session) app.flash(appError("HR-SESS-030"));
           resolve(false);
           return false;

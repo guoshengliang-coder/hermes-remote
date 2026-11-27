@@ -233,6 +233,45 @@ class SessionRuntimeStore(
         block: suspend CoroutineScope.() -> Unit,
     ): kotlinx.coroutines.Job = appScope.launch(context, block = block)
 
+    internal val sendListFeedback = MutableStateFlow<Map<String, SendListFeedback>>(emptyMap())
+
+    internal fun publishSendListFeedback(entry: SendListFeedback) {
+        sendListFeedback.update { entries ->
+            val next = entries + (entry.id to entry)
+            val expired = next.values.filter { it.accepted }.sortedByDescending { it.startedAt }.drop(64)
+            next - expired.map { it.id }.toSet()
+        }
+    }
+
+    internal fun updateSendListFeedback(id: String, change: (SendListFeedback) -> SendListFeedback?) {
+        sendListFeedback.update { entries ->
+            val entry = entries[id] ?: return@update entries
+            val next = change(entry)
+            if (next == null) entries - id else entries + (id to next)
+        }
+    }
+
+    internal fun rekeySendListFeedback(provisionalId: String, recoveredId: String) {
+        sendListFeedback.update { entries ->
+            val entry = entries[provisionalId] ?: return@update entries
+            (entries - provisionalId) + (recoveredId to entry.copy(id = recoveredId))
+        }
+    }
+
+    internal fun reconcileSendListFeedback(
+        route: com.hermes.client.data.auth.AccountRoutingContext,
+        rows: List<com.hermes.client.domain.Session>,
+    ) {
+        sendListFeedback.update { entries ->
+            entries.map { (id, entry) ->
+                if (entry.owner.accountId != route.accountId || entry.owner.deviceId != route.deviceId ||
+                    rows.none(entry::caughtUp)
+                ) id to entry
+                else id to entry.copy(synchronized = true, previewTitle = "")
+            }.toMap()
+        }
+    }
+
     private val activeSendJobs = java.util.concurrent.ConcurrentHashMap<SessionRuntimeKey, kotlinx.coroutines.Job>()
 
     internal fun activeSend(key: SessionRuntimeKey): kotlinx.coroutines.Job? = activeSendJobs[key]
@@ -263,6 +302,7 @@ class SessionRuntimeStore(
     fun bindPendingAttachmentOwner(owner: String) {
         if (pendingAttachmentOwner == owner) return
         if (pendingAttachmentOwner != null) {
+            sendListFeedback.value = emptyMap()
             _runtimes.value.values.flatMap { it.chat.pendingAttachments }.forEach { it.stagedFile?.delete() }
             _runtimes.update { map -> map.mapValues { (_, runtime) -> runtime.copy(chat = runtime.chat.copy(pendingAttachments = emptyList())) } }
         }

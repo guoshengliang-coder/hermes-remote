@@ -103,7 +103,7 @@ private data class SessionListSection(
 )
 
 /** Bundle-saveable, unambiguous UI identity; no group/state/title/timestamp or disk-key migration. */
-internal fun sessionListItemKey(session: Session): String = listOf(
+internal fun sessionListItemKey(session: Session): String = session.localListKey ?: listOf(
     session.deviceId.orEmpty(),
     session.profile?.ifBlank { "default" } ?: "default",
     session.id,
