@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { WebSocketServer } from "ws";
 import { sessionMutationResponse } from "./session-mutations.js";
 
-async function fixture(options: { authority?: unknown; deletion?: object; consoleStatus?: string; initialStatus?: string; output?: string | null; exists?: boolean; dropProbeBeforeConsoleReady?: boolean } = {}) {
+async function fixture(options: { authority?: unknown; deletion?: object; httpDeleteReason?: string; consoleStatus?: string; initialStatus?: string; output?: string | null; exists?: boolean; dropProbeBeforeConsoleReady?: boolean } = {}) {
   const server = new WebSocketServer({ port: 0, host: "127.0.0.1" });
   await new Promise<void>((resolve) => server.once("listening", resolve));
   const port = (server.address() as { port: number }).port;
@@ -31,6 +31,9 @@ async function fixture(options: { authority?: unknown; deletion?: object; consol
       consoleWebsocketUrl: async () => `ws://127.0.0.1:${port}/api/console`,
       request: async (path: string, init: RequestInit) => {
         calls.push({ path, value: { method: init.method } });
+        if (init.method === "DELETE" && options.httpDeleteReason) {
+          return Response.json({ detail: options.httpDeleteReason }, { status: 409 });
+        }
         return Response.json(path.includes("mutation-snapshot") ? { session_id: "s1", exists: options.exists ?? true, runtime_revision: 3, runtime_generation: 2 } : { ok: true });
       } },
     close: async () => { for (const socket of server.clients) socket.terminate(); await new Promise<void>((resolve) => server.close(() => resolve())); } };
@@ -65,7 +68,12 @@ test("authority preserves the original REST path and sends no legacy mutation", 
 for (const code of [4023, 4007, 5036, -32601]) test(`delete RPC ${code} never falls back or retries`, async () => {
   const f = await fixture({ deletion: { error: { code } } }); try {
     const response = await sessionMutationResponse("DELETE", "/api/sessions/s1", undefined, f.auth, signal());
-    assert.equal(response?.status, code >= 4000 && code < 5000 ? 409 : 502); assert.equal(f.calls.length, 1);
+    assert.equal(response?.status, code >= 4000 && code < 5000 ? 409 : 502);
+    const { error } = await response!.json();
+    assert.equal(error.code, code === 4023 ? "HR-SESS-031" : code === 4007 ? "HR-SESS-028" : "HR-SESS-027");
+    assert.equal(error.retryable, false);
+    if (code === 4023) assert.match(error.message, /仍在使用.*still in use/);
+    assert.equal(f.calls.length, 1);
   } finally { await f.close(); }
 });
 test("refused console completion does not report rename success", async () => {
@@ -184,5 +192,31 @@ for (const path of ["https://other.invalid/api/sessions/s1", "//other.invalid/ap
   const f = await fixture(); try {
     assert.equal(await sessionMutationResponse("DELETE", path, undefined, f.auth, signal()), undefined);
     assert.equal(f.calls.length, 0);
+  } finally { await f.close(); }
+});
+
+
+for (const reason of ["session_busy", "revision_conflict"]) test(`authority delete keeps distinct ${reason} outcomes`, async () => {
+  const f = await fixture({ authority: true, httpDeleteReason: reason });
+  try {
+    const response = await sessionMutationResponse("DELETE", "/api/sessions/s1?profile=work&request_id=f&expected_revision=3",
+      undefined, f.auth, signal());
+    assert.equal(response?.status, 409);
+    const body = await response!.json();
+    if (reason === "session_busy") assert.equal(body.error.code, "HR-SESS-031");
+    else assert.deepEqual(body, { detail: reason });
+    assert.deepEqual(f.calls.map(({ value }) => value.method), ["GET", "DELETE"]);
+  } finally { await f.close(); }
+});
+
+
+test("authority delete classifies busy with the caller's exact generation and no snapshot", async () => {
+  const f = await fixture({ authority: true, httpDeleteReason: "session_busy" });
+  try {
+    const path = "/api/sessions/s1?profile=work&request_id=fence&expected_revision=3&expected_generation=9";
+    const response = await sessionMutationResponse("DELETE", path, undefined, f.auth, signal());
+    assert.equal(response?.status, 409);
+    assert.equal((await response!.json()).error.code, "HR-SESS-031");
+    assert.deepEqual(f.calls, [{ path, value: { method: "DELETE" } }]);
   } finally { await f.close(); }
 });

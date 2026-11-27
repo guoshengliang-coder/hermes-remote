@@ -955,7 +955,7 @@ class SessionsViewModel @Inject constructor(
 
     suspend fun performDelete(session: Session, archived: Boolean): AppError? =
         performRowMutation(session, reloadArchived = archived) {
-            sessions.delete(session.id, session.profile, session.deviceId)
+            sessions.delete(session.id, session.profile, session.deviceId, session.runtimeRevision)
         }
 
     private suspend fun performRowMutation(

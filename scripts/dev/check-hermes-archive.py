@@ -234,12 +234,21 @@ def main():
                         "session_id": target, "profile": "default"}}, "session.delete", transport)
                     check("official delete:" + source, reply.get("result", {}).get("deleted") == target
                         and db.get_session(target) is None, reply)
-                server._sessions["delete-live-guard"] = {"session_key": sid}
+                active_delete_target = "delete-after-runtime-release"
+                db.create_session(active_delete_target, source="hermes_remote")
+                db.append_message(active_delete_target, role="user", content="synthetic delete")
+                delete_params = {"session_id": active_delete_target, "profile": "default"}
+                server._sessions["delete-live-guard"] = {"session_key": active_delete_target}
                 try:
-                    reply = server.handle_request({"id": 4, "method": "session.delete", "params": {"session_id": sid, "profile": "default"}})
-                    check("delete refuses a live session", reply.get("error", {}).get("code") == 4023 and db.get_session(sid) is not None, reply)
+                    reply = server.handle_request({"id": 4, "method": "session.delete", "params": delete_params})
+                    check("delete refuses a live session", reply.get("error", {}).get("code") == 4023
+                        and db.get_session(active_delete_target) is not None, reply)
                 finally:
                     server._sessions.pop("delete-live-guard", None)
+                reply = server.handle_request({"id": 6, "method": "session.delete", "params": delete_params})
+                check("explicit delete succeeds after the runtime releases the same session",
+                    reply.get("result", {}).get("deleted") == active_delete_target
+                    and db.get_session(active_delete_target) is None, reply)
                 reply = server.handle_request({"id": 5, "method": "session.delete", "params": {"session_id": sid, "profile": "secondary"}})
                 with SessionDB(db_path=secondary / "state.db") as other:
                     check("delete same-id profile isolation", reply.get("result", {}).get("deleted") == sid

@@ -38,6 +38,28 @@ class HermesRestApiTest {
         api(serverRule.server).patchSession("s", archived = true, requestId = "r2", expectedRevision = 0)
     }
 
+    @Test fun delete_keeps_fences_in_query_and_only_surfaces_known_structured_reasons() = runTest {
+        val api = api(serverRule.server)
+        for (profile in listOf(null, "default", "研发 角色")) {
+            serverRule.server.enqueue(MockResponse.Builder().code(409).body(
+                """{"error":{"code":"HR-SESS-031","message":"secret remote detail","retryable":false}}""",
+            ).build())
+            val failure = runCatching {
+                api.deleteSession("s1", profile, requestId = "x+y", expectedRevision = 7)
+            }.exceptionOrNull() as HermesApiException
+            val request = serverRule.server.takeRequest()
+            assertEquals("DELETE", request.method)
+            assertEquals("/api/sessions/s1", request.url.encodedPath)
+            assertEquals("x+y", request.url.queryParameter("request_id"))
+            assertEquals("7", request.url.queryParameter("expected_revision"))
+            assertEquals(profile, request.url.queryParameter("profile"))
+            assertEquals("HR-SESS-031", failure.errorCode)
+            val error = com.hermes.client.data.repository.sessionMutationFailure(failure)
+            assertFalse(error.retryable)
+            assertFalse(error.sanitizedDiagnostic().contains("secret remote detail"))
+        }
+    }
+
     private fun api(server: MockWebServer) = HermesRestApi(testHttpClient(), json) {
         testAccountConnection(baseUrl = server.url("/").toString().trimEnd('/'), token = "secret")
     }

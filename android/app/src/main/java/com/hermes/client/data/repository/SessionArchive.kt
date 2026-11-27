@@ -56,6 +56,9 @@ internal suspend fun archiveWithBackend(
 
 fun sessionMutationFailure(cause: Throwable): AppError {
     if (cause is SessionArchiveFailure) return cause.error
+    if (cause is HermesApiException && cause.code == 409 && cause.errorCode == AppErrorCode.SESSION_DELETE_IN_USE.value) {
+        return AppError(AppErrorCode.SESSION_DELETE_IN_USE, false, stage = "session_mutation")
+    }
     val refused = cause is HermesApiException && cause.code in 400..499 && cause.code != 408
     return AppError(if (refused) AppErrorCode.SESSION_MUTATION_REFUSED else AppErrorCode.SESSION_MUTATION_UNCONFIRMED,
         false, cause.message, "session_mutation")

@@ -2399,6 +2399,45 @@ class ChatViewModelTest {
         assertEquals(com.hermes.client.domain.DeliveryState.SENT, result.delivery)
     }
 
+    @Test fun first_turn_reuses_the_restored_row_and_submits_once() = runUnsentComposerTest {
+        val manager = mockk<com.hermes.client.data.auth.AccountSessionManager>(relaxed = true)
+        val route = com.hermes.client.data.auth.AccountRoutingContext("account", "mac")
+        val account = mockk<com.hermes.client.data.auth.AccountSession>(relaxed = true)
+        every { account.accountId } returns "account"
+        every { account.selectedDeviceId } returns "mac"
+        every { manager.session } returns MutableStateFlow(account)
+        every { manager.transportRoutingContext() } returns route
+        coEvery { chatRepo.resume("confirmed", "work") } returns "live"
+        val runtime = newRuntimeStore()
+        val vm = buildVm(accountSessions = manager, runtimeStore = runtime)
+        val owner = androidx.lifecycle.ViewModelStore()
+        owner.put("draft", vm)
+        vm.openLocalDraft("draft-first", "work", "/workspace")
+        runCurrent()
+        val turn = vm.firstTurn("first message")
+        val creation = turn.prepareCreation!!.invoke(turn)
+        val localToken = com.hermes.client.data.repository.SessionReadStore.token("work", "draft-first", "mac")
+        assertTrue(unsent.read(localToken)!!.deliveryUnconfirmed)
+        owner.clear()
+
+        creation.bind("confirmed")
+        val reader = buildVm(accountSessions = manager, runtimeStore = runtime)
+        reader.open("confirmed", requestedProfile = "work", requestedDeviceId = "mac", isNewSession = true)
+        runCurrent()
+        assertEquals(com.hermes.client.domain.DeliveryState.FAILED,
+            reader.state.value.messages.single { it.id == creation.messageId }.delivery)
+
+        val confirmed = turn.copy(recoveryMessageId = creation.messageId)
+        assertTrue(confirmed.startInCreatedSession!!.invoke(confirmed, "confirmed", "work", "mac"))
+        runCurrent()
+
+        assertNull(unsent.read(localToken))
+        coVerify(exactly = 1) { chatRepo.submit("live", "first message") }
+        val result = runtime.runtimes.value.values.single { it.key.sessionId == "confirmed" }.chat.messages.single()
+        assertEquals(creation.messageId, result.id)
+        assertEquals(com.hermes.client.domain.DeliveryState.SENT, result.delivery)
+    }
+
     @Test fun clearing_an_account_chat_does_not_cancel_an_in_flight_submit() = runUnsentComposerTest {
         val manager = mockk<com.hermes.client.data.auth.AccountSessionManager>(relaxed = true)
         val route = com.hermes.client.data.auth.AccountRoutingContext("account", "mac")
