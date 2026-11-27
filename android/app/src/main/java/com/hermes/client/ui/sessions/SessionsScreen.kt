@@ -148,65 +148,72 @@ fun SessionsScreen(
     // The Chats list always creates in the gateway's launch directory — the default project.
     // Creating INTO a project is the Projects page's job (docs/DESIGN.md §5.3).
     val creator = rememberSessionCreator(vm, activeProfile, onOpen)
-    var pendingCreation by remember(vm.roleFilterScope()) { mutableStateOf<Session?>(null) }
+    val recoveryScope = vm.roleFilterScope()
+    var pendingCreation by remember(recoveryScope) { mutableStateOf<Session?>(null) }
     val openExisting = { session: Session ->
         if (session.pendingLocalCreation) pendingCreation = session else onOpen(ChatLaunch.existing(session))
     }
     pendingCreation?.let { local ->
+        var recoveryOpen by remember(recoveryScope, local.id) { mutableStateOf(true) }
+        androidx.compose.runtime.DisposableEffect(recoveryScope, local.id) {
+            recoveryOpen = true
+            onDispose { recoveryOpen = false }
+        }
         var record by remember(local.id) { mutableStateOf<com.hermes.client.data.repository.UnsentRecord?>(null) }
         LaunchedEffect(local.id) { record = vm.awaitPendingCreation(local) }
         val pending = record
         var retrying by remember(local.id) { mutableStateOf(false) }
+        val creating = sessionsWithPendingSends.any {
+            it.id == local.id && it.profile == local.profile && it.deviceId == local.deviceId && it.localSendInProgress
+        }
         if (pending == null) {
             androidx.compose.material3.AlertDialog(
-                onDismissRequest = { pendingCreation = null },
+                onDismissRequest = { recoveryOpen = false; pendingCreation = null },
                 title = { Text(localized(language, "新会话", "New chat")) },
-                confirmButton = { TextButton(onClick = { pendingCreation = null }) { Text(localized(language, "关闭", "Close")) } },
+                text = { if (creating) Text(localized(language, "正在新建会话…", "Creating conversation…")) },
+                confirmButton = { TextButton(onClick = { recoveryOpen = false; pendingCreation = null }) { Text(localized(language, "关闭", "Close")) } },
             )
         } else {
             val localizedError = AppError(
-                if (pending.deliveryUnconfirmed) AppErrorCode.MESSAGE_OUTCOME_UNKNOWN else AppErrorCode.MESSAGE_SEND_FAILED,
-                retryable = !pending.deliveryUnconfirmed,
+                if (pending.deliveryUnconfirmed) AppErrorCode.SESSION_CREATE_UNCONFIRMED else AppErrorCode.MESSAGE_SEND_FAILED,
+                retryable = true,
             )
             androidx.compose.material3.AlertDialog(
-                onDismissRequest = { pendingCreation = null },
+                onDismissRequest = { recoveryOpen = false; pendingCreation = null },
                 title = { Text(localized(language, "新会话", "New chat")) },
                 text = { androidx.compose.foundation.layout.Column {
-                    Text(localizedError.localizedMessage(language))
+                    Text(if (creating) localized(language, "正在新建会话…", "Creating conversation…")
+                        else localizedError.localizedMessage(language))
                     if (pending.text.isNotBlank()) {
                         androidx.compose.foundation.text.selection.SelectionContainer { Text(pending.text) }
                     }
                     pending.attachmentMeta.forEach { attachment -> Text(attachment.name) }
                 } },
                 confirmButton = {
-                    TextButton(enabled = !retrying, onClick = {
-                        if (pending.deliveryUnconfirmed) {
-                            vm.refresh()
-                            pendingCreation = null
-                        } else {
-                            retrying = true
-                            vm.launchSessionCreation {
-                                try {
-                                    val created = vm.retryPendingCreation(local)
-                                    if (pendingCreation?.id == local.id) {
-                                        pendingCreation = null
-                                        onOpen(ChatLaunch.new(created.id, local.profile, created.deviceId))
-                                    }
-                                } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                                    throw cancelled
-                                } catch (error: Exception) {
+                    TextButton(enabled = !retrying && !creating, onClick = {
+                        retrying = true
+                        vm.launchSessionCreation {
+                            try {
+                                val created = vm.retryPendingCreation(local)
+                                if (recoveryOpen && vm.roleFilterScope() == recoveryScope && pendingCreation?.id == local.id) {
+                                    pendingCreation = null
+                                    onOpen(ChatLaunch.new(created.id, local.profile, created.deviceId))
+                                }
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                if (recoveryOpen && vm.roleFilterScope() == recoveryScope) {
                                     val failure = com.hermes.client.data.error.newChatFailure(error, vm.consecutiveDroppedConnections)
                                     android.widget.Toast.makeText(context, failure.localizedMessage(language), android.widget.Toast.LENGTH_LONG).show()
                                     record = vm.pendingCreation(local)
-                                } finally { retrying = false }
-                            }
+                                }
+                            } finally { retrying = false }
                         }
                     }) {
-                        Text(if (pending.deliveryUnconfirmed) localized(language, "重新核对", "Check status")
-                            else localized(language, "重试发送", "Retry send"))
+                        Text(localized(language, "重试发送", "Retry send"))
                     }
                 },
-                dismissButton = { TextButton(onClick = { pendingCreation = null }) {
+                dismissButton = { TextButton(onClick = { recoveryOpen = false; pendingCreation = null }) {
                     Text(localized(language, "关闭", "Close"))
                 } },
             )
@@ -711,7 +718,7 @@ internal fun SessionRow(
             val unsentLine = !isBot && sessionStatusIsUnsent(rowRuntime, hasUnsent)
             val statusText = when {
                 session.localSendInProgress && rowRuntime?.phase?.isActive != true -> localized(language, "正在发送…", "Sending…")
-                session.pendingCreationUnconfirmed -> localized(language, "待确认发送状态", "Send status pending")
+                session.pendingCreationUnconfirmed -> localized(language, "新建会话未确认", "Conversation creation unconfirmed")
                 isBot -> botStatusLine(session, nowMs, language)
                 else -> sessionStatusLine(rowRuntime, language, hasUnsent)
             }

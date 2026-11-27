@@ -16,6 +16,14 @@ import org.junit.Test
  * and nothing about why, when nothing was wrong with the request at all.
  */
 class NewChatFailuresTest {
+    @Test fun first_turn_creation_without_a_reply_can_be_retried_manually() {
+        val error = newChatFailure(FirstTurnCreationUnconfirmed(), 0)
+        assertEquals(AppErrorCode.SESSION_CREATE_UNCONFIRMED, error.code)
+        assertTrue(error.retryable)
+        assertTrue(error.localizedMessage(AppLanguage.ZH).contains("稍后重试"))
+        assertTrue(error.localizedMessage(AppLanguage.EN).contains("try again"))
+    }
+
     @Test fun a_sent_create_without_a_reply_explains_the_recovery() {
         val error = newChatFailure(GatewayResponseTimeoutException("gateway response timeout"), 0)
         assertEquals(AppErrorCode.SESSION_CREATE_UNCONFIRMED, error.code)

@@ -11,7 +11,11 @@ class FakeSocket extends EventEmitter {
   bufferedAmount = 0;
   sent: unknown[] = [];
   closed?: { code?: number; reason?: string };
-  send(data: unknown): void { this.sent.push(data); }
+  sendError?: Error;
+  send(data: unknown, _options?: unknown, callback?: (error?: Error) => void): void {
+    this.sent.push(data);
+    callback?.(this.sendError);
+  }
   close(code?: number, reason?: string): void {
     this.closed = { code, reason };
     this.readyState = WebSocket.CLOSED;
@@ -84,6 +88,27 @@ test("foreground RPC receipt logs only method and id, never slash command conten
   assert.equal(lines.find((line) => line.kind === "app.tunnel.close")?.unansweredForegroundRpcs, 2);
   assert.deepEqual(lines.filter((line) => line.kind === "app.rpc.unanswered").map((line) => [line.rpcId, line.method]),
     [[10, "session.create"], [11, "prompt.submit"]]);
+});
+
+test("creation replies record socket write results without the reply body or error", () => {
+  const { lines, connector, broker } = harness();
+  const app = new FakeSocket();
+  broker.open(app as unknown as WebSocket, connector);
+  const id = lines.find((line) => line.kind === "app.tunnel.open")?.tunnel as string;
+  for (const rpcId of [10, 11]) {
+    app.sendError = rpcId === 11 ? new Error("private socket error") : undefined;
+    app.emit("message", Buffer.from(JSON.stringify({ id: rpcId, method: "session.create" })), false);
+    broker.handleConnectorMessage(connector, {
+      type: "tunnel.ws.frame", version: 1, id,
+      dataBase64: Buffer.from(JSON.stringify({ id: rpcId, result: { private: "body" } })).toString("base64"),
+      binary: false,
+    });
+  }
+  const started = lines.filter((line) => line.kind === "app.rpc.send_started");
+  assert.deepEqual(started.map((line) => line.rpcId), [10, 11]);
+  const completed = lines.filter((line) => line.kind === "app.rpc.send_completed");
+  assert.deepEqual(completed.map((line) => [line.rpcId, line.ok]), [[10, true], [11, false]]);
+  assert.equal(JSON.stringify(lines).includes("private"), false);
 });
 
 test("app tunnel correlates a valid client connection id without logging arbitrary header text", () => {

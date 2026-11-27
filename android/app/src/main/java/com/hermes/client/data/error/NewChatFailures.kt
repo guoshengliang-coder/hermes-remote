@@ -28,10 +28,12 @@ private const val UNSTABLE_CONNECTION_THRESHOLD = 3
 class SessionOwnerUnconfirmed : IllegalStateException("Session owner unconfirmed")
 class MessageJournalWriteFailed : IllegalStateException("Message recovery storage failed")
 class FirstTurnCreationUnconfirmed : IllegalStateException("Conversation creation unconfirmed")
+class FirstTurnAttachmentsMissing : IllegalStateException("Draft attachments unavailable")
 
 fun newChatFailure(error: Throwable, droppedConnections: Int): AppError = when {
     error is MessageJournalWriteFailed -> AppError(AppErrorCode.MESSAGE_JOURNAL_FAILED, true)
-    error is FirstTurnCreationUnconfirmed -> AppError(AppErrorCode.MESSAGE_OUTCOME_UNKNOWN, false)
+    error is FirstTurnCreationUnconfirmed -> AppError(AppErrorCode.SESSION_CREATE_UNCONFIRMED, true)
+    error is FirstTurnAttachmentsMissing -> AppError(AppErrorCode.UNSENT_ATTACHMENTS_LOST, false)
     error is SessionOwnerUnconfirmed -> AppError(AppErrorCode.SESSION_PROFILE_UNCONFIRMED, false, stage = "session.owner")
     error is GatewayResponseTimeoutException -> AppError(
         code = AppErrorCode.SESSION_CREATE_UNCONFIRMED,
