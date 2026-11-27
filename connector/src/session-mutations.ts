@@ -16,6 +16,10 @@ const failure = (refused: boolean) => new Response(JSON.stringify({ error: {
   message: refused ? "会话操作被拒绝，请刷新状态。 / Session operation refused. Refresh state."
     : "操作结果尚未确认，请刷新状态。 / Operation outcome unconfirmed. Refresh state.",
 } }), { status: refused ? 409 : 502, headers: { "content-type": "application/json", "cache-control": "no-store" } });
+const deleteInUse = () => Response.json({ error: {
+  code: "HR-SESS-031", retryable: false,
+  message: "此会话仍在使用，暂时无法删除。 / This session is still in use and cannot be deleted yet.",
+} }, { status: 409, headers: { "cache-control": "no-store" } });
 const quote = (value: string) => `'${value.replaceAll("'", `'"'"'`)}'`;
 
 /** One authenticated local connection. Never log tickets, commands, titles, or response bodies. */
@@ -105,20 +109,27 @@ export async function sessionMutationResponse(method: string, path: string, body
       if (ready.session_authority === true) {
         // New upstream also requires execution generation on delete. Fill only a missing
         // counter from an authenticated same-target snapshot; never replace a stale fence.
-        if (method !== "DELETE" || url.searchParams.has("expected_generation") ||
-            !url.searchParams.get("request_id") || !url.searchParams.has("expected_revision")) return undefined;
-        const snapshotResponse = await auth.request(`/api/sessions/${id}/mutation-snapshot?profile=${encodeURIComponent(profile)}`, { method: "GET", signal: connectionSignal });
-        if (!snapshotResponse.ok) throw new MutationError();
-        const snapshot = JSON.parse(await boundedResponseBody(snapshotResponse, 16 * 1024)) as Record<string, unknown>;
-        const generation = snapshot.runtime_generation;
-        if (snapshot.session_id === id && snapshot.exists === false) return undefined;
-        if (snapshot.session_id !== id || snapshot.exists !== true || !Number.isSafeInteger(generation) || Number(generation) < 0 ||
-            snapshot.runtime_revision !== Number(url.searchParams.get("expected_revision"))) throw new MutationError(true);
-        url.searchParams.set("expected_generation", String(generation));
+        if (method !== "DELETE" || !url.searchParams.get("request_id") ||
+            !url.searchParams.has("expected_revision")) return undefined;
+        if (!url.searchParams.has("expected_generation")) {
+          const snapshotResponse = await auth.request(`/api/sessions/${id}/mutation-snapshot?profile=${encodeURIComponent(profile)}`, { method: "GET", signal: connectionSignal });
+          if (!snapshotResponse.ok) throw new MutationError();
+          const snapshot = JSON.parse(await boundedResponseBody(snapshotResponse, 16 * 1024)) as Record<string, unknown>;
+          const generation = snapshot.runtime_generation;
+          if (snapshot.session_id === id && snapshot.exists === false) return undefined;
+          if (snapshot.session_id !== id || snapshot.exists !== true || !Number.isSafeInteger(generation) || Number(generation) < 0 ||
+              snapshot.runtime_revision !== Number(url.searchParams.get("expected_revision"))) throw new MutationError(true);
+          url.searchParams.set("expected_generation", String(generation));
+        }
         const result = await auth.request(url.pathname + url.search, { method: "DELETE", signal: connectionSignal });
         // This connection owns the cancellation scope. Drain before disposing it so the
         // caller does not inherit a Response whose body was just aborted by our cleanup.
         const payload = await boundedResponseBody(result, 1024 * 1024);
+        if (result.status === 409) {
+          try {
+            if (JSON.parse(payload.toString())?.detail === "session_busy") return deleteInUse();
+          } catch { /* preserve an unrecognized upstream response */ }
+        }
         return new Response(result.status === 204 ? null : payload, { status: result.status,
           headers: { "content-type": result.headers.get("content-type") || "application/json", "cache-control": "no-store" } });
       }
@@ -161,6 +172,7 @@ export async function sessionMutationResponse(method: string, path: string, body
         const frame = await receive();
         if (frame.id !== 1) continue;
         const error = frame.error as { code?: number } | undefined;
+        if (error?.code === 4023 && frame.result === undefined) return deleteInUse();
         if (error) throw new MutationError(typeof error.code === "number" && error.code >= 4000 && error.code < 5000);
         if ((frame.result as { deleted?: unknown })?.deleted !== id) throw new MutationError();
         return Response.json({ ok: true, deleted: id });

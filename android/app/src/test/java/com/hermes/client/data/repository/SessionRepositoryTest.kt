@@ -314,9 +314,9 @@ class SessionRepositoryTest {
             rest.deleteSession("session-2", "personal", "mac-history", any(), any())
         } returns Unit
 
-        accountRepo.delete("session-2", "personal", "mac-history")
+        accountRepo.delete("session-2", "personal", "mac-history", rowRevision = 8)
 
-        coVerify { rest.deleteSession("session-2", "personal", "mac-history", any(), any()) }
+        coVerify { rest.deleteSession("session-2", "personal", "mac-history", any(), 8) }
         verify { affinity.remove("account-1", "personal", "session-2") }
     }
 

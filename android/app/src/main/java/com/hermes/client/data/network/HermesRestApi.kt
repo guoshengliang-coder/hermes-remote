@@ -879,10 +879,19 @@ class HermesRestApi(
         requestId: String,
         expectedRevision: Int,
     ) = withContext(Dispatchers.IO) {
-        val path = "/api/sessions/$sessionId${profileParam(profile, first = true)}" +
-            "&request_id=${java.net.URLEncoder.encode(requestId, "UTF-8")}&expected_revision=$expectedRevision"
+        val path = "/api/sessions/$sessionId?request_id=${encode(requestId)}&expected_revision=$expectedRevision" +
+            profileParam(profile)
         restCall(builder(path, deviceId).delete().build()).execute().use { resp ->
-            if (!resp.isSuccessful) throw sessionMutationException(resp, "delete session failed")
+            if (!resp.isSuccessful) {
+                val remoteCode = runCatching {
+                    json.decodeFromString<AccountErrorEnvelopeDto>(resp.peekBody(16L * 1024).string()).error.code
+                }.getOrNull()
+                val code = remoteCode?.takeIf { it in setOf("HR-SESS-027", "HR-SESS-028", "HR-SESS-031") }
+                com.hermes.client.data.diagnostics.DebugLog.log("rest") {
+                    "session delete status=${resp.code} code=${code ?: "unknown"}"
+                }
+                throw HermesApiException(resp.code, code ?: "HTTP ${resp.code}", errorCode = code)
+            }
         }
     }
 

@@ -2103,15 +2103,20 @@ class ChatViewModel @Inject constructor(
                 if (failedSends.containsKey(record.messageId)) return@forEach
                 if (record.deliveryUnconfirmed) {
                     val restore: (ChatUiState) -> ChatUiState = { state ->
-                        val shown = if (state.messages.any { it.id == record.messageId }) state
-                            else state.withUserMessage(record.text, messageId = record.messageId)
-                        shown.withDelivery(record.messageId, com.hermes.client.domain.DeliveryState.UNCONFIRMED)
+                        state.withRestoredUserMessage(
+                            record.text, record.messageId, com.hermes.client.domain.DeliveryState.UNCONFIRMED,
+                        )
                     }
                     key?.let { runtimeStore.updateChat(it, restore) } ?: mutateState(restore)
                     return@forEach
                 }
                 val restored = withContext(defaultDispatcher) { restoreUnsentAttachments(record) }
                 if (storedSessionId != sessionId || unsentToken != token) return@launch
+                val currentMessages = key?.let { runtimeStore.runtimes.value[it]?.chat?.messages }
+                    ?: _state.value.messages
+                if (currentMessages.any {
+                    it.id == record.messageId && it.delivery != com.hermes.client.domain.DeliveryState.FAILED
+                }) return@forEach
                 val lost = record.attachments > 0 && restored == null
                 val code = if (lost) {
                     com.hermes.client.data.error.AppErrorCode.UNSENT_ATTACHMENTS_LOST
@@ -2155,13 +2160,8 @@ class ChatViewModel @Inject constructor(
                         if (composer.withdrawn) return@forEach
                     }
                 }
-                val present = (key?.let { runtimeStore.runtimes.value[it]?.chat?.messages } ?: _state.value.messages)
-                    .any { it.id == record.messageId }
-                if (present) return@forEach
                 val restore: (ChatUiState) -> ChatUiState = { state ->
-                    state.withUserMessage(record.text, messageId = record.messageId)
-                        .withDelivery(record.messageId, com.hermes.client.domain.DeliveryState.FAILED)
-                        .copy(isGenerating = false)
+                    state.withRestoredUserMessage(record.text, record.messageId, com.hermes.client.domain.DeliveryState.FAILED)
                 }
                 key?.let { runtimeStore.updateChat(it, restore) } ?: mutateState(restore)
             }

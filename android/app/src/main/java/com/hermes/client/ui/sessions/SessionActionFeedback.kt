@@ -117,6 +117,7 @@ internal fun SessionActionDialog(
     content: @Composable () -> Unit,
 ) {
     val color = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    val canConfirm = enabled && !feedback.pending && feedback.error?.let(::isArchiveFailure) != true
     val dismiss = {
         if (!feedback.pending) {
             feedback.clearError()
@@ -137,11 +138,11 @@ internal fun SessionActionDialog(
         },
         confirmButton = {
             TextButton(
-                enabled = enabled && !feedback.pending && feedback.error?.let(::isArchiveFailure) != true,
+                enabled = canConfirm,
                 onClick = onConfirm,
             ) {
                 if (feedback.pending) SessionActionProgress(pendingLabel, color)
-                else if (destructive) Text(action, color = color)
+                else if (destructive && canConfirm) Text(action, color = color)
                 else Text(action)
             }
         },

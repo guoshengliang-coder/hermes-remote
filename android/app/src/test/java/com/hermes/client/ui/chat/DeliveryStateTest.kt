@@ -33,6 +33,22 @@ class DeliveryStateTest {
         assertEquals(DeliveryState.FAILED, failed.messages.first { it.id == "u-2" }.delivery)
     }
 
+    @Test fun first_send_reuses_the_recovered_bubble_and_late_restore_keeps_live_delivery() {
+        val recovered = ChatUiState().withRestoredUserMessage("same text", "u-first", DeliveryState.FAILED)
+            .withRestoredUserMessage("same text", "u-other", DeliveryState.FAILED)
+        val image = com.hermes.client.domain.ChatImage(id = "photo", mimeType = "image/png")
+        val sending = recovered.withUserMessage("same text", images = listOf(image), messageId = "u-first")
+        assertEquals(listOf("u-first", "u-other"), sending.messages.conversationRenderKeys())
+        assertEquals(recovered.messages.first().timestamp, sending.messages.first().timestamp)
+        assertEquals(listOf(image), sending.messages.first().images)
+
+        for (status in listOf(DeliveryState.SENDING, DeliveryState.SENT, DeliveryState.UNCONFIRMED)) {
+            val live = sending.withDelivery("u-first", status)
+            assertEquals(live, live.withRestoredUserMessage("old text", "u-first", DeliveryState.FAILED))
+            assertEquals(live, live.withRestoredUserMessage("old text", "u-first", DeliveryState.UNCONFIRMED))
+        }
+    }
+
     @Test fun withoutMessage_drops_the_failed_turn_for_retry() {
         val state = ChatUiState().withUserMessage("one", messageId = "u-1").withUserMessage("two", messageId = "u-2")
         assertEquals(listOf("u-1"), state.withoutMessage("u-2").messages.map { it.id })

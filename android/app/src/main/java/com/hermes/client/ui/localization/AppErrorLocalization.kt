@@ -251,6 +251,8 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "归档状态尚未确认，请刷新列表核对后再操作。", "The archive state is unconfirmed. Refresh the list before another action.")
         AppErrorCode.SESSION_MUTATION_UNCONFIRMED ->
             localized(language, "操作结果尚未确认，请刷新列表核对后再操作。", "The operation outcome is unconfirmed. Refresh the list before another action.")
+        AppErrorCode.SESSION_DELETE_IN_USE ->
+            localized(language, "此会话仍在使用，暂时无法删除。", "This session is still in use and cannot be deleted yet.")
         AppErrorCode.SESSION_MUTATION_REFUSED ->
             localized(language, "当前无法更改会话，请查看详情并刷新列表。", "The session cannot be changed now. View details and refresh the list.")
         AppErrorCode.SESSION_PROFILE_UNCONFIRMED ->

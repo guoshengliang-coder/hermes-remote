@@ -132,3 +132,10 @@ its Git worktree remains clean. git diff --check passed. Android/Web source did 
 follow-up, so their prior 3,032 / 1,093 successful baselines were not repeated. No device, browser
 production end-to-end, live Basic Auth Console integration or external-client race verification was
 performed. No push, PR, integration registration, merge, version bump, restart or publication.
+
+## HG-271 active delete feedback
+
+Connector reports HR-SESS-031 for standalone delete RPC 4023 or a confirmed authority
+`session_busy` refusal on the fenced DELETE. Android presents read-only refresh and preserves the row.
+The user can confirm again after the runtime releases the conversation. Authority revision and
+generation fences, generic refusal and uncertain outcomes retain their existing behavior.

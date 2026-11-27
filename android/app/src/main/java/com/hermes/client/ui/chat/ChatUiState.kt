@@ -1029,20 +1029,38 @@ fun ChatUiState.withUserMessage(
     images: List<com.hermes.client.domain.ChatImage> = emptyList(),
     files: List<com.hermes.client.domain.ChatFile> = emptyList(),
     messageId: String = "u-${messages.size}",
-): ChatUiState =
-    copy(
-        messages = messages + ChatMessage(
-            id = messageId,
-            role = Role.USER,
-            text = text,
-            // Optimistic insert: the bubble is "sending" until prompt.submit is acknowledged.
-            delivery = com.hermes.client.domain.DeliveryState.SENDING,
-            timestamp = System.currentTimeMillis(),
-            images = images,
-            files = files,
-        ),
-        isGenerating = true,
+): ChatUiState {
+    val message = ChatMessage(
+        id = messageId,
+        role = Role.USER,
+        text = text,
+        // Optimistic insert: the bubble is "sending" until prompt.submit is acknowledged.
+        delivery = com.hermes.client.domain.DeliveryState.SENDING,
+        timestamp = System.currentTimeMillis(),
+        images = images,
+        files = files,
     )
+    val position = messages.indexOfFirst { it.role == Role.USER && it.id == messageId }
+    val updated = if (position < 0) messages + message else buildList {
+        messages.forEachIndexed { index, current ->
+            if (index == position) add(message.copy(timestamp = current.timestamp))
+            else if (current.role != Role.USER || current.id != messageId) add(current)
+        }
+    }
+    return copy(messages = updated, isGenerating = true)
+}
+
+/** A disk record may arrive after the live runtime has already published this turn. */
+internal fun ChatUiState.withRestoredUserMessage(
+    text: String,
+    messageId: String,
+    delivery: com.hermes.client.domain.DeliveryState,
+): ChatUiState {
+    if (messages.any { it.id == messageId }) return this
+    return withUserMessage(text, messageId = messageId)
+        .withDelivery(messageId, delivery)
+        .copy(isGenerating = isGenerating)
+}
 
 /** Sets the delivery state of one user turn; other messages are untouched. */
 fun ChatUiState.withDelivery(messageId: String, delivery: com.hermes.client.domain.DeliveryState): ChatUiState =

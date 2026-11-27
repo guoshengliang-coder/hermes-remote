@@ -644,8 +644,8 @@ class SessionRepository(
             requireRoute()
         } finally { archiveInFlight.remove(key) }
     }
-    suspend fun delete(sessionId: String, profile: String?, deviceId: String? = null) {
-        mutateFenced(sessionId, profile, deviceId) { requestId, revision ->
+    suspend fun delete(sessionId: String, profile: String?, deviceId: String? = null, rowRevision: Int? = null) {
+        mutateFenced(sessionId, profile, deviceId, rowRevision) { requestId, revision ->
             rest.deleteSession(sessionId, profile, deviceId, requestId = requestId, expectedRevision = revision)
         }
         val account = accountSessions?.session?.value ?: return
@@ -656,6 +656,7 @@ class SessionRepository(
         sessionId: String,
         profile: String?,
         deviceId: String?,
+        rowRevision: Int? = null,
         write: suspend (requestId: String, expectedRevision: Int) -> Unit,
     ) {
         val context = accountSessions?.routingContext()
@@ -668,7 +669,7 @@ class SessionRepository(
         }
         try {
             current()
-            val initial = cachedSession(sessionId, profile, deviceId)?.runtimeRevision ?: 0
+            val initial = rowRevision ?: cachedSession(sessionId, profile, deviceId)?.runtimeRevision ?: 0
             write(java.util.UUID.randomUUID().toString(), initial)
             current()
         } finally { archiveInFlight.remove(key) }
