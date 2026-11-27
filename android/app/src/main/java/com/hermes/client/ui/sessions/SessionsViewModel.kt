@@ -7,6 +7,7 @@ import com.hermes.client.data.network.bool
 import com.hermes.client.data.progress.SessionRuntime
 import com.hermes.client.data.progress.SessionRuntimeKey
 import com.hermes.client.data.progress.SessionRuntimeStore
+import com.hermes.client.data.progress.mergeSendListFeedback
 import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.PinStore
 import com.hermes.client.data.repository.ProfileManager
@@ -27,6 +28,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -191,7 +193,8 @@ class SessionsViewModel @Inject constructor(
         state,
         unsentStore.pendingConversations.catch { emit(emptyList()) },
         accountSessions?.session ?: flowOf(null),
-    ) { current, pending, account ->
+        runtimeStore.sendListFeedback,
+    ) { current, pending, account, feedback ->
         val rows = pending.mapNotNull { record ->
             val conversation = record.conversation ?: return@mapNotNull null
             if (account == null || conversation.accountId != account.accountId ||
@@ -212,7 +215,10 @@ class SessionsViewModel @Inject constructor(
                 pendingCreationUnconfirmed = conversation.localCreation && record.deliveryUnconfirmed,
             )
         }.distinctBy { Triple(it.id, it.profile, it.deviceId) }
-        rows + current.sessions
+        val scoped = feedback.values.filter { it.owner.accountId == account?.accountId && it.owner.deviceId == account?.selectedDeviceId }
+        mergeSendListFeedback(current.sessions, scoped).let { projected ->
+            rows.filterNot { pendingRow -> projected.any { it.id == pendingRow.id && it.profile == pendingRow.profile && it.deviceId == pendingRow.deviceId } } + projected
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), state.value.sessions)
 
     suspend fun pendingCreation(session: Session): com.hermes.client.data.repository.UnsentRecord? {
@@ -223,6 +229,14 @@ class SessionsViewModel @Inject constructor(
             it.conversation?.accountId == route.accountId && it.conversation.localCreation
         }?.takeIf { accountSessions.routingContext() == route }
     }
+
+    suspend fun awaitPendingCreation(session: Session): com.hermes.client.data.repository.UnsentRecord? =
+        pendingCreation(session) ?: kotlinx.coroutines.withTimeoutOrNull(10_000L) {
+            unsentStore.pendingConversations.first { records ->
+                records.any { it.conversation?.sessionId == session.id && it.conversation.localCreation }
+            }
+            pendingCreation(session)
+        }
 
     suspend fun retryPendingCreation(session: Session): CreateResult {
         val record = pendingCreation(session)?.takeUnless { it.deliveryUnconfirmed }
@@ -636,6 +650,7 @@ class SessionsViewModel @Inject constructor(
                 error = null,
                 unauthorized = false,
             )
+            accountSessions?.routingContext()?.let { runtimeStore.reconcileSendListFeedback(it, list) }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: HermesApiException) {
@@ -799,6 +814,7 @@ class SessionsViewModel @Inject constructor(
                 com.hermes.client.data.network.SendTransportOwner(transport) { accountSessions?.transportRoutingContext() },
             ) { chat.createSession(profile, cwd) } else chat.createSession(profile, cwd)
         } catch (error: Exception) {
+            creation?.finishCreationFailure?.invoke()
             if (error is com.hermes.client.data.network.GatewayRequestNotSentException ||
                 error is com.hermes.client.data.network.GatewayReadinessTimeoutException
             ) {
@@ -808,8 +824,13 @@ class SessionsViewModel @Inject constructor(
             }
             throw error
         }
-        if (accountSessions?.routingContext() != route) throw kotlinx.coroutines.CancellationException("Conversation route changed")
-        creation?.bind?.invoke(created.id)
+        try {
+            if (accountSessions?.routingContext() != route) throw kotlinx.coroutines.CancellationException("Conversation route changed")
+            creation?.bind?.invoke(created.id)
+        } catch (error: Exception) {
+            creation?.finishCreationFailure?.invoke()
+            throw error
+        }
         firstTurn?.copy(recoveryMessageId = creation?.messageId)?.let {
             if (it.startInCreatedSession?.invoke(it, created.id, profile, device) != true) {
                 pendingShares.putTurn(route?.accountId, device, profile, created.id, it)

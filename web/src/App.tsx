@@ -1,3 +1,4 @@
+import { discardSendFeedback } from "./chat/sendListFeedback";
 import { clearSendJournal } from "./chat/sendJournal";
 import { discardChatSends } from "./chat/detachedSends";
 import { clearVoiceRecordings } from "./chat/voiceRecordings";
@@ -293,6 +294,7 @@ export function App() {
       void clearModelPreferences(false).catch(()=>undefined);
       void clearVoiceRecordings().catch(() => undefined);
       discardChatSends();
+      discardSendFeedback();
       void clearSendJournal().catch(() => {});
       clearConversationMemory();
       if (signingOut.current) return;
@@ -323,6 +325,7 @@ export function App() {
       clearAllDrafts();
       void clearVoiceRecordings().catch(() => undefined);
       discardChatSends();
+      discardSendFeedback();
       void clearSendJournal().catch(() => {});
       clearConversationMemory();
       clearPageSnapshots();
@@ -491,6 +494,7 @@ export function App() {
   const signOut = useCallback(async () => {
     signingOut.current = true;
     discardChatSends();
+    discardSendFeedback();
     profileSync.current?.stop();
     profileSync.current = null;
     await clearAccountProfileSync().catch(() => undefined);
@@ -512,6 +516,7 @@ export function App() {
       clearAllDrafts();
       void clearVoiceRecordings().catch(() => undefined);
       discardChatSends();
+      discardSendFeedback();
       void clearSendJournal().catch(() => {});
       clearConversationMemory();
       clearPageSnapshots();
@@ -561,6 +566,7 @@ export function App() {
       setPickerError(null);
       if (device && !items.some((item) => item.deviceId === device.deviceId)) {
         discardChatSends();
+        discardSendFeedback();
         setDevice(null);
         writeStoredDevice(null);
         setPickingDevice(false);
@@ -574,6 +580,7 @@ export function App() {
     setPickingDevice(false);
     if (device?.deviceId === chosen.deviceId) return;
     discardChatSends(account?.id, chosen.deviceId);
+    discardSendFeedback(account?.id, chosen.deviceId);
     setPushRoute(null);
     writeStoredDevice(chosen.deviceId);
     setDevice(chosen);
