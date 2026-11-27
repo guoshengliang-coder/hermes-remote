@@ -4,6 +4,7 @@ import androidx.compose.runtime.*
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -28,13 +29,14 @@ class NewChatFullScreenTest {
         val vm = fixture.localDraftUiFixture()
         var role by mutableStateOf("default")
         var sent: FirstTurn? = null
+        var creating by mutableStateOf(false)
         try {
             compose.setContent { InChinese { HermesTheme(darkTheme = dark) {
                 val density = LocalDensity.current
                 CompositionLocalProvider(LocalDensity provides Density(density.density, scale),
                     com.hermes.client.ui.components.LocalRoleLabels provides mapOf("default" to "助手", "work" to "工作角色")) {
                     ChatScreen("draft-ui", sessionProfile = role, isNewSession = true, vm = vm,
-                        localDraft = true, greetingHourOfDay = 10, onDraftSend = { sent = it }, draftRoleSwitch = {
+                        localDraft = true, greetingHourOfDay = 10, draftBusy = creating, onDraftSend = { sent = it }, draftRoleSwitch = {
                             TextButton(onClick = { role = "work" }) { Text("切换角色") }
                         })
                 }
@@ -51,6 +53,10 @@ class NewChatFullScreenTest {
             assertEquals("角色切换不能丢失草稿", sent?.text)
             assertEquals("work", role)
             compose.onRoot().captureRoboImage("screenshots/hg260-new-chat-${if (dark) "dark" else "light"}-$scale.png")
+            compose.runOnIdle { creating = true }
+            compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.ProgressBarRangeInfo), useUnmergedTree = true)
+                .assertDoesNotExist()
+            compose.onNode(hasContentDescription("发送") and isEnabled()).assertDoesNotExist()
         } finally { fixture.tearDown() }
     }
     @Test fun light_keeps_the_full_composer_and_role_draft() = verify(false, 1f)
