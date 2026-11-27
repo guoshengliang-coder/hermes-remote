@@ -1,3 +1,10 @@
+## Connector 0.1.22 — HG-271 (release preparation)
+
+Recognizes an explicit upstream refusal to delete a session that is still in use. Android can
+offer a read-only refresh and ask the user to confirm again after release. Exact session fences,
+the existing response envelope, and legacy-client handling are preserved. Signed component
+channel 0.4.19 retains Node 22.23.2 and publishes the Connector without a Desktop app update.
+
 ## Connector 0.1.21 — HG-257 (allocated, not published)
 
 Adapts current-runtime rename/delete via official installed Hermes interfaces, with exact-target
