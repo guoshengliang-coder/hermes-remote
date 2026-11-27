@@ -1,5 +1,12 @@
 # Desktop release channel
 
+## HG-271 component 0.4.19 release preparation
+
+Component channel 0.4.19 packages Connector 0.1.22 with the pinned Node runtime 22.23.2. The
+feature merged through PR #783. Publish only the signed component pair through the established
+components-only transaction. Keep 0.4.18 as the rollback pointer and verify the public manifest,
+both archives and the Connector build identity. Physical phone-to-Mac acceptance remains pending.
+
 ## HG-269 approved internal release: 0.2.54 / build 57
 
 The owner approved the established arm64 internal app channel, installation on the Mac mini,
