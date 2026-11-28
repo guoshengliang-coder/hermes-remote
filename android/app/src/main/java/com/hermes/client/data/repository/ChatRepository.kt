@@ -134,6 +134,8 @@ class ChatRepository(private val client: HermesGatewayClient) {
      */
     private val clientSource = "hermes_remote"
 
+    internal val connectionGeneration: Int get() = client.connectionGeneration
+
     val events: SharedFlow<ServerEvent> get() = client.events
     val connectionState: StateFlow<ConnectionState> get() = client.connectionState
 

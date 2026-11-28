@@ -43,7 +43,7 @@ internal fun NewProfileChat(
 ) {
     val hidden = LocalHiddenProfiles.current
     val names = profiles.map { if (it.isDefault) "default" else it.name }.distinct().filterNot(hidden::contains)
-    var selection by rememberSaveable { mutableStateOf("default") }
+    var selection by rememberSaveable { mutableStateOf(com.hermes.client.data.repository.DEFAULT_NEW_CHAT_PROFILE) }
     val owner = selection.takeIf(names::contains)
     var picking by remember { mutableStateOf(shareDestination) }
     var submitted by remember { mutableStateOf(false) }

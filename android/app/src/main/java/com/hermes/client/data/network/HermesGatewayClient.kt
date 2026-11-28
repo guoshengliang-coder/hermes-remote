@@ -206,6 +206,7 @@ open class HermesGatewayClient(
     private val generation = AtomicInteger(0)
     private val recentCreateCalls = LinkedHashMap<Long, Pair<Int, String>>()
     /** Only the first unanswered RPC on a socket may replace that socket. */
+    internal val connectionGeneration: Int get() = generation.get()
     private val recoveredTimeoutGeneration = AtomicInteger(-1)
 
     init {

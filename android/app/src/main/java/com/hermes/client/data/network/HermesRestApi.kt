@@ -200,8 +200,9 @@ class HermesRestApi(
         path: String,
         deviceIdOverride: String? = null,
         timeoutSeconds: Long = REST_TIMEOUT_SECONDS,
+        owner: SendTransportOwner? = null,
     ): String = withContext(Dispatchers.IO) {
-        val call = restCall(builder(path, deviceIdOverride).get().build())
+        val call = restCall(builder(path, deviceIdOverride, owner).get().build())
         // The shared client deliberately has no read timeout because WebSockets are long-lived.
         // A per-call deadline is essential for REST, otherwise a stalled Relay/Connector request
         // leaves a Compose loading screen spinning forever.
@@ -1073,6 +1074,10 @@ class HermesRestApi(
 
     suspend fun getConfig(profile: String? = null): JsonObject =
         get("/api/config${profileParam(profile, first = true)}")
+
+    internal suspend fun getDraftConfig(profile: String, owner: SendTransportOwner): JsonObject =
+        json.decodeFromString(getRaw("/api/config${profileParam(profile, first = true)}",
+            deviceIdOverride = owner.route.deviceId, owner = owner))
 
     suspend fun putConfig(config: JsonObject, profile: String? = null) = withContext(Dispatchers.IO) {
         // PUT /api/config expects the config wrapped as {"config": {...}} (422 otherwise).

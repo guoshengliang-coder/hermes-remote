@@ -191,6 +191,7 @@ interface UnsentSnapshot {
     suspend fun restoreCreation(record: UnsentRecord) = saveForDelivery(record)
     suspend fun clear(token: String)
     suspend fun clearMessage(token: String, messageId: String)
+    suspend fun clearAcknowledged(token: String, messageId: String) = clearMessage(token, messageId)
     /** Explicit user removal: return only after durable commit; propagate storage failure. */
     suspend fun removeUnknownNotice(token: String, messageId: String)
 }
@@ -322,6 +323,14 @@ class UnsentStore internal constructor(
             dataStore.edit { prefs ->
                 prefs[key] = encodeUnsent(decodeUnsent(prefs[key]).filterNot { it.token == token && it.messageId == messageId })
             }
+        }
+    }
+
+    override suspend fun clearAcknowledged(token: String, messageId: String) {
+        dataStore.edit { prefs ->
+            prefs[key] = encodeUnsent(decodeUnsent(prefs[key]).filterNot {
+                it.token == token && it.messageId == messageId
+            })
         }
     }
 

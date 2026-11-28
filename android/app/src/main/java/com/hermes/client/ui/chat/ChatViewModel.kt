@@ -108,6 +108,7 @@ class ChatViewModel @Inject constructor(
     private val tableCredentials: com.hermes.client.data.auth.CredentialStore? = null,
     private val gatewayForVoice: com.hermes.client.data.network.HermesGatewayClient? = null,
     private val artifactDownloads: com.hermes.client.data.downloads.ArtifactDownloadManager? = null,
+    private val draftDefaults: com.hermes.client.data.repository.DraftDefaultModelStore? = null,
 ) : ViewModel() {
 
     fun chartNamespace(): List<String> {
@@ -877,6 +878,8 @@ class ChatViewModel @Inject constructor(
     // Local new-chat state uses the real chat UI, without a resume/history request for a fake id.
     private var localDraft = false
     private var draftLoadJob: Job? = null
+    private var modelScopeRevision = 0L
+    private var modelHandleBinding: Pair<String, Int>? = null
     private var draftModelJob: Job? = null
     private var draftModelRevision = 0L
     private var localDraftOwner: List<String?>? = null
@@ -890,6 +893,9 @@ class ChatViewModel @Inject constructor(
         if (localDraft && storedSessionId == id && currentProfile == profile && localDraftOwner == owner) return
         draftModelJob?.cancel()
         draftModelRevision++
+        modelScopeRevision++
+        _modelSheet.value = ModelSheetUi()
+        modelHandleBinding = null
         localDraft = true
         localDraftOwner = owner
         storedSessionId = id
@@ -935,7 +941,7 @@ class ChatViewModel @Inject constructor(
         _draftModelRead.value = DraftModelReadState(loading = true)
         draftModelJob = viewModelScope.launch {
             val result = runCatching {
-                withTimeoutOrNull(10_000) {
+                draftDefaults?.read(profile, force) ?: withTimeoutOrNull(10_000) {
                     val value = configRepo.get(profile)["model"] as? kotlinx.serialization.json.JsonPrimitive
                     value?.takeIf { it.isString }?.content?.trim()?.takeIf { it.isNotEmpty() }
                 } ?: error("Default model unavailable")
@@ -1108,6 +1114,9 @@ class ChatViewModel @Inject constructor(
             existingKey?.let { runtimeStore.requestReuseReconcile(it) }
             return
         }
+        modelScopeRevision++
+        _modelSheet.value = ModelSheetUi()
+        modelHandleBinding = null
         deliveryCheckJobs.values.forEach { it.cancel() }
         deliveryCheckJobs.clear()
         _deliveryRecovery.value = emptyMap()
@@ -2102,6 +2111,7 @@ class ChatViewModel @Inject constructor(
                 if ((token to record.messageId) in removedUnknownNotices) return@forEach
                 if (failedSends.containsKey(record.messageId)) return@forEach
                 if (record.deliveryUnconfirmed) {
+                    if (runtimeStore.hasDeliveryReceipt(token, record.messageId)) return@forEach
                     val restore: (ChatUiState) -> ChatUiState = { state ->
                         state.withRestoredUserMessage(
                             record.text, record.messageId, com.hermes.client.domain.DeliveryState.UNCONFIRMED,
@@ -2468,6 +2478,7 @@ class ChatViewModel @Inject constructor(
         }
         val sendTurn: suspend kotlinx.coroutines.CoroutineScope.() -> Unit = sendTurn@{
             var submitStarted = false
+            var acknowledged = false
             var durablePreparation: com.hermes.client.data.repository.UnsentRecord? = null
             try {
                 requireSendOwner()
@@ -2614,16 +2625,34 @@ class ChatViewModel @Inject constructor(
                         requireSendOwner()
                     },
                     onSubmitRejected = { submitStarted = false; pending.submitted = false },
+                    onAcknowledged = {
+                        acknowledged = true
+                        runtimeStore.updateSendListFeedback(messageId) { it.copy(accepted = true) }
+                        val deliveredKey = runtimeKey?.takeIf { it.sessionId == pendingRecreatedId } ?: expectedKey
+                        deliveredKey?.let {
+                            runtimeStore.updateUserDelivery(it, messageId, com.hermes.client.domain.DeliveryState.SENT)
+                        } ?: updateDelivery(messageId, com.hermes.client.domain.DeliveryState.SENT)
+                        if (expectedToken != null) {
+                            runtimeStore.recordDeliveryReceipt(expectedToken, messageId)
+                            withContext(kotlinx.coroutines.NonCancellable) {
+                                try {
+                                    unsentWriteJob?.join()
+                                    unsentStore.clearAcknowledged(expectedToken, messageId)
+                                } catch (error: Exception) {
+                                    com.hermes.client.data.diagnostics.DebugLog.log(
+                                        "session", "acknowledged message journal cleanup failed: ${error.javaClass.simpleName}",
+                                    )
+                                }
+                            }
+                        }
+                    },
                     onRemoteAttachmentStarted = { sendContext.ensureActive(); pending.remoteAttachmentStarted = true },
                 )
                 atts.forEach { it.stagedFile?.delete() }
-                // The gateway acknowledged the turn: the bubble goes from "sending" to solid.
-                runtimeStore.updateSendListFeedback(messageId) { it.copy(accepted = true) }
-                updateDelivery(messageId, com.hermes.client.domain.DeliveryState.SENT)
                 if (onDelivered != null) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { onDelivered() } }
-                // Clear only this turn's record; an earlier unsent message remains outstanding.
-                forgetUnsent(messageId)
+                failedSends.remove(messageId)
             } catch (cancelled: CancellationException) {
+                if (acknowledged) throw cancelled
                 if (!submitStarted) {
                     // Cancellation runs after open() may already have rebound this ViewModel.
                     // Address the original runtime and disk token, never the new conversation.
@@ -2669,6 +2698,7 @@ class ChatViewModel @Inject constructor(
                 }
                 throw cancelled
             } catch (e: Exception) {
+                if (acknowledged) return@sendTurn
                 // A gateway error or the live-handle timeout must surface ON THE BUBBLE (未发送 +
                 // tap-to-retry, HR-SESS-007), never crash and never as a detached error row. The
                 // session goes back to idle — a send that never left the phone is not a failed run.
@@ -2808,6 +2838,7 @@ class ChatViewModel @Inject constructor(
         onSubmitStarted: suspend () -> Unit,
         onSubmitRejected: () -> Unit,
         onRemoteAttachmentStarted: () -> Unit,
+        onAcknowledged: suspend () -> Unit,
     ) {
         fun recordRefusal(error: GatewayRpcException) {
             if ((error.code != 0 && error.code != RELAY_RESPONSE_TOO_LARGE_CODE) ||
@@ -2896,6 +2927,7 @@ class ChatViewModel @Inject constructor(
                 }
                 submitAttempt { chat.submit(handle, submittedText) }
             }
+            onAcknowledged()
             // A refusal or lost acknowledgement must leave the journal's original files intact.
             retainAcknowledgedFiles.forEach { retain -> runCatching { retain() } }
         }
@@ -2992,11 +3024,13 @@ class ChatViewModel @Inject constructor(
         profile: String?,
         key: SessionRuntimeKey,
     ): String = resumeMutex.withLock {
-        check(this.storedSessionId == storedId) { "conversation changed during resume" }
+        check(runtimeKey == key && this.storedSessionId == storedId) { "conversation changed during resume" }
+        val generation = chat.connectionGeneration
         val handle = chat.resume(storedId, profile)
             ?.takeIf { it.isNotBlank() }
             ?: throw GatewayRpcException(STALE_SESSION_CODE, "session resume returned no live handle")
-        check(this.storedSessionId == storedId) { "conversation changed during resume" }
+        check(runtimeKey == key && this.storedSessionId == storedId) { "conversation changed during resume" }
+        modelHandleBinding = if (chat.connectionGeneration == generation) handle to generation else null
         sessionId = handle
         sessionReclaimed = false
         runtimeStore.bindLiveHandle(key, handle)
@@ -3333,9 +3367,45 @@ class ChatViewModel @Inject constructor(
         val key = com.hermes.client.data.repository.favKey(provider, model)
         val startedAt = System.nanoTime()
         _modelSheet.value = _modelSheet.value.copy(pendingKey = key, error = null, notice = null)
+        val target = runtimeKey
+        val account = accountSessions
+        val route = account?.transportRoutingContext()
+        val routeEpoch = account?.transportRouteEpoch?.value
+        val modelRevision = modelScopeRevision
+        fun stillCurrent() = modelScopeRevision == modelRevision && runtimeKey == target && !localDraft &&
+            account?.transportRoutingContext() == route && account?.transportRouteEpoch?.value == routeEpoch
         viewModelScope.launch {
-            runCatching { chat.switchSessionModel(sessionId, provider, model, confirmed) }
+            runCatching {
+                check(stillCurrent())
+                if (account == null) return@runCatching chat.switchSessionModel(sessionId, provider, model, confirmed)
+                check(target != null && route != null && target.deviceId == route.deviceId &&
+                    route.accountId == boundSendAccountId)
+                runtimeStore.activeSend(target)?.join()
+                val generation = chat.connectionGeneration
+                val owner = com.hermes.client.data.network.SendTransportOwner(route) {
+                    route.takeIf { stillCurrent() && chat.connectionGeneration == generation }
+                }
+                withContext(owner) {
+                    suspend fun resumeTarget(): String = withTimeoutOrNull(LIVE_HANDLE_TIMEOUT_MS) {
+                        recoverLiveHandle(target.sessionId, target.profile, target)
+                    } ?: error("model switch session recovery timed out")
+                    val handle = runtimeStore.runtimes.value[target]?.liveHandle
+                        ?.takeIf { modelHandleBinding == (it to generation) } ?: resumeTarget()
+                    try {
+                        chat.switchSessionModel(handle, provider, model, confirmed)
+                    } catch (error: GatewayRpcException) {
+                        if (error.code != STALE_SESSION_CODE || !stillCurrent()) throw error
+                        chat.switchSessionModel(resumeTarget(), provider, model, confirmed)
+                    }
+                }
+            }
                 .onSuccess { result ->
+                    if (!stillCurrent()) {
+                        if (modelScopeRevision == modelRevision && _modelSheet.value.pendingKey == key) {
+                            _modelSheet.value = ModelSheetUi()
+                        }
+                        return@onSuccess
+                    }
                     if (confirmed && result !is ModelSwitchResult.ConfirmationRequired) {
                         pendingFirstTurnSettings = pendingFirstTurnSettings?.copy(model = null, provider = null)
                     }
@@ -3373,6 +3443,12 @@ class ChatViewModel @Inject constructor(
                 }
                 .onFailure { e ->
                     if (e is kotlinx.coroutines.CancellationException) throw e
+                    if (!stillCurrent()) {
+                        if (modelScopeRevision == modelRevision && _modelSheet.value.pendingKey == key) {
+                            _modelSheet.value = ModelSheetUi()
+                        }
+                        return@onFailure
+                    }
                     com.hermes.client.data.diagnostics.DebugLog.log(
                         "model", "switch failed after ${(System.nanoTime() - startedAt) / 1_000_000}ms",
                     )

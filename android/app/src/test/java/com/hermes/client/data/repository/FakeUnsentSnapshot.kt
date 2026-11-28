@@ -17,6 +17,7 @@ class FakeUnsentSnapshot(
     private val records = MutableStateFlow(initial)
     var readAfterSnapshotGate: kotlinx.coroutines.Deferred<Unit>? = null
     var removeFailure: Exception? = null
+    var acknowledgeGate: kotlinx.coroutines.Deferred<Unit>? = null
     var removeGate: kotlinx.coroutines.Deferred<Unit>? = null
     var saves = 0
         private set
@@ -47,6 +48,11 @@ class FakeUnsentSnapshot(
 
     override suspend fun clearMessage(token: String, messageId: String) {
         records.value = records.value.filterNot { it.token == token && it.messageId == messageId }
+    }
+
+    override suspend fun clearAcknowledged(token: String, messageId: String) {
+        acknowledgeGate?.await()
+        clearMessage(token, messageId)
     }
 
     override suspend fun removeUnknownNotice(token: String, messageId: String) {
