@@ -528,6 +528,7 @@ remain in `docs/ANDROID_SMOKE.md`; Web scope is being clarified against the appr
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.210 预读新会话默认模型，修复首条消息投递误报和重连后切换模型失败
 - Version 0.1.209 修复首条消息恢复崩溃，并提示会话仍在使用时的删除拒绝
 - Version 0.1.208 修复新会话创建超时后草稿无法恢复，补充回包诊断
 - Version 0.1.207 修复发送后立即返回列表时新会话延迟出现或已有会话延迟更新
@@ -1319,7 +1320,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.209-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.210-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
